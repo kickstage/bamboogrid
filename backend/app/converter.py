@@ -27,7 +27,7 @@ class ConversionError(ValueError):
     """Raised when the network document cannot be turned into a valid net."""
 
 
-def validate(network: Network) -> None:
+def validate(network: Network, require_slack: bool = True) -> None:
     bus_ids = {b.id for b in network.buses}
 
     for gen in network.generators:
@@ -41,6 +41,9 @@ def validate(network: Network) -> None:
                 f"Load '{load.name}' references unknown bus '{load.bus_id}'."
             )
 
+    if not require_slack:
+        return
+
     # Each island (a single bus, since there are no lines yet) that carries a
     # load needs a generator/slack on it for the load flow to have a reference.
     buses_with_gen = {g.bus_id for g in network.generators}
@@ -52,10 +55,14 @@ def validate(network: Network) -> None:
             )
 
 
-def build_net(network: Network):
+def build_net(network: Network, require_slack: bool = True):
     """Build a pandapower net. Returns ``(net, id_maps)`` where ``id_maps`` maps
-    editor element ids to pandapower element indices, per element table."""
-    validate(network)
+    editor element ids to pandapower element indices, per element table.
+
+    ``require_slack`` enforces the load-flow voltage-reference rule; export uses
+    ``False`` so an in-progress (not-yet-solvable) diagram can still be saved.
+    """
+    validate(network, require_slack=require_slack)
 
     net = pp.create_empty_network(name=network.name)
 

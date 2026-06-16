@@ -48,3 +48,26 @@ export async function runLoadFlow(network: Network): Promise<LoadFlowResult> {
     }),
   );
 }
+
+// Serialize the current network to a single pandapower JSON (electrical net +
+// diagram_* layout tables). Returns the raw JSON text for download.
+export async function exportPandapower(network: Network): Promise<string> {
+  const res = await fetch(`${BASE}/export/pandapower`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(network),
+  });
+  if (!res.ok) throw new Error(`${res.status} ${res.statusText}: ${await res.text()}`);
+  return res.text();
+}
+
+// Reconstruct the editor network from an uploaded pandapower JSON file.
+export async function importPandapower(jsonText: string): Promise<Network> {
+  return json(
+    await fetch(`${BASE}/import/pandapower`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: jsonText,
+    }),
+  );
+}
