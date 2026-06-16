@@ -1,0 +1,13 @@
+# Python
+backend/.venv/
+backend/data/
+__pycache__/
+*.egg-info/
+.pytest_cache/
+
+# Node
+frontend/node_modules/
+frontend/dist/
+
+# Editor / OS
+.DS_Store
