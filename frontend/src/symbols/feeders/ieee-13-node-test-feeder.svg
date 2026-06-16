@@ -1,0 +1,93 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="760" viewBox="0 0 1200 760">
+  <defs>
+    <style>
+      .bus{fill:#111;stroke:#111;stroke-width:2}.line{stroke:#111;stroke-width:4;fill:none;stroke-linecap:round}.thin{stroke:#111;stroke-width:2;fill:none}.label{font-family:Arial,Helvetica,sans-serif;font-size:24px;fill:#111}.small{font-family:Arial,Helvetica,sans-serif;font-size:16px;fill:#111}.title{font-family:Arial,Helvetica,sans-serif;font-size:30px;font-weight:700;fill:#111}.muted{fill:#555}.cap{stroke:#111;stroke-width:3}.switch{stroke:#111;stroke-width:3;fill:none}.xfm{stroke:#111;stroke-width:3;fill:none}.reg{stroke:#111;stroke-width:2.5;fill:none}
+    </style>
+    <marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto"><path d="M2,2 L10,6 L2,10 Z" fill="#111"/></marker>
+  </defs>
+  <rect width="1200" height="760" fill="white"/>
+  <text x="48" y="54" class="title">IEEE 13 Node Test Feeder — One-Line SVG</text>
+  <text x="48" y="86" class="small muted">Redrawn as editable SVG from IEEE PES radial distribution test feeder one-line diagram and line-segment table.</text>
+
+  <!-- coordinates -->
+  <!-- source/regulator -->
+  <line x1="520" y1="150" x2="760" y2="150" class="line"/>
+  <text x="772" y="158" class="label">650</text>
+  <circle cx="640" cy="150" r="16" class="reg"/>
+  <line x1="628" y1="162" x2="652" y2="138" class="reg"/>
+  <line x1="650" y1="136" x2="664" y2="136" class="reg"/>
+  <text x="588" y="126" class="small">regulator</text>
+
+  <!-- main horizontal top: 646-645-632-633-634 -->
+  <line x1="210" y1="260" x2="560" y2="260" class="line"/>
+  <line x1="560" y1="260" x2="770" y2="260" class="line"/>
+  <line x1="850" y1="260" x2="920" y2="260" class="line"/>
+  <line x1="920" y1="260" x2="995" y2="260" class="line"/>
+
+  <!-- 650 to 632 -->
+  <line x1="640" y1="150" x2="640" y2="260" class="line"/>
+
+  <!-- 632 down to 671 -->
+  <line x1="640" y1="260" x2="640" y2="410" class="line"/>
+
+  <!-- bottom main: 611-684-671-switch-692-675 -->
+  <line x1="210" y1="410" x2="640" y2="410" class="line"/>
+  <line x1="700" y1="410" x2="830" y2="410" class="line"/>
+  <line x1="830" y1="410" x2="995" y2="410" class="line"/>
+
+  <!-- switch 671-692 -->
+  <line x1="640" y1="410" x2="684" y2="410" class="switch"/>
+  <line x1="690" y1="390" x2="720" y2="420" class="switch"/>
+  <text x="676" y="454" class="small">switch</text>
+
+  <!-- laterals to 652 and 680 -->
+  <line x1="300" y1="410" x2="300" y2="500" class="line"/>
+  <line x1="640" y1="410" x2="640" y2="500" class="line"/>
+
+  <!-- transformer between 633 and 634 -->
+  <path d="M790 230 C810 230,810 290,790 290 M805 230 C825 230,825 290,805 290" class="xfm"/>
+  <text x="800" y="220" class="small">XFM-1</text>
+
+  <!-- buses -->
+  <circle cx="210" cy="260" r="9" class="bus"/><text x="190" y="238" class="label">646</text>
+  <circle cx="300" cy="260" r="9" class="bus"/><text x="280" y="238" class="label">645</text>
+  <circle cx="640" cy="260" r="9" class="bus"/><text x="650" y="248" class="label">632</text>
+  <circle cx="770" cy="260" r="9" class="bus"/><text x="750" y="238" class="label">633</text>
+  <circle cx="995" cy="260" r="9" class="bus"/><text x="980" y="238" class="label">634</text>
+
+  <circle cx="210" cy="410" r="9" class="bus"/><text x="188" y="388" class="label">611</text>
+  <circle cx="300" cy="410" r="9" class="bus"/><text x="280" y="388" class="label">684</text>
+  <circle cx="640" cy="410" r="9" class="bus"/><text x="610" y="388" class="label">671</text>
+  <circle cx="830" cy="410" r="9" class="bus"/><text x="810" y="388" class="label">692</text>
+  <circle cx="995" cy="410" r="9" class="bus"/><text x="978" y="388" class="label">675</text>
+  <circle cx="300" cy="500" r="9" class="bus"/><text x="280" y="535" class="label">652</text>
+  <circle cx="640" cy="500" r="9" class="bus"/><text x="620" y="535" class="label">680</text>
+
+  <!-- capacitor indicators -->
+  <line x1="995" y1="410" x2="995" y2="465" class="thin"/>
+  <line x1="976" y1="465" x2="1014" y2="465" class="cap"/>
+  <line x1="976" y1="480" x2="1014" y2="480" class="cap"/>
+  <text x="1030" y="476" class="small">cap bank</text>
+  <line x1="210" y1="410" x2="210" y2="465" class="thin"/>
+  <line x1="191" y1="465" x2="229" y2="465" class="cap"/>
+  <line x1="191" y1="480" x2="229" y2="480" class="cap"/>
+  <text x="86" y="476" class="small">cap bank</text>
+
+  <!-- segment labels -->
+  <text x="225" y="286" class="small">300 ft / 603</text>
+  <text x="405" y="286" class="small">500 ft / 603</text>
+  <text x="675" y="286" class="small">500 ft / 602</text>
+  <text x="912" y="286" class="small">0 ft / transformer</text>
+  <text x="652" y="206" class="small">2000 ft / 601</text>
+  <text x="652" y="338" class="small">2000 ft / 601</text>
+  <text x="360" y="436" class="small">300 ft / 604</text>
+  <text x="222" y="436" class="small">300 ft / 605</text>
+  <text x="312" y="470" class="small">800 ft / 607</text>
+  <text x="652" y="470" class="small">1000 ft / 601</text>
+  <text x="842" y="436" class="small">500 ft / 606</text>
+
+  <rect x="48" y="610" width="1104" height="105" fill="#f7f7f7" stroke="#ddd"/>
+  <text x="70" y="642" class="small">Included equipment shown: source/regulator, bus nodes, overhead/underground line segments, switch, transformer, shunt capacitor banks, spot/distributed load buses.</text>
+  <text x="70" y="670" class="small">Line-segment data: 632-645, 632-633, 633-634, 645-646, 650-632, 684-652, 632-671, 671-684, 671-680, 671-692, 684-611, 692-675.</text>
+  <text x="70" y="698" class="small">Source: IEEE PES Distribution System Analysis Subcommittee, “Radial Distribution Test Feeders,” IEEE 13 Node Test Feeder.</text>
+</svg>

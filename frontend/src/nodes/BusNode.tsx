@@ -5,9 +5,9 @@ export const BUS_MIN_WIDTH = 140;
 export const BUS_DEFAULT_WIDTH = 220;
 
 // Color the busbar by voltage once a load flow has run: green near 1.0 p.u.,
-// amber/red as it drifts. Neutral grey before any result.
+// amber/red as it drifts. Follows the theme (currentColor) before any result.
 function voltageColor(vm_pu?: number): string {
-  if (vm_pu === undefined) return "#64748b";
+  if (vm_pu === undefined) return "currentColor";
   const dev = Math.abs(vm_pu - 1.0);
   if (dev <= 0.05) return "#16a34a";
   if (dev <= 0.1) return "#d97706";
@@ -25,6 +25,7 @@ export function BusNode({ data, selected }: NodeProps) {
         width: "100%",
         minWidth: BUS_MIN_WIDTH,
         textAlign: "center",
+        color: "var(--mantine-color-text)",
       }}
     >
       {/* Horizontal-only resize: drag the left/right edges to lengthen the bus. */}
@@ -49,7 +50,7 @@ export function BusNode({ data, selected }: NodeProps) {
         />
       </svg>
       <div style={{ fontSize: 11, fontWeight: 600 }}>{d.name}</div>
-      <div style={{ fontSize: 10, color: "#475569" }}>
+      <div style={{ fontSize: 10, opacity: 0.65 }}>
         {d.vn_kv} kV
         {d.vm_pu !== undefined ? ` · ${d.vm_pu.toFixed(3)} p.u.` : ""}
       </div>

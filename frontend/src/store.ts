@@ -52,6 +52,9 @@ interface EditorState {
   updateNodeData: (id: string, patch: Partial<ElementData>) => void;
   removeNode: (id: string) => void;
   removeEdge: (id: string) => void;
+  // Set (or clear, with null) a wire's routing waypoint — a draggable point the
+  // line is computed through. Purely visual; ignored by the load-flow converter.
+  setEdgeWaypoint: (id: string, point: { x: number; y: number } | null) => void;
   select: (id: string | null) => void;
   setNetworkName: (name: string) => void;
   setNetworkId: (id: string) => void;
@@ -62,10 +65,15 @@ interface EditorState {
   loadNetwork: (network: Network) => void;
 }
 
-// Only generators/loads may connect, and only into a bus.
-function busIdForComponent(componentId: string, edges: Edge[]): string {
-  const edge = edges.find((e) => e.source === componentId);
-  return edge ? edge.target : "";
+// A component (generator/load) has at most one wire, to its bus.
+function edgeForComponent(componentId: string, edges: Edge[]): Edge | undefined {
+  return edges.find((e) => e.source === componentId);
+}
+
+function waypointOf(edge: Edge | undefined): { x: number; y: number } | null {
+  const wp = (edge?.data as { waypoint?: { x: number; y: number } } | undefined)
+    ?.waypoint;
+  return wp ?? null;
 }
 
 export const useEditor = create<EditorState>((set, get) => ({
@@ -117,6 +125,15 @@ export const useEditor = create<EditorState>((set, get) => ({
 
   removeEdge: (id) =>
     set((s) => ({ edges: s.edges.filter((e) => e.id !== id) })),
+
+  setEdgeWaypoint: (id, point) =>
+    set((s) => ({
+      edges: s.edges.map((e) =>
+        e.id === id
+          ? { ...e, data: { ...e.data, waypoint: point ?? undefined } }
+          : e,
+      ),
+    })),
 
   select: (id) => set({ selectedId: id }),
   setNetworkName: (name) => set({ networkName: name }),
@@ -178,27 +195,31 @@ export const useEditor = create<EditorState>((set, get) => ({
       .filter((n) => n.type === "generator")
       .map((n) => {
         const d = n.data as GeneratorData;
+        const edge = edgeForComponent(n.id, edges);
         return {
           id: n.id,
           name: d.name,
-          bus_id: busIdForComponent(n.id, edges),
+          bus_id: edge?.target ?? "",
           vm_pu: d.vm_pu,
           x: n.position.x,
           y: n.position.y,
+          waypoint: waypointOf(edge),
         };
       });
     const loads = nodes
       .filter((n) => n.type === "load")
       .map((n) => {
         const d = n.data as LoadData;
+        const edge = edgeForComponent(n.id, edges);
         return {
           id: n.id,
           name: d.name,
-          bus_id: busIdForComponent(n.id, edges),
+          bus_id: edge?.target ?? "",
           p_mw: d.p_mw,
           q_mvar: d.q_mvar,
           x: n.position.x,
           y: n.position.y,
+          waypoint: waypointOf(edge),
         };
       });
     return {
@@ -230,7 +251,13 @@ export const useEditor = create<EditorState>((set, get) => ({
         data: { name: g.name, vm_pu: g.vm_pu },
       });
       if (g.bus_id)
-        edges.push({ id: `${g.id}->${g.bus_id}`, source: g.id, target: g.bus_id, type: "wire" });
+        edges.push({
+          id: `${g.id}->${g.bus_id}`,
+          source: g.id,
+          target: g.bus_id,
+          type: "wire",
+          data: g.waypoint ? { waypoint: g.waypoint } : undefined,
+        });
     }
     for (const l of network.loads) {
       nodes.push({
@@ -240,7 +267,13 @@ export const useEditor = create<EditorState>((set, get) => ({
         data: { name: l.name, p_mw: l.p_mw, q_mvar: l.q_mvar },
       });
       if (l.bus_id)
-        edges.push({ id: `${l.id}->${l.bus_id}`, source: l.id, target: l.bus_id, type: "wire" });
+        edges.push({
+          id: `${l.id}->${l.bus_id}`,
+          source: l.id,
+          target: l.bus_id,
+          type: "wire",
+          data: l.waypoint ? { waypoint: l.waypoint } : undefined,
+        });
     }
     set({
       networkId: network.id,

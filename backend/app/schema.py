@@ -15,6 +15,11 @@ from __future__ import annotations
 from pydantic import BaseModel, Field
 
 
+class Point(BaseModel):
+    x: float
+    y: float
+
+
 class Bus(BaseModel):
     id: str
     name: str = "Bus"
@@ -33,6 +38,8 @@ class Generator(BaseModel):
     vm_pu: float = Field(default=1.0, gt=0, description="Voltage setpoint [p.u.]")
     x: float = 0.0
     y: float = 0.0
+    # Optional routing waypoint for this element's wire (visual only).
+    waypoint: Point | None = None
 
 
 class Load(BaseModel):
@@ -43,6 +50,8 @@ class Load(BaseModel):
     q_mvar: float = Field(default=0.0, description="Reactive power [MVar]")
     x: float = 0.0
     y: float = 0.0
+    # Optional routing waypoint for this element's wire (visual only).
+    waypoint: Point | None = None
 
 
 class Network(BaseModel):

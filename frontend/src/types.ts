@@ -44,6 +44,7 @@ export interface Generator {
   vm_pu: number;
   x: number;
   y: number;
+  waypoint?: { x: number; y: number } | null;
 }
 
 export interface Load {
@@ -54,6 +55,7 @@ export interface Load {
   q_mvar: number;
   x: number;
   y: number;
+  waypoint?: { x: number; y: number } | null;
 }
 
 export interface Network {

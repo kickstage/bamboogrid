@@ -1,0 +1,126 @@
+[
+  {
+    "title": "bus",
+    "xml": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"120\" height=\"80\" viewBox=\"0 0 120 80\" role=\"img\" aria-label=\"pandapower bus\"><title>pandapower bus</title><g color=\"black\"><rect x=\"1\" y=\"1\" width=\"118\" height=\"78\" rx=\"8\" fill=\"white\" stroke=\"currentColor\" stroke-width=\"2\"/><line x1=\"20\" y1=\"40\" x2=\"100\" y2=\"40\" stroke=\"currentColor\" stroke-width=\"6\" stroke-linecap=\"round\"/><text x=\"60\" y=\"75\" font-family=\"Arial, sans-serif\" font-size=\"9\" text-anchor=\"middle\" fill=\"currentColor\">pandapower bus</text></g></svg>\n"
+  },
+  {
+    "title": "line",
+    "xml": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"120\" height=\"80\" viewBox=\"0 0 120 80\" role=\"img\" aria-label=\"pandapower line\"><title>pandapower line</title><g color=\"black\"><rect x=\"1\" y=\"1\" width=\"118\" height=\"78\" rx=\"8\" fill=\"white\" stroke=\"currentColor\" stroke-width=\"2\"/><line x1=\"14\" y1=\"44\" x2=\"106\" y2=\"44\" stroke=\"currentColor\" stroke-width=\"3\"/><circle cx=\"14\" cy=\"44\" r=\"3\" fill=\"currentColor\"/><circle cx=\"106\" cy=\"44\" r=\"3\" fill=\"currentColor\"/><text x=\"60\" y=\"75\" font-family=\"Arial, sans-serif\" font-size=\"9\" text-anchor=\"middle\" fill=\"currentColor\">pandapower line</text></g></svg>\n"
+  },
+  {
+    "title": "trafo",
+    "xml": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"120\" height=\"80\" viewBox=\"0 0 120 80\" role=\"img\" aria-label=\"pandapower trafo\"><title>pandapower trafo</title><g color=\"black\"><rect x=\"1\" y=\"1\" width=\"118\" height=\"78\" rx=\"8\" fill=\"white\" stroke=\"currentColor\" stroke-width=\"2\"/><circle cx=\"48\" cy=\"42\" r=\"15\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"3\"/><circle cx=\"72\" cy=\"42\" r=\"15\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"3\"/><text x=\"60\" y=\"75\" font-family=\"Arial, sans-serif\" font-size=\"9\" text-anchor=\"middle\" fill=\"currentColor\">pandapower trafo</text></g></svg>\n"
+  },
+  {
+    "title": "trafo3w",
+    "xml": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"120\" height=\"80\" viewBox=\"0 0 120 80\" role=\"img\" aria-label=\"pandapower trafo3w\"><title>pandapower trafo3w</title><g color=\"black\"><rect x=\"1\" y=\"1\" width=\"118\" height=\"78\" rx=\"8\" fill=\"white\" stroke=\"currentColor\" stroke-width=\"2\"/><circle cx=\"60\" cy=\"32\" r=\"13\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"3\"/><circle cx=\"45\" cy=\"52\" r=\"13\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"3\"/><circle cx=\"75\" cy=\"52\" r=\"13\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"3\"/><text x=\"60\" y=\"75\" font-family=\"Arial, sans-serif\" font-size=\"9\" text-anchor=\"middle\" fill=\"currentColor\">pandapower trafo3w</text></g></svg>\n"
+  },
+  {
+    "title": "switch",
+    "xml": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"120\" height=\"80\" viewBox=\"0 0 120 80\" role=\"img\" aria-label=\"pandapower switch\"><title>pandapower switch</title><g color=\"black\"><rect x=\"1\" y=\"1\" width=\"118\" height=\"78\" rx=\"8\" fill=\"white\" stroke=\"currentColor\" stroke-width=\"2\"/><line x1=\"25\" y1=\"45\" x2=\"50\" y2=\"45\" stroke=\"currentColor\" stroke-width=\"3\"/><line x1=\"70\" y1=\"45\" x2=\"95\" y2=\"45\" stroke=\"currentColor\" stroke-width=\"3\"/><line x1=\"50\" y1=\"45\" x2=\"72\" y2=\"32\" stroke=\"currentColor\" stroke-width=\"3\"/><circle cx=\"50\" cy=\"45\" r=\"3\" fill=\"currentColor\"/><circle cx=\"70\" cy=\"45\" r=\"3\" fill=\"currentColor\"/><text x=\"60\" y=\"75\" font-family=\"Arial, sans-serif\" font-size=\"9\" text-anchor=\"middle\" fill=\"currentColor\">pandapower switch</text></g></svg>\n"
+  },
+  {
+    "title": "load",
+    "xml": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"120\" height=\"80\" viewBox=\"0 0 120 80\" role=\"img\" aria-label=\"pandapower load\"><title>pandapower load</title><g color=\"black\"><rect x=\"1\" y=\"1\" width=\"118\" height=\"78\" rx=\"8\" fill=\"white\" stroke=\"currentColor\" stroke-width=\"2\"/><line x1=\"60\" y1=\"20\" x2=\"60\" y2=\"38\" stroke=\"currentColor\" stroke-width=\"3\"/><path d=\"M40 38 L80 38 L60 64 Z\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"3\"/><text x=\"60\" y=\"75\" font-family=\"Arial, sans-serif\" font-size=\"9\" text-anchor=\"middle\" fill=\"currentColor\">pandapower load</text></g></svg>\n"
+  },
+  {
+    "title": "asymmetric_load",
+    "xml": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"120\" height=\"80\" viewBox=\"0 0 120 80\" role=\"img\" aria-label=\"pandapower asymmetric_load\"><title>pandapower asymmetric_load</title><g color=\"black\"><rect x=\"1\" y=\"1\" width=\"118\" height=\"78\" rx=\"8\" fill=\"white\" stroke=\"currentColor\" stroke-width=\"2\"/><line x1=\"60\" y1=\"20\" x2=\"60\" y2=\"38\" stroke=\"currentColor\" stroke-width=\"3\"/><path d=\"M40 38 L80 38 L60 64 Z\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"3\"/><text x=\"60\" y=\"75\" font-family=\"Arial, sans-serif\" font-size=\"9\" text-anchor=\"middle\" fill=\"currentColor\">pandapower asymmetric_load</text></g></svg>\n"
+  },
+  {
+    "title": "sgen",
+    "xml": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"120\" height=\"80\" viewBox=\"0 0 120 80\" role=\"img\" aria-label=\"pandapower sgen\"><title>pandapower sgen</title><g color=\"black\"><rect x=\"1\" y=\"1\" width=\"118\" height=\"78\" rx=\"8\" fill=\"white\" stroke=\"currentColor\" stroke-width=\"2\"/><rect x=\"36\" y=\"24\" width=\"48\" height=\"36\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"3\"/><path d=\"M42 52 C48 38,56 38,62 52 S76 66,82 52\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"/><text x=\"60\" y=\"20\" font-family=\"Arial\" font-size=\"12\" text-anchor=\"middle\" fill=\"currentColor\">DC/AC</text><text x=\"60\" y=\"75\" font-family=\"Arial, sans-serif\" font-size=\"9\" text-anchor=\"middle\" fill=\"currentColor\">pandapower sgen</text></g></svg>\n"
+  },
+  {
+    "title": "asymmetric_sgen",
+    "xml": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"120\" height=\"80\" viewBox=\"0 0 120 80\" role=\"img\" aria-label=\"pandapower asymmetric_sgen\"><title>pandapower asymmetric_sgen</title><g color=\"black\"><rect x=\"1\" y=\"1\" width=\"118\" height=\"78\" rx=\"8\" fill=\"white\" stroke=\"currentColor\" stroke-width=\"2\"/><rect x=\"36\" y=\"24\" width=\"48\" height=\"36\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"3\"/><path d=\"M42 52 C48 38,56 38,62 52 S76 66,82 52\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"/><text x=\"60\" y=\"20\" font-family=\"Arial\" font-size=\"12\" text-anchor=\"middle\" fill=\"currentColor\">DC/AC</text><text x=\"60\" y=\"75\" font-family=\"Arial, sans-serif\" font-size=\"9\" text-anchor=\"middle\" fill=\"currentColor\">pandapower asymmetric_sgen</text></g></svg>\n"
+  },
+  {
+    "title": "gen",
+    "xml": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"120\" height=\"80\" viewBox=\"0 0 120 80\" role=\"img\" aria-label=\"pandapower gen\"><title>pandapower gen</title><g color=\"black\"><rect x=\"1\" y=\"1\" width=\"118\" height=\"78\" rx=\"8\" fill=\"white\" stroke=\"currentColor\" stroke-width=\"2\"/><circle cx=\"60\" cy=\"42\" r=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"3\"/><text x=\"60\" y=\"49\" font-family=\"Arial\" font-size=\"22\" text-anchor=\"middle\" fill=\"currentColor\">G</text><text x=\"60\" y=\"75\" font-family=\"Arial, sans-serif\" font-size=\"9\" text-anchor=\"middle\" fill=\"currentColor\">pandapower gen</text></g></svg>\n"
+  },
+  {
+    "title": "ext_grid",
+    "xml": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"120\" height=\"80\" viewBox=\"0 0 120 80\" role=\"img\" aria-label=\"pandapower ext_grid\"><title>pandapower ext_grid</title><g color=\"black\"><rect x=\"1\" y=\"1\" width=\"118\" height=\"78\" rx=\"8\" fill=\"white\" stroke=\"currentColor\" stroke-width=\"2\"/><circle cx=\"60\" cy=\"42\" r=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"3\"/><path d=\"M42 42 C50 26,70 58,78 42\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"3\"/><text x=\"60\" y=\"75\" font-family=\"Arial, sans-serif\" font-size=\"9\" text-anchor=\"middle\" fill=\"currentColor\">pandapower ext_grid</text></g></svg>\n"
+  },
+  {
+    "title": "storage",
+    "xml": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"120\" height=\"80\" viewBox=\"0 0 120 80\" role=\"img\" aria-label=\"pandapower storage\"><title>pandapower storage</title><g color=\"black\"><rect x=\"1\" y=\"1\" width=\"118\" height=\"78\" rx=\"8\" fill=\"white\" stroke=\"currentColor\" stroke-width=\"2\"/><rect x=\"38\" y=\"25\" width=\"44\" height=\"34\" rx=\"3\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"3\"/><rect x=\"82\" y=\"36\" width=\"6\" height=\"12\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"/><line x1=\"48\" y1=\"42\" x2=\"58\" y2=\"42\" stroke=\"currentColor\" stroke-width=\"3\"/><line x1=\"68\" y1=\"37\" x2=\"68\" y2=\"47\" stroke=\"currentColor\" stroke-width=\"3\"/><line x1=\"63\" y1=\"42\" x2=\"73\" y2=\"42\" stroke=\"currentColor\" stroke-width=\"3\"/><text x=\"60\" y=\"75\" font-family=\"Arial, sans-serif\" font-size=\"9\" text-anchor=\"middle\" fill=\"currentColor\">pandapower storage</text></g></svg>\n"
+  },
+  {
+    "title": "motor",
+    "xml": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"120\" height=\"80\" viewBox=\"0 0 120 80\" role=\"img\" aria-label=\"pandapower motor\"><title>pandapower motor</title><g color=\"black\"><rect x=\"1\" y=\"1\" width=\"118\" height=\"78\" rx=\"8\" fill=\"white\" stroke=\"currentColor\" stroke-width=\"2\"/><line x1=\"60\" y1=\"20\" x2=\"60\" y2=\"38\" stroke=\"currentColor\" stroke-width=\"3\"/><path d=\"M40 38 L80 38 L60 64 Z\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"3\"/><text x=\"60\" y=\"75\" font-family=\"Arial, sans-serif\" font-size=\"9\" text-anchor=\"middle\" fill=\"currentColor\">pandapower motor</text></g></svg>\n"
+  },
+  {
+    "title": "shunt",
+    "xml": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"120\" height=\"80\" viewBox=\"0 0 120 80\" role=\"img\" aria-label=\"pandapower shunt\"><title>pandapower shunt</title><g color=\"black\"><rect x=\"1\" y=\"1\" width=\"118\" height=\"78\" rx=\"8\" fill=\"white\" stroke=\"currentColor\" stroke-width=\"2\"/><line x1=\"60\" y1=\"20\" x2=\"60\" y2=\"38\" stroke=\"currentColor\" stroke-width=\"3\"/><line x1=\"45\" y1=\"38\" x2=\"75\" y2=\"38\" stroke=\"currentColor\" stroke-width=\"3\"/><line x1=\"45\" y1=\"48\" x2=\"75\" y2=\"48\" stroke=\"currentColor\" stroke-width=\"3\"/><line x1=\"60\" y1=\"48\" x2=\"60\" y2=\"65\" stroke=\"currentColor\" stroke-width=\"3\"/><text x=\"60\" y=\"75\" font-family=\"Arial, sans-serif\" font-size=\"9\" text-anchor=\"middle\" fill=\"currentColor\">pandapower shunt</text></g></svg>\n"
+  },
+  {
+    "title": "ward",
+    "xml": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"120\" height=\"80\" viewBox=\"0 0 120 80\" role=\"img\" aria-label=\"pandapower ward\"><title>pandapower ward</title><g color=\"black\"><rect x=\"1\" y=\"1\" width=\"118\" height=\"78\" rx=\"8\" fill=\"white\" stroke=\"currentColor\" stroke-width=\"2\"/><line x1=\"60\" y1=\"20\" x2=\"60\" y2=\"38\" stroke=\"currentColor\" stroke-width=\"3\"/><path d=\"M40 38 L80 38 L60 64 Z\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"3\"/><text x=\"60\" y=\"75\" font-family=\"Arial, sans-serif\" font-size=\"9\" text-anchor=\"middle\" fill=\"currentColor\">pandapower ward</text></g></svg>\n"
+  },
+  {
+    "title": "xward",
+    "xml": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"120\" height=\"80\" viewBox=\"0 0 120 80\" role=\"img\" aria-label=\"pandapower xward\"><title>pandapower xward</title><g color=\"black\"><rect x=\"1\" y=\"1\" width=\"118\" height=\"78\" rx=\"8\" fill=\"white\" stroke=\"currentColor\" stroke-width=\"2\"/><circle cx=\"60\" cy=\"42\" r=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"3\"/><path d=\"M42 42 C50 26,70 58,78 42\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"3\"/><text x=\"60\" y=\"75\" font-family=\"Arial, sans-serif\" font-size=\"9\" text-anchor=\"middle\" fill=\"currentColor\">pandapower xward</text></g></svg>\n"
+  },
+  {
+    "title": "impedance",
+    "xml": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"120\" height=\"80\" viewBox=\"0 0 120 80\" role=\"img\" aria-label=\"pandapower impedance\"><title>pandapower impedance</title><g color=\"black\"><rect x=\"1\" y=\"1\" width=\"118\" height=\"78\" rx=\"8\" fill=\"white\" stroke=\"currentColor\" stroke-width=\"2\"/><line x1=\"60\" y1=\"18\" x2=\"60\" y2=\"28\" stroke=\"currentColor\" stroke-width=\"3\"/><path d=\"M60 28 q-16 8 0 16 q16 8 0 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"3\"/><line x1=\"60\" y1=\"60\" x2=\"60\" y2=\"68\" stroke=\"currentColor\" stroke-width=\"3\"/><text x=\"60\" y=\"75\" font-family=\"Arial, sans-serif\" font-size=\"9\" text-anchor=\"middle\" fill=\"currentColor\">pandapower impedance</text></g></svg>\n"
+  },
+  {
+    "title": "dcline",
+    "xml": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"120\" height=\"80\" viewBox=\"0 0 120 80\" role=\"img\" aria-label=\"pandapower dcline\"><title>pandapower dcline</title><g color=\"black\"><rect x=\"1\" y=\"1\" width=\"118\" height=\"78\" rx=\"8\" fill=\"white\" stroke=\"currentColor\" stroke-width=\"2\"/><line x1=\"28\" y1=\"35\" x2=\"92\" y2=\"35\" stroke=\"currentColor\" stroke-width=\"3\"/><line x1=\"28\" y1=\"50\" x2=\"92\" y2=\"50\" stroke=\"currentColor\" stroke-width=\"3\" stroke-dasharray=\"8 5\"/><text x=\"60\" y=\"75\" font-family=\"Arial, sans-serif\" font-size=\"9\" text-anchor=\"middle\" fill=\"currentColor\">pandapower dcline</text></g></svg>\n"
+  },
+  {
+    "title": "measurement",
+    "xml": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"120\" height=\"80\" viewBox=\"0 0 120 80\" role=\"img\" aria-label=\"pandapower measurement\"><title>pandapower measurement</title><g color=\"black\"><rect x=\"1\" y=\"1\" width=\"118\" height=\"78\" rx=\"8\" fill=\"white\" stroke=\"currentColor\" stroke-width=\"2\"/><circle cx=\"60\" cy=\"42\" r=\"23\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"3\"/><path d=\"M60 42 L73 32\" stroke=\"currentColor\" stroke-width=\"3\"/><text x=\"60\" y=\"64\" font-family=\"Arial\" font-size=\"12\" text-anchor=\"middle\" fill=\"currentColor\">M</text><text x=\"60\" y=\"75\" font-family=\"Arial, sans-serif\" font-size=\"9\" text-anchor=\"middle\" fill=\"currentColor\">pandapower measurement</text></g></svg>\n"
+  },
+  {
+    "title": "pwl_cost",
+    "xml": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"120\" height=\"80\" viewBox=\"0 0 120 80\" role=\"img\" aria-label=\"pandapower pwl_cost\"><title>pandapower pwl_cost</title><g color=\"black\"><rect x=\"1\" y=\"1\" width=\"118\" height=\"78\" rx=\"8\" fill=\"white\" stroke=\"currentColor\" stroke-width=\"2\"/><rect x=\"35\" y=\"22\" width=\"50\" height=\"38\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"3\"/><text x=\"60\" y=\"75\" font-family=\"Arial, sans-serif\" font-size=\"9\" text-anchor=\"middle\" fill=\"currentColor\">pandapower pwl_cost</text></g></svg>\n"
+  },
+  {
+    "title": "poly_cost",
+    "xml": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"120\" height=\"80\" viewBox=\"0 0 120 80\" role=\"img\" aria-label=\"pandapower poly_cost\"><title>pandapower poly_cost</title><g color=\"black\"><rect x=\"1\" y=\"1\" width=\"118\" height=\"78\" rx=\"8\" fill=\"white\" stroke=\"currentColor\" stroke-width=\"2\"/><rect x=\"35\" y=\"22\" width=\"50\" height=\"38\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"3\"/><text x=\"60\" y=\"75\" font-family=\"Arial, sans-serif\" font-size=\"9\" text-anchor=\"middle\" fill=\"currentColor\">pandapower poly_cost</text></g></svg>\n"
+  },
+  {
+    "title": "controller",
+    "xml": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"120\" height=\"80\" viewBox=\"0 0 120 80\" role=\"img\" aria-label=\"pandapower controller\"><title>pandapower controller</title><g color=\"black\"><rect x=\"1\" y=\"1\" width=\"118\" height=\"78\" rx=\"8\" fill=\"white\" stroke=\"currentColor\" stroke-width=\"2\"/><rect x=\"35\" y=\"22\" width=\"50\" height=\"38\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"3\"/><text x=\"60\" y=\"75\" font-family=\"Arial, sans-serif\" font-size=\"9\" text-anchor=\"middle\" fill=\"currentColor\">pandapower controller</text></g></svg>\n"
+  },
+  {
+    "title": "group",
+    "xml": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"120\" height=\"80\" viewBox=\"0 0 120 80\" role=\"img\" aria-label=\"pandapower group\"><title>pandapower group</title><g color=\"black\"><rect x=\"1\" y=\"1\" width=\"118\" height=\"78\" rx=\"8\" fill=\"white\" stroke=\"currentColor\" stroke-width=\"2\"/><rect x=\"35\" y=\"22\" width=\"50\" height=\"38\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"3\"/><text x=\"60\" y=\"75\" font-family=\"Arial, sans-serif\" font-size=\"9\" text-anchor=\"middle\" fill=\"currentColor\">pandapower group</text></g></svg>\n"
+  },
+  {
+    "title": "bus_dc",
+    "xml": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"120\" height=\"80\" viewBox=\"0 0 120 80\" role=\"img\" aria-label=\"pandapower bus_dc\"><title>pandapower bus_dc</title><g color=\"black\"><rect x=\"1\" y=\"1\" width=\"118\" height=\"78\" rx=\"8\" fill=\"white\" stroke=\"currentColor\" stroke-width=\"2\"/><line x1=\"28\" y1=\"35\" x2=\"92\" y2=\"35\" stroke=\"currentColor\" stroke-width=\"3\"/><line x1=\"28\" y1=\"50\" x2=\"92\" y2=\"50\" stroke=\"currentColor\" stroke-width=\"3\" stroke-dasharray=\"8 5\"/><text x=\"60\" y=\"75\" font-family=\"Arial, sans-serif\" font-size=\"9\" text-anchor=\"middle\" fill=\"currentColor\">pandapower bus_dc</text></g></svg>\n"
+  },
+  {
+    "title": "line_dc",
+    "xml": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"120\" height=\"80\" viewBox=\"0 0 120 80\" role=\"img\" aria-label=\"pandapower line_dc\"><title>pandapower line_dc</title><g color=\"black\"><rect x=\"1\" y=\"1\" width=\"118\" height=\"78\" rx=\"8\" fill=\"white\" stroke=\"currentColor\" stroke-width=\"2\"/><line x1=\"28\" y1=\"35\" x2=\"92\" y2=\"35\" stroke=\"currentColor\" stroke-width=\"3\"/><line x1=\"28\" y1=\"50\" x2=\"92\" y2=\"50\" stroke=\"currentColor\" stroke-width=\"3\" stroke-dasharray=\"8 5\"/><text x=\"60\" y=\"75\" font-family=\"Arial, sans-serif\" font-size=\"9\" text-anchor=\"middle\" fill=\"currentColor\">pandapower line_dc</text></g></svg>\n"
+  },
+  {
+    "title": "load_dc",
+    "xml": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"120\" height=\"80\" viewBox=\"0 0 120 80\" role=\"img\" aria-label=\"pandapower load_dc\"><title>pandapower load_dc</title><g color=\"black\"><rect x=\"1\" y=\"1\" width=\"118\" height=\"78\" rx=\"8\" fill=\"white\" stroke=\"currentColor\" stroke-width=\"2\"/><line x1=\"60\" y1=\"20\" x2=\"60\" y2=\"38\" stroke=\"currentColor\" stroke-width=\"3\"/><path d=\"M40 38 L80 38 L60 64 Z\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"3\"/><text x=\"60\" y=\"75\" font-family=\"Arial, sans-serif\" font-size=\"9\" text-anchor=\"middle\" fill=\"currentColor\">pandapower load_dc</text></g></svg>\n"
+  },
+  {
+    "title": "source_dc",
+    "xml": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"120\" height=\"80\" viewBox=\"0 0 120 80\" role=\"img\" aria-label=\"pandapower source_dc\"><title>pandapower source_dc</title><g color=\"black\"><rect x=\"1\" y=\"1\" width=\"118\" height=\"78\" rx=\"8\" fill=\"white\" stroke=\"currentColor\" stroke-width=\"2\"/><circle cx=\"60\" cy=\"42\" r=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"3\"/><path d=\"M42 42 C50 26,70 58,78 42\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"3\"/><text x=\"60\" y=\"75\" font-family=\"Arial, sans-serif\" font-size=\"9\" text-anchor=\"middle\" fill=\"currentColor\">pandapower source_dc</text></g></svg>\n"
+  },
+  {
+    "title": "vsc",
+    "xml": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"120\" height=\"80\" viewBox=\"0 0 120 80\" role=\"img\" aria-label=\"pandapower vsc\"><title>pandapower vsc</title><g color=\"black\"><rect x=\"1\" y=\"1\" width=\"118\" height=\"78\" rx=\"8\" fill=\"white\" stroke=\"currentColor\" stroke-width=\"2\"/><rect x=\"36\" y=\"24\" width=\"48\" height=\"36\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"3\"/><path d=\"M42 52 C48 38,56 38,62 52 S76 66,82 52\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"/><text x=\"60\" y=\"20\" font-family=\"Arial\" font-size=\"12\" text-anchor=\"middle\" fill=\"currentColor\">DC/AC</text><text x=\"60\" y=\"75\" font-family=\"Arial, sans-serif\" font-size=\"9\" text-anchor=\"middle\" fill=\"currentColor\">pandapower vsc</text></g></svg>\n"
+  },
+  {
+    "title": "svc",
+    "xml": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"120\" height=\"80\" viewBox=\"0 0 120 80\" role=\"img\" aria-label=\"pandapower svc\"><title>pandapower svc</title><g color=\"black\"><rect x=\"1\" y=\"1\" width=\"118\" height=\"78\" rx=\"8\" fill=\"white\" stroke=\"currentColor\" stroke-width=\"2\"/><line x1=\"60\" y1=\"20\" x2=\"60\" y2=\"38\" stroke=\"currentColor\" stroke-width=\"3\"/><line x1=\"45\" y1=\"38\" x2=\"75\" y2=\"38\" stroke=\"currentColor\" stroke-width=\"3\"/><line x1=\"45\" y1=\"48\" x2=\"75\" y2=\"48\" stroke=\"currentColor\" stroke-width=\"3\"/><line x1=\"60\" y1=\"48\" x2=\"60\" y2=\"65\" stroke=\"currentColor\" stroke-width=\"3\"/><text x=\"60\" y=\"75\" font-family=\"Arial, sans-serif\" font-size=\"9\" text-anchor=\"middle\" fill=\"currentColor\">pandapower svc</text></g></svg>\n"
+  },
+  {
+    "title": "ssc",
+    "xml": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"120\" height=\"80\" viewBox=\"0 0 120 80\" role=\"img\" aria-label=\"pandapower ssc\"><title>pandapower ssc</title><g color=\"black\"><rect x=\"1\" y=\"1\" width=\"118\" height=\"78\" rx=\"8\" fill=\"white\" stroke=\"currentColor\" stroke-width=\"2\"/><line x1=\"60\" y1=\"20\" x2=\"60\" y2=\"38\" stroke=\"currentColor\" stroke-width=\"3\"/><line x1=\"45\" y1=\"38\" x2=\"75\" y2=\"38\" stroke=\"currentColor\" stroke-width=\"3\"/><line x1=\"45\" y1=\"48\" x2=\"75\" y2=\"48\" stroke=\"currentColor\" stroke-width=\"3\"/><line x1=\"60\" y1=\"48\" x2=\"60\" y2=\"65\" stroke=\"currentColor\" stroke-width=\"3\"/><text x=\"60\" y=\"75\" font-family=\"Arial, sans-serif\" font-size=\"9\" text-anchor=\"middle\" fill=\"currentColor\">pandapower ssc</text></g></svg>\n"
+  },
+  {
+    "title": "tcsc",
+    "xml": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"120\" height=\"80\" viewBox=\"0 0 120 80\" role=\"img\" aria-label=\"pandapower tcsc\"><title>pandapower tcsc</title><g color=\"black\"><rect x=\"1\" y=\"1\" width=\"118\" height=\"78\" rx=\"8\" fill=\"white\" stroke=\"currentColor\" stroke-width=\"2\"/><line x1=\"60\" y1=\"20\" x2=\"60\" y2=\"38\" stroke=\"currentColor\" stroke-width=\"3\"/><line x1=\"45\" y1=\"38\" x2=\"75\" y2=\"38\" stroke=\"currentColor\" stroke-width=\"3\"/><line x1=\"45\" y1=\"48\" x2=\"75\" y2=\"48\" stroke=\"currentColor\" stroke-width=\"3\"/><line x1=\"60\" y1=\"48\" x2=\"60\" y2=\"65\" stroke=\"currentColor\" stroke-width=\"3\"/><text x=\"60\" y=\"75\" font-family=\"Arial, sans-serif\" font-size=\"9\" text-anchor=\"middle\" fill=\"currentColor\">pandapower tcsc</text></g></svg>\n"
+  }
+]

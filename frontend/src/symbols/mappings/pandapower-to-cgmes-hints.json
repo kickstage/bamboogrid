@@ -1,0 +1,68 @@
+{
+  "bus": [
+    "ConnectivityNode",
+    "TopologicalNode",
+    "BusbarSection"
+  ],
+  "line": [
+    "ACLineSegment"
+  ],
+  "trafo": [
+    "PowerTransformer"
+  ],
+  "trafo3w": [
+    "PowerTransformer"
+  ],
+  "switch": [
+    "Switch",
+    "Breaker",
+    "Disconnector",
+    "LoadBreakSwitch"
+  ],
+  "load": [
+    "EnergyConsumer",
+    "ConformLoad",
+    "NonConformLoad"
+  ],
+  "sgen": [
+    "PowerElectronicsConnection",
+    "GeneratingUnit"
+  ],
+  "gen": [
+    "SynchronousMachine",
+    "GeneratingUnit"
+  ],
+  "ext_grid": [
+    "ExternalNetworkInjection",
+    "EquivalentInjection"
+  ],
+  "storage": [
+    "BatteryUnit",
+    "PowerElectronicsConnection"
+  ],
+  "shunt": [
+    "LinearShuntCompensator",
+    "NonlinearShuntCompensator"
+  ],
+  "impedance": [
+    "EquivalentBranch",
+    "SeriesCompensator"
+  ],
+  "dcline": [
+    "DCLineSegment"
+  ],
+  "vsc": [
+    "VsConverter"
+  ],
+  "svc": [
+    "StaticVarCompensator"
+  ],
+  "tcsc": [
+    "SeriesCompensator"
+  ],
+  "measurement": [
+    "Measurement",
+    "Analog",
+    "Discrete"
+  ]
+}

@@ -1,11 +1,18 @@
-import { Stack, Text, Paper } from "@mantine/core";
+import { Group, Stack, Text, Paper } from "@mantine/core";
 import type { ElementKind } from "../types";
+import { BusGlyph, GeneratorGlyph, LoadGlyph } from "../nodes/glyphs";
 
 const ITEMS: { kind: ElementKind; label: string; hint: string }[] = [
   { kind: "bus", label: "Bus", hint: "Node — components attach here" },
   { kind: "generator", label: "Generator", hint: "Slack source (ext_grid)" },
   { kind: "load", label: "Load", hint: "Consumes power" },
 ];
+
+function Glyph({ kind }: { kind: ElementKind }) {
+  if (kind === "generator") return <GeneratorGlyph size={34} />;
+  if (kind === "load") return <LoadGlyph size={34} />;
+  return <BusGlyph width={34} />;
+}
 
 export function Palette() {
   const onDragStart = (e: React.DragEvent, kind: ElementKind) => {
@@ -28,12 +35,26 @@ export function Palette() {
           onDragStart={(e) => onDragStart(e, item.kind)}
           style={{ cursor: "grab" }}
         >
-          <Text size="sm" fw={600}>
-            {item.label}
-          </Text>
-          <Text size="xs" c="dimmed">
-            {item.hint}
-          </Text>
+          <Group gap="sm" wrap="nowrap">
+            <div
+              style={{
+                width: 40,
+                display: "flex",
+                justifyContent: "center",
+                color: "var(--mantine-color-text)",
+              }}
+            >
+              <Glyph kind={item.kind} />
+            </div>
+            <div>
+              <Text size="sm" fw={600}>
+                {item.label}
+              </Text>
+              <Text size="xs" c="dimmed">
+                {item.hint}
+              </Text>
+            </div>
+          </Group>
         </Paper>
       ))}
       <Text size="xs" c="dimmed" mt="md">
