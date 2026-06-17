@@ -1,16 +1,18 @@
 import { Group, Stack, Text, Paper } from "@mantine/core";
 import type { ElementKind } from "../types";
-import { BusGlyph, GeneratorGlyph, LoadGlyph } from "../nodes/glyphs";
+import { BusGlyph, GeneratorGlyph, LoadGlyph, SwitchGlyph } from "../nodes/glyphs";
 
 const ITEMS: { kind: ElementKind; label: string; hint: string }[] = [
   { kind: "bus", label: "Bus", hint: "Node — components attach here" },
   { kind: "generator", label: "Generator", hint: "Slack source (ext_grid)" },
   { kind: "load", label: "Load", hint: "Consumes power" },
+  { kind: "switch", label: "Switch", hint: "Ties two buses (open/closed)" },
 ];
 
 function Glyph({ kind }: { kind: ElementKind }) {
   if (kind === "generator") return <GeneratorGlyph size={34} />;
   if (kind === "load") return <LoadGlyph size={34} />;
+  if (kind === "switch") return <SwitchGlyph size={40} />;
   return <BusGlyph width={34} />;
 }
 

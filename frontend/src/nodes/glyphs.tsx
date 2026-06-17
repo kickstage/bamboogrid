@@ -54,6 +54,39 @@ export function LoadGlyph({ size = 50, stroke = "currentColor" }: GlyphProps) {
   );
 }
 
+// pandapower/switch.svg — two terminals with a lever; closed = horizontal,
+// open = lever lifted (a visible gap).
+export function SwitchGlyph({
+  size = 56,
+  stroke = "currentColor",
+  closed = true,
+}: GlyphProps & { closed?: boolean }) {
+  return (
+    <svg
+      width={size}
+      height={(size * 26) / 72}
+      viewBox="24 28 72 26"
+      aria-hidden
+      style={{ display: "block", margin: "0 auto" }}
+    >
+      {/* terminal leads */}
+      <line x1={25} y1={45} x2={50} y2={45} stroke={stroke} strokeWidth={3} />
+      <line x1={70} y1={45} x2={95} y2={45} stroke={stroke} strokeWidth={3} />
+      {/* lever */}
+      <line
+        x1={50}
+        y1={45}
+        x2={closed ? 70 : 72}
+        y2={closed ? 45 : 32}
+        stroke={stroke}
+        strokeWidth={3}
+      />
+      <circle cx={50} cy={45} r={3} fill={stroke} />
+      <circle cx={70} cy={45} r={3} fill={stroke} />
+    </svg>
+  );
+}
+
 // pandapower/bus.svg — the busbar line (used small, e.g. in the palette).
 export function BusGlyph({ width = 60, stroke = "currentColor" }: { width?: number; stroke?: string }) {
   return (

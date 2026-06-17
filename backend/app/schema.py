@@ -54,12 +54,27 @@ class Load(BaseModel):
     waypoint: Point | None = None
 
 
+class Switch(BaseModel):
+    """A bus–bus switch (pandapower ``et='b'``). Closed ties the two buses into
+    one electrical node; open separates them. Single type for now (no
+    breaker/disconnector distinction)."""
+
+    id: str
+    name: str = "Switch"
+    bus_a: str = ""  # bus on handle "a" ("" while unwired)
+    bus_b: str = ""  # bus on handle "b"
+    closed: bool = True
+    x: float = 0.0
+    y: float = 0.0
+
+
 class Network(BaseModel):
     id: str
     name: str = "Untitled network"
     buses: list[Bus] = Field(default_factory=list)
     generators: list[Generator] = Field(default_factory=list)
     loads: list[Load] = Field(default_factory=list)
+    switches: list[Switch] = Field(default_factory=list)
 
 
 class NetworkSummary(BaseModel):

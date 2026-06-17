@@ -53,9 +53,13 @@ export function Canvas() {
       const target = nodes.find((n) => n.id === c.target);
       if (!source || !target) return false;
       if (target.type !== "bus") return false;
-      if (source.type !== "generator" && source.type !== "load") return false;
-      const alreadyConnected = edges.some((e) => e.source === c.source);
-      return !alreadyConnected;
+      const connectable = ["generator", "load", "switch"];
+      if (!connectable.includes(source.type ?? "")) return false;
+      // One wire per handle (switches have two handles, others one).
+      const handleTaken = edges.some(
+        (e) => e.source === c.source && e.sourceHandle === c.sourceHandle,
+      );
+      return !handleTaken;
     },
     [nodes, edges],
   );

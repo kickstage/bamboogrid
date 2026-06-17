@@ -25,7 +25,7 @@ import pandapower as pp
 import pandas as pd
 
 from .converter import build_net
-from .schema import Bus, Generator, Load, Network, Point
+from .schema import Bus, Generator, Load, Network, Point, Switch
 
 SCHEMA_VERSION = "bamboogrid/1"
 
@@ -80,6 +80,14 @@ def network_to_pp_json(network: Network) -> str:
         ],
         index=list(id_maps["load"].values()),
     )
+    switch_by_id = {s.id: s for s in network.switches}
+    net["diagram_switch"] = pd.DataFrame(
+        [
+            {"uuid": uid, "x": switch_by_id[uid].x, "y": switch_by_id[uid].y}
+            for uid in id_maps["switch"]
+        ],
+        index=list(id_maps["switch"].values()),
+    )
     net["diagram_meta"] = pd.DataFrame(
         [
             {
@@ -108,6 +116,7 @@ def pp_json_to_network(raw: str) -> Network:
     d_bus = net.get("diagram_bus")
     d_gen = net.get("diagram_ext_grid")
     d_load = net.get("diagram_load")
+    d_switch = net.get("diagram_switch")
     d_meta = net.get("diagram_meta")
 
     network_id = uuid.uuid4().hex
@@ -174,10 +183,28 @@ def pp_json_to_network(raw: str) -> Network:
             )
         )
 
+    switches: list[Switch] = []
+    for s in net.switch.index:
+        if net.switch.at[s, "et"] != "b":
+            continue  # only bus-bus switches map to our editor for now
+        lay = _layout(d_switch, s)
+        switches.append(
+            Switch(
+                id=str(lay["uuid"]) if lay is not None else uuid.uuid4().hex,
+                name=_name(net.switch.at[s, "name"], "Switch"),
+                bus_a=bus_uuid[int(net.switch.at[s, "bus"])],
+                bus_b=bus_uuid[int(net.switch.at[s, "element"])],
+                closed=bool(net.switch.at[s, "closed"]),
+                x=float(lay["x"]) if lay is not None else 0.0,
+                y=float(lay["y"]) if lay is not None else 0.0,
+            )
+        )
+
     return Network(
         id=network_id,
         name=network_name,
         buses=buses,
         generators=generators,
         loads=loads,
+        switches=switches,
     )

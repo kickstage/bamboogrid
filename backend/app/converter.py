@@ -27,6 +27,29 @@ class ConversionError(ValueError):
     """Raised when the network document cannot be turned into a valid net."""
 
 
+def _is_wired(switch) -> bool:
+    """A switch is electrically meaningful only when both ends are connected."""
+    return bool(switch.bus_a) and bool(switch.bus_b)
+
+
+def _island_roots(network: Network) -> dict[str, str]:
+    """Union-find over buses: closed switches merge their two buses into one
+    island. Returns a map bus_id -> island-root bus_id."""
+    parent: dict[str, str] = {b.id: b.id for b in network.buses}
+
+    def find(x: str) -> str:
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    for sw in network.switches:
+        if sw.closed and _is_wired(sw) and sw.bus_a in parent and sw.bus_b in parent:
+            parent[find(sw.bus_a)] = find(sw.bus_b)
+
+    return {bus_id: find(bus_id) for bus_id in parent}
+
+
 def validate(network: Network, require_slack: bool = True) -> None:
     bus_ids = {b.id for b in network.buses}
 
@@ -40,17 +63,25 @@ def validate(network: Network, require_slack: bool = True) -> None:
             raise ConversionError(
                 f"Load '{load.name}' references unknown bus '{load.bus_id}'."
             )
+    for sw in network.switches:
+        for end in (sw.bus_a, sw.bus_b):
+            if end and end not in bus_ids:
+                raise ConversionError(
+                    f"Switch '{sw.name}' references unknown bus '{end}'."
+                )
 
     if not require_slack:
         return
 
-    # Each island (a single bus, since there are no lines yet) that carries a
-    # load needs a generator/slack on it for the load flow to have a reference.
-    buses_with_gen = {g.bus_id for g in network.generators}
+    # A load needs a generator (slack) somewhere in its island. Islands are
+    # buses joined by closed switches; with an open/absent switch each bus is
+    # its own island.
+    roots = _island_roots(network)
+    islands_with_gen = {roots[g.bus_id] for g in network.generators}
     for load in network.loads:
-        if load.bus_id not in buses_with_gen:
+        if roots[load.bus_id] not in islands_with_gen:
             raise ConversionError(
-                f"Bus hosting load '{load.name}' has no generator (slack); "
+                f"Load '{load.name}' has no generator (slack) in its island; "
                 "the load flow has no voltage reference."
             )
 
@@ -87,7 +118,26 @@ def build_net(network: Network, require_slack: bool = True):
             name=load.name,
         )
 
-    id_maps = {"bus": bus_index, "ext_grid": gen_index, "load": load_index}
+    switch_index: dict[str, int] = {}
+    for sw in network.switches:
+        # Only fully-wired switches are electrically meaningful.
+        if not _is_wired(sw):
+            continue
+        switch_index[sw.id] = pp.create_switch(
+            net,
+            bus=bus_index[sw.bus_a],
+            element=bus_index[sw.bus_b],
+            et="b",
+            closed=sw.closed,
+            name=sw.name,
+        )
+
+    id_maps = {
+        "bus": bus_index,
+        "ext_grid": gen_index,
+        "load": load_index,
+        "switch": switch_index,
+    }
     return net, id_maps
 
 

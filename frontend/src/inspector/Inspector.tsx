@@ -1,6 +1,14 @@
-import { Button, Divider, NumberInput, Stack, Text, TextInput } from "@mantine/core";
+import {
+  Button,
+  Divider,
+  NumberInput,
+  Stack,
+  Switch,
+  Text,
+  TextInput,
+} from "@mantine/core";
 import { useEditor } from "../store";
-import type { BusData, GeneratorData, LoadData } from "../types";
+import type { BusData, GeneratorData, LoadData, SwitchData } from "../types";
 
 export function Inspector() {
   const { nodes, selectedId, updateNodeData, removeNode } = useEditor();
@@ -72,6 +80,14 @@ export function Inspector() {
             onChange={(v) => update({ q_mvar: Number(v) || 0 })}
           />
         </>
+      )}
+
+      {node.type === "switch" && (
+        <Switch
+          label="Closed"
+          checked={(node.data as SwitchData).closed}
+          onChange={(e) => update({ closed: e.currentTarget.checked })}
+        />
       )}
 
       {node.type === "bus" && (node.data as BusData).vm_pu !== undefined && (

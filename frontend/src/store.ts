@@ -20,6 +20,7 @@ import type {
   LoadData,
   LoadFlowResult,
   Network,
+  SwitchData,
 } from "./types";
 
 export type ElementNode = Node<ElementData>;
@@ -34,6 +35,8 @@ function defaultData(kind: ElementKind): ElementData {
       return { name: "Generator", vm_pu: 1.0 } satisfies GeneratorData;
     case "load":
       return { name: "Load", p_mw: 0.01, q_mvar: 0.0 } satisfies LoadData;
+    case "switch":
+      return { name: "Switch", closed: true } satisfies SwitchData;
   }
 }
 
@@ -222,12 +225,30 @@ export const useEditor = create<EditorState>((set, get) => ({
           waypoint: waypointOf(edge),
         };
       });
+    const switches = nodes
+      .filter((n) => n.type === "switch")
+      .map((n) => {
+        const d = n.data as SwitchData;
+        // The two wires are distinguished by their source handle id ("a"/"b").
+        const edgeA = edges.find((e) => e.source === n.id && e.sourceHandle === "a");
+        const edgeB = edges.find((e) => e.source === n.id && e.sourceHandle === "b");
+        return {
+          id: n.id,
+          name: d.name,
+          bus_a: edgeA?.target ?? "",
+          bus_b: edgeB?.target ?? "",
+          closed: d.closed,
+          x: n.position.x,
+          y: n.position.y,
+        };
+      });
     return {
       id: networkId ?? "",
       name: networkName,
       buses,
       generators,
       loads,
+      switches,
     };
   },
 
@@ -273,6 +294,30 @@ export const useEditor = create<EditorState>((set, get) => ({
           target: l.bus_id,
           type: "wire",
           data: l.waypoint ? { waypoint: l.waypoint } : undefined,
+        });
+    }
+    for (const s of network.switches ?? []) {
+      nodes.push({
+        id: s.id,
+        type: "switch",
+        position: { x: s.x, y: s.y },
+        data: { name: s.name, closed: s.closed },
+      });
+      if (s.bus_a)
+        edges.push({
+          id: `${s.id}:a->${s.bus_a}`,
+          source: s.id,
+          sourceHandle: "a",
+          target: s.bus_a,
+          type: "wire",
+        });
+      if (s.bus_b)
+        edges.push({
+          id: `${s.id}:b->${s.bus_b}`,
+          source: s.id,
+          sourceHandle: "b",
+          target: s.bus_b,
+          type: "wire",
         });
     }
     set({
