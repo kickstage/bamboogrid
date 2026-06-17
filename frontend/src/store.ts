@@ -53,6 +53,7 @@ interface EditorState {
   edges: Edge[];
   selectedId: string | null;
   message: string;
+  showResults: boolean;
 
   onNodesChange: (changes: NodeChange[]) => void;
   onEdgesChange: (changes: EdgeChange[]) => void;
@@ -68,6 +69,7 @@ interface EditorState {
   setNetworkName: (name: string) => void;
   setNetworkId: (id: string) => void;
   setMessage: (message: string) => void;
+  setShowResults: (show: boolean) => void;
   applyResults: (result: LoadFlowResult) => void;
   clearResults: () => void;
   toNetwork: () => Network;
@@ -92,6 +94,7 @@ export const useEditor = create<EditorState>((set, get) => ({
   edges: [],
   selectedId: null,
   message: "",
+  showResults: true,
 
   onNodesChange: (changes) =>
     set({ nodes: applyNodeChanges(changes, get().nodes) as ElementNode[] }),
@@ -148,42 +151,62 @@ export const useEditor = create<EditorState>((set, get) => ({
   setNetworkName: (name) => set({ networkName: name }),
   setNetworkId: (id) => set({ networkId: id }),
   setMessage: (message) => set({ message }),
+  setShowResults: (show) => set({ showResults: show }),
 
   applyResults: (result) =>
     set((s) => {
       const byBus = new Map(result.res_bus.map((r) => [r.id, r]));
+      const byGen = new Map(result.res_gen.map((r) => [r.id, r]));
+      // On a failed run, clear stale values instead of showing the last
+      // successful result (which would be misleading). Unsupplied buses come
+      // back as null — also treated as "no result".
       return {
         message: result.converged
           ? "Load flow converged."
           : `Did not converge: ${result.message}`,
         nodes: s.nodes.map((n) => {
-          if (n.type !== "bus") return n;
-          // On a failed run, clear stale values instead of showing the last
-          // successful result, which would be misleading.
-          const r = result.converged ? byBus.get(n.id) : undefined;
-          // Unsupplied buses come back as null — treat as "no result".
-          return {
-            ...n,
-            data: {
-              ...(n.data as BusData),
-              vm_pu: r?.vm_pu ?? undefined,
-              va_degree: r?.va_degree ?? undefined,
-            },
-          } as ElementNode;
+          if (n.type === "bus") {
+            const r = result.converged ? byBus.get(n.id) : undefined;
+            return {
+              ...n,
+              data: {
+                ...(n.data as BusData),
+                vm_pu: r?.vm_pu ?? undefined,
+                va_degree: r?.va_degree ?? undefined,
+              },
+            } as ElementNode;
+          }
+          if (n.type === "generator") {
+            const r = result.converged ? byGen.get(n.id) : undefined;
+            return {
+              ...n,
+              data: {
+                ...(n.data as GeneratorData),
+                res_p_mw: r?.p_mw ?? undefined,
+                res_q_mvar: r?.q_mvar ?? undefined,
+              },
+            } as ElementNode;
+          }
+          return n;
         }),
       };
     }),
 
   clearResults: () =>
     set((s) => ({
-      nodes: s.nodes.map((n) =>
-        n.type === "bus"
-          ? ({
-              ...n,
-              data: { ...(n.data as BusData), vm_pu: undefined, va_degree: undefined },
-            } as ElementNode)
-          : n,
-      ),
+      nodes: s.nodes.map((n) => {
+        if (n.type === "bus")
+          return {
+            ...n,
+            data: { ...(n.data as BusData), vm_pu: undefined, va_degree: undefined },
+          } as ElementNode;
+        if (n.type === "generator")
+          return {
+            ...n,
+            data: { ...(n.data as GeneratorData), res_p_mw: undefined, res_q_mvar: undefined },
+          } as ElementNode;
+        return n;
+      }),
     })),
 
   toNetwork: () => {

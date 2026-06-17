@@ -20,6 +20,7 @@ import pandapower as pp
 
 from .schema import (
     BusResult,
+    GenResult,
     LoadFlowResult,
     LoadResult,
     Network,
@@ -176,6 +177,14 @@ def run_load_flow(network: Network) -> LoadFlowResult:
         )
         for bus_id, idx in id_maps["bus"].items()
     ]
+    res_gen = [
+        GenResult(
+            id=gen_id,
+            p_mw=_f(net.res_gen.at[idx, "p_mw"]),
+            q_mvar=_f(net.res_gen.at[idx, "q_mvar"]),
+        )
+        for gen_id, idx in id_maps["gen"].items()
+    ]
     res_load = [
         LoadResult(
             id=load_id,
@@ -185,4 +194,6 @@ def run_load_flow(network: Network) -> LoadFlowResult:
         for load_id, idx in id_maps["load"].items()
     ]
 
-    return LoadFlowResult(converged=True, res_bus=res_bus, res_load=res_load)
+    return LoadFlowResult(
+        converged=True, res_bus=res_bus, res_gen=res_gen, res_load=res_load
+    )

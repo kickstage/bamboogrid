@@ -118,9 +118,17 @@ export function Inspector() {
       {node.type === "bus" && (node.data as BusData).vm_pu !== undefined && (
         <Text size="xs" c="dimmed">
           Result: {(node.data as BusData).vm_pu!.toFixed(4)} p.u. ·{" "}
-          {(node.data as BusData).va_degree!.toFixed(2)}°
+          {((node.data as BusData).va_degree ?? 0).toFixed(2)}°
         </Text>
       )}
+
+      {node.type === "generator" &&
+        (node.data as GeneratorData).res_p_mw !== undefined && (
+          <Text size="xs" c="dimmed">
+            Result: P {(node.data as GeneratorData).res_p_mw!.toFixed(4)} MW · Q{" "}
+            {((node.data as GeneratorData).res_q_mvar ?? 0).toFixed(4)} MVar
+          </Text>
+        )}
 
       <Divider my="xs" />
       <Button color="red" variant="light" size="xs" onClick={() => removeNode(node.id)}>

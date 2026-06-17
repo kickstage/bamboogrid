@@ -110,8 +110,17 @@ class LoadResult(BaseModel):
     q_mvar: float | None = None
 
 
+class GenResult(BaseModel):
+    id: str
+    # Active power is the setpoint for a PV gen, solved for a slack; reactive
+    # power is always solved.
+    p_mw: float | None = None
+    q_mvar: float | None = None
+
+
 class LoadFlowResult(BaseModel):
     converged: bool
     message: str = ""
     res_bus: list[BusResult] = Field(default_factory=list)
+    res_gen: list[GenResult] = Field(default_factory=list)
     res_load: list[LoadResult] = Field(default_factory=list)

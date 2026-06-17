@@ -1,5 +1,6 @@
 import { Handle, NodeResizer, Position, type NodeProps } from "@xyflow/react";
 import type { BusData } from "../types";
+import { useEditor } from "../store";
 
 export const BUS_MIN_WIDTH = 140;
 export const BUS_DEFAULT_WIDTH = 220;
@@ -16,7 +17,9 @@ function voltageColor(vm_pu?: number): string {
 
 export function BusNode({ data, selected }: NodeProps) {
   const d = data as BusData;
-  const color = voltageColor(d.vm_pu);
+  const showResults = useEditor((s) => s.showResults);
+  const hasResult = showResults && d.vm_pu !== undefined;
+  const color = hasResult ? voltageColor(d.vm_pu) : "currentColor";
 
   return (
     <div
@@ -50,10 +53,12 @@ export function BusNode({ data, selected }: NodeProps) {
         />
       </svg>
       <div style={{ fontSize: 11, fontWeight: 600 }}>{d.name}</div>
-      <div style={{ fontSize: 10, opacity: 0.65 }}>
-        {d.vn_kv} kV
-        {d.vm_pu !== undefined ? ` · ${d.vm_pu.toFixed(3)} p.u.` : ""}
-      </div>
+      <div style={{ fontSize: 10, opacity: 0.65 }}>{d.vn_kv} kV</div>
+      {hasResult && (
+        <div style={{ fontSize: 10, fontWeight: 600, color }}>
+          {d.vm_pu!.toFixed(3)} p.u. · {(d.va_degree ?? 0).toFixed(1)}°
+        </div>
+      )}
     </div>
   );
 }

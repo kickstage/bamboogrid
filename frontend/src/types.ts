@@ -19,6 +19,9 @@ export type GeneratorData = {
   vm_pu: number;
   slack: boolean;
   slack_weight: number;
+  // Filled in after a load flow (reactive power is solved).
+  res_p_mw?: number;
+  res_q_mvar?: number;
 };
 
 export type LoadData = {
@@ -97,5 +100,6 @@ export interface LoadFlowResult {
   converged: boolean;
   message: string;
   res_bus: { id: string; vm_pu: number | null; va_degree: number | null }[];
+  res_gen: { id: string; p_mw: number | null; q_mvar: number | null }[];
   res_load: { id: string; p_mw: number | null; q_mvar: number | null }[];
 }

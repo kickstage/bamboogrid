@@ -6,6 +6,7 @@ import {
   Group,
   Menu,
   Paper,
+  Switch,
   TextInput,
   Title,
   useMantineColorScheme,
@@ -37,6 +38,8 @@ export default function App() {
     toNetwork,
     loadNetwork,
     applyResults,
+    showResults,
+    setShowResults,
   } = useEditor();
   const [busy, setBusy] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -145,6 +148,12 @@ export default function App() {
             />
           </Group>
           <Group>
+            <Switch
+              size="sm"
+              label="Results"
+              checked={showResults}
+              onChange={(e) => setShowResults(e.currentTarget.checked)}
+            />
             <ActionIcon
               variant="default"
               size="lg"
