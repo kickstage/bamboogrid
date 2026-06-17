@@ -32,7 +32,13 @@ function defaultData(kind: ElementKind): ElementData {
     case "bus":
       return { name: "Bus", vn_kv: 0.4 } satisfies BusData;
     case "generator":
-      return { name: "Generator", vm_pu: 1.0 } satisfies GeneratorData;
+      return {
+        name: "Generator",
+        p_mw: 1.0,
+        vm_pu: 1.0,
+        slack: false,
+        slack_weight: 1.0,
+      } satisfies GeneratorData;
     case "load":
       return { name: "Load", p_mw: 0.01, q_mvar: 0.0 } satisfies LoadData;
     case "switch":
@@ -155,12 +161,13 @@ export const useEditor = create<EditorState>((set, get) => ({
           // On a failed run, clear stale values instead of showing the last
           // successful result, which would be misleading.
           const r = result.converged ? byBus.get(n.id) : undefined;
+          // Unsupplied buses come back as null — treat as "no result".
           return {
             ...n,
             data: {
               ...(n.data as BusData),
-              vm_pu: r?.vm_pu,
-              va_degree: r?.va_degree,
+              vm_pu: r?.vm_pu ?? undefined,
+              va_degree: r?.va_degree ?? undefined,
             },
           } as ElementNode;
         }),
@@ -203,7 +210,10 @@ export const useEditor = create<EditorState>((set, get) => ({
           id: n.id,
           name: d.name,
           bus_id: edge?.target ?? "",
+          p_mw: d.p_mw,
           vm_pu: d.vm_pu,
+          slack: d.slack,
+          slack_weight: d.slack_weight,
           x: n.position.x,
           y: n.position.y,
           waypoint: waypointOf(edge),
@@ -269,7 +279,13 @@ export const useEditor = create<EditorState>((set, get) => ({
         id: g.id,
         type: "generator",
         position: { x: g.x, y: g.y },
-        data: { name: g.name, vm_pu: g.vm_pu },
+        data: {
+          name: g.name,
+          p_mw: g.p_mw,
+          vm_pu: g.vm_pu,
+          slack: g.slack,
+          slack_weight: g.slack_weight,
+        },
       });
       if (g.bus_id)
         edges.push({

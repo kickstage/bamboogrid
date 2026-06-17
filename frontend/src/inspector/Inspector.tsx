@@ -53,14 +53,39 @@ export function Inspector() {
       )}
 
       {node.type === "generator" && (
-        <NumberInput
-          label="Voltage setpoint (p.u.)"
-          value={(node.data as GeneratorData).vm_pu}
-          min={0}
-          step={0.01}
-          decimalScale={3}
-          onChange={(v) => update({ vm_pu: Number(v) || 0 })}
-        />
+        <>
+          <NumberInput
+            label="Active power (MW)"
+            value={(node.data as GeneratorData).p_mw}
+            step={0.001}
+            decimalScale={4}
+            onChange={(v) => update({ p_mw: Number(v) || 0 })}
+          />
+          <NumberInput
+            label="Voltage setpoint (p.u.)"
+            value={(node.data as GeneratorData).vm_pu}
+            min={0}
+            step={0.01}
+            decimalScale={3}
+            onChange={(v) => update({ vm_pu: Number(v) || 0 })}
+          />
+          <Switch
+            label="Slack (voltage reference)"
+            checked={(node.data as GeneratorData).slack}
+            onChange={(e) => update({ slack: e.currentTarget.checked })}
+          />
+          {(node.data as GeneratorData).slack && (
+            <NumberInput
+              label="Slack priority (weight)"
+              description="Higher share of balancing when multiple slacks"
+              value={(node.data as GeneratorData).slack_weight}
+              min={0}
+              step={0.1}
+              decimalScale={2}
+              onChange={(v) => update({ slack_weight: Number(v) || 0 })}
+            />
+          )}
+        </>
       )}
 
       {node.type === "load" && (

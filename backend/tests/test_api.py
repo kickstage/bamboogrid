@@ -25,7 +25,9 @@ def one_bus_payload():
         "id": "ignored",
         "name": "one-bus",
         "buses": [{"id": "b1", "name": "Bus", "vn_kv": 0.4}],
-        "generators": [{"id": "g1", "bus_id": "b1", "vm_pu": 1.0}],
+        "generators": [
+            {"id": "g1", "bus_id": "b1", "p_mw": 0.0, "vm_pu": 1.0, "slack": True}
+        ],
         "loads": [{"id": "l1", "bus_id": "b1", "p_mw": 0.01, "q_mvar": 0.0}],
     }
 
@@ -49,7 +51,7 @@ def test_create_get_and_run(client):
 
 def test_run_adhoc_non_converging(client):
     payload = one_bus_payload()
-    payload["generators"] = []  # load with no slack reference
+    payload["generators"] = []  # load with no voltage reference
     run = client.post("/run-loadflow", json=payload)
     assert run.status_code == 200
     assert run.json()["converged"] is False

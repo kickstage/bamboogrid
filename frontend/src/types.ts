@@ -15,7 +15,10 @@ export type BusData = {
 
 export type GeneratorData = {
   name: string;
+  p_mw: number;
   vm_pu: number;
+  slack: boolean;
+  slack_weight: number;
 };
 
 export type LoadData = {
@@ -46,7 +49,10 @@ export interface Generator {
   id: string;
   name: string;
   bus_id: string;
+  p_mw: number;
   vm_pu: number;
+  slack: boolean;
+  slack_weight: number;
   x: number;
   y: number;
   waypoint?: { x: number; y: number } | null;
@@ -90,6 +96,6 @@ export interface NetworkSummary {
 export interface LoadFlowResult {
   converged: boolean;
   message: string;
-  res_bus: { id: string; vm_pu: number; va_degree: number }[];
-  res_load: { id: string; p_mw: number; q_mvar: number }[];
+  res_bus: { id: string; vm_pu: number | null; va_degree: number | null }[];
+  res_load: { id: string; p_mw: number | null; q_mvar: number | null }[];
 }

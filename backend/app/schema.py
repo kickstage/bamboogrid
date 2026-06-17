@@ -32,10 +32,20 @@ class Bus(BaseModel):
 
 
 class Generator(BaseModel):
+    """A dispatched generating unit — pandapower ``gen`` (a PV bus): you set its
+    active power output and voltage setpoint; reactive power is solved. It is
+    NOT a voltage reference on its own; the network still needs an ExtGrid."""
+
     id: str
     name: str = "Generator"
-    bus_id: str
+    bus_id: str = ""
+    p_mw: float = Field(default=1.0, description="Active power output [MW]")
     vm_pu: float = Field(default=1.0, gt=0, description="Voltage setpoint [p.u.]")
+    # When slack=True this generator is a voltage reference. slack_weight is the
+    # priority used to share the balancing power across multiple slacks
+    # (distributed slack).
+    slack: bool = False
+    slack_weight: float = Field(default=1.0, ge=0)
     x: float = 0.0
     y: float = 0.0
     # Optional routing waypoint for this element's wire (visual only).
@@ -45,7 +55,7 @@ class Generator(BaseModel):
 class Load(BaseModel):
     id: str
     name: str = "Load"
-    bus_id: str
+    bus_id: str = ""
     p_mw: float = Field(default=0.0, description="Active power [MW]")
     q_mvar: float = Field(default=0.0, description="Reactive power [MVar]")
     x: float = 0.0
@@ -89,14 +99,15 @@ class NetworkSummary(BaseModel):
 
 class BusResult(BaseModel):
     id: str
-    vm_pu: float
-    va_degree: float
+    # None when the bus is unsupplied (e.g. an island with no slack → NaN).
+    vm_pu: float | None = None
+    va_degree: float | None = None
 
 
 class LoadResult(BaseModel):
     id: str
-    p_mw: float
-    q_mvar: float
+    p_mw: float | None = None
+    q_mvar: float | None = None
 
 
 class LoadFlowResult(BaseModel):

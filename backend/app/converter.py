@@ -13,6 +13,9 @@ Validation rules for iteration 1:
 
 from __future__ import annotations
 
+import math
+from collections import Counter
+
 import pandapower as pp
 
 from .schema import (
@@ -50,19 +53,21 @@ def _island_roots(network: Network) -> dict[str, str]:
     return {bus_id: find(bus_id) for bus_id in parent}
 
 
-def validate(network: Network, require_slack: bool = True) -> None:
+def validate(network: Network) -> None:
+    """Structural checks only. We deliberately do NOT require a slack/reference:
+    a net that won't solve is a valid thing to draw and explore — it simply
+    comes back as not-converged. Unwired elements (no bus_id) are skipped."""
     bus_ids = {b.id for b in network.buses}
 
-    for gen in network.generators:
-        if gen.bus_id not in bus_ids:
-            raise ConversionError(
-                f"Generator '{gen.name}' references unknown bus '{gen.bus_id}'."
-            )
-    for load in network.loads:
-        if load.bus_id not in bus_ids:
-            raise ConversionError(
-                f"Load '{load.name}' references unknown bus '{load.bus_id}'."
-            )
+    for kind, items in (
+        ("Generator", network.generators),
+        ("Load", network.loads),
+    ):
+        for el in items:
+            if el.bus_id and el.bus_id not in bus_ids:
+                raise ConversionError(
+                    f"{kind} '{el.name}' references unknown bus '{el.bus_id}'."
+                )
     for sw in network.switches:
         for end in (sw.bus_a, sw.bus_b):
             if end and end not in bus_ids:
@@ -70,30 +75,11 @@ def validate(network: Network, require_slack: bool = True) -> None:
                     f"Switch '{sw.name}' references unknown bus '{end}'."
                 )
 
-    if not require_slack:
-        return
 
-    # A load needs a generator (slack) somewhere in its island. Islands are
-    # buses joined by closed switches; with an open/absent switch each bus is
-    # its own island.
-    roots = _island_roots(network)
-    islands_with_gen = {roots[g.bus_id] for g in network.generators}
-    for load in network.loads:
-        if roots[load.bus_id] not in islands_with_gen:
-            raise ConversionError(
-                f"Load '{load.name}' has no generator (slack) in its island; "
-                "the load flow has no voltage reference."
-            )
-
-
-def build_net(network: Network, require_slack: bool = True):
+def build_net(network: Network):
     """Build a pandapower net. Returns ``(net, id_maps)`` where ``id_maps`` maps
-    editor element ids to pandapower element indices, per element table.
-
-    ``require_slack`` enforces the load-flow voltage-reference rule; export uses
-    ``False`` so an in-progress (not-yet-solvable) diagram can still be saved.
-    """
-    validate(network, require_slack=require_slack)
+    editor element ids to pandapower element indices, per element table."""
+    validate(network)
 
     net = pp.create_empty_network(name=network.name)
 
@@ -101,15 +87,26 @@ def build_net(network: Network, require_slack: bool = True):
     for bus in network.buses:
         bus_index[bus.id] = pp.create_bus(net, vn_kv=bus.vn_kv, name=bus.name)
 
+    # Generators are pandapower gens: PV by default, or a weighted slack when
+    # marked. slack_weight sets the distributed-slack priority.
     gen_index: dict[str, int] = {}
     for gen in network.generators:
-        # Mapped to an external grid (slack) for iteration 1.
-        gen_index[gen.id] = pp.create_ext_grid(
-            net, bus=bus_index[gen.bus_id], vm_pu=gen.vm_pu, name=gen.name
+        if gen.bus_id not in bus_index:
+            continue
+        gen_index[gen.id] = pp.create_gen(
+            net,
+            bus=bus_index[gen.bus_id],
+            p_mw=gen.p_mw,
+            vm_pu=gen.vm_pu,
+            name=gen.name,
+            slack=gen.slack,
+            slack_weight=gen.slack_weight,
         )
 
     load_index: dict[str, int] = {}
     for load in network.loads:
+        if load.bus_id not in bus_index:
+            continue
         load_index[load.id] = pp.create_load(
             net,
             bus=bus_index[load.bus_id],
@@ -134,7 +131,7 @@ def build_net(network: Network, require_slack: bool = True):
 
     id_maps = {
         "bus": bus_index,
-        "ext_grid": gen_index,
+        "gen": gen_index,
         "load": load_index,
         "switch": switch_index,
     }
@@ -147,8 +144,17 @@ def run_load_flow(network: Network) -> LoadFlowResult:
     except ConversionError as exc:
         return LoadFlowResult(converged=False, message=str(exc))
 
+    # Distributed slack shares balancing across weighted slacks, but it trips on
+    # degenerate single-node nets and isn't needed when each island has its own
+    # single reference — only enable it when an island holds more than one slack.
+    roots = _island_roots(network)
+    slack_buses = [
+        g.bus_id for g in network.generators if g.slack and g.bus_id in roots
+    ]
+    counts = Counter(roots[b] for b in slack_buses)
+    distributed = any(c > 1 for c in counts.values())
     try:
-        pp.runpp(net)
+        pp.runpp(net, distributed_slack=distributed)
     except pp.LoadflowNotConverged:
         return LoadFlowResult(
             converged=False, message="Load flow did not converge."
@@ -156,19 +162,25 @@ def run_load_flow(network: Network) -> LoadFlowResult:
     except Exception as exc:  # noqa: BLE001 - surface solver errors to the UI
         return LoadFlowResult(converged=False, message=f"Solver error: {exc}")
 
+    # Unsupplied buses (e.g. an island with no slack) come back as NaN, which is
+    # not valid JSON — map those to None.
+    def _f(value) -> float | None:
+        value = float(value)
+        return None if math.isnan(value) else value
+
     res_bus = [
         BusResult(
             id=bus_id,
-            vm_pu=float(net.res_bus.at[idx, "vm_pu"]),
-            va_degree=float(net.res_bus.at[idx, "va_degree"]),
+            vm_pu=_f(net.res_bus.at[idx, "vm_pu"]),
+            va_degree=_f(net.res_bus.at[idx, "va_degree"]),
         )
         for bus_id, idx in id_maps["bus"].items()
     ]
     res_load = [
         LoadResult(
             id=load_id,
-            p_mw=float(net.res_load.at[idx, "p_mw"]),
-            q_mvar=float(net.res_load.at[idx, "q_mvar"]),
+            p_mw=_f(net.res_load.at[idx, "p_mw"]),
+            q_mvar=_f(net.res_load.at[idx, "q_mvar"]),
         )
         for load_id, idx in id_maps["load"].items()
     ]
