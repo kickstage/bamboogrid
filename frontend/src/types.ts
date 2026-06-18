@@ -95,11 +95,6 @@ export interface Network {
   switches: Switch[];
 }
 
-export interface NetworkSummary {
-  id: string;
-  name: string;
-}
-
 export interface LoadFlowResult {
   converged: boolean;
   message: string;

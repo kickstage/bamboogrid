@@ -69,7 +69,6 @@ interface EditorState {
   setEdgeWaypoint: (id: string, point: { x: number; y: number } | null) => void;
   select: (id: string | null) => void;
   setNetworkName: (name: string) => void;
-  setNetworkId: (id: string) => void;
   setMessage: (message: string) => void;
   setShowResults: (show: boolean) => void;
   applyResults: (result: LoadFlowResult) => void;
@@ -152,7 +151,6 @@ export const useEditor = create<EditorState>((set, get) => ({
 
   select: (id) => set({ selectedId: id }),
   setNetworkName: (name) => set({ networkName: name }),
-  setNetworkId: (id) => set({ networkId: id }),
   setMessage: (message) => set({ message }),
   setShowResults: (show) => set({ showResults: show }),
 

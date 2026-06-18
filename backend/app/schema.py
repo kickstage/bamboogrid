@@ -93,13 +93,6 @@ class Network(BaseModel):
     switches: list[Switch] = Field(default_factory=list)
 
 
-class NetworkSummary(BaseModel):
-    """Lightweight entry for the list endpoint."""
-
-    id: str
-    name: str
-
-
 # --- Load-flow result types ------------------------------------------------
 
 

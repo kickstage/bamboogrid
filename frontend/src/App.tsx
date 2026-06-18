@@ -4,7 +4,6 @@ import {
   Alert,
   Button,
   Group,
-  Menu,
   Paper,
   Switch,
   TextInput,
@@ -18,21 +17,12 @@ import { Canvas } from "./canvas/Canvas";
 import { Inspector } from "./inspector/Inspector";
 import { Palette } from "./palette/Palette";
 import { useEditor } from "./store";
-import {
-  createNetwork,
-  exportPandapower,
-  importPandapower,
-  runLoadFlow,
-  updateNetwork,
-} from "./api";
-import type { Network } from "./types";
+import { exportPandapower, importPandapower, runLoadFlow } from "./api";
 
 export default function App() {
   const {
-    networkId,
     networkName,
     setNetworkName,
-    setNetworkId,
     setMessage,
     message,
     toNetwork,
@@ -42,42 +32,33 @@ export default function App() {
     setShowResults,
   } = useEditor();
   const [busy, setBusy] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const ppInputRef = useRef<HTMLInputElement>(null);
   const { setColorScheme } = useMantineColorScheme();
   const scheme = useComputedColorScheme("light");
   const toggleScheme = () => setColorScheme(scheme === "dark" ? "light" : "dark");
 
-  const download = (text: string, filename: string) => {
-    const url = URL.createObjectURL(new Blob([text], { type: "application/json" }));
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = filename;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
-  // Download the current network as a portable .json file (no server needed).
-  const onExport = () => {
-    download(JSON.stringify(toNetwork(), null, 2), `${networkName || "network"}.json`);
-  };
-
-  // Export as a single pandapower JSON (valid net + diagram_* layout tables).
-  const onExportPp = async () => {
+  // Export the current network as a single pandapower JSON (valid net +
+  // diagram_* layout tables) and download it.
+  const onExport = async () => {
     setBusy(true);
     try {
       const text = await exportPandapower(toNetwork());
-      download(text, `${networkName || "network"}.pp.json`);
+      const url = URL.createObjectURL(new Blob([text], { type: "application/json" }));
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${networkName || "network"}.pp.json`;
+      a.click();
+      URL.revokeObjectURL(url);
       setMessage("Exported pandapower net.");
     } catch (err) {
-      setMessage(`pandapower export failed: ${(err as Error).message}`);
+      setMessage(`Export failed: ${(err as Error).message}`);
     } finally {
       setBusy(false);
     }
   };
 
   // Import a pandapower JSON (ours or a plain pandapower net) into the editor.
-  const onImportPpFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const onImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = "";
     if (!file) return;
@@ -85,26 +66,11 @@ export default function App() {
     try {
       const network = await importPandapower(await file.text());
       loadNetwork(network);
-      setMessage(`Imported pandapower net "${file.name}".`);
+      setMessage(`Imported "${file.name}".`);
     } catch (err) {
-      setMessage(`pandapower import failed: ${(err as Error).message}`);
+      setMessage(`Import failed: ${(err as Error).message}`);
     } finally {
       setBusy(false);
-    }
-  };
-
-  // Open a previously exported .json file back into the editor.
-  const onOpenFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    e.target.value = ""; // allow re-opening the same file later
-    if (!file) return;
-    try {
-      const network = JSON.parse(await file.text()) as Network;
-      if (!Array.isArray(network.buses)) throw new Error("Not a network file");
-      loadNetwork(network);
-      setMessage(`Opened "${file.name}".`);
-    } catch (err) {
-      setMessage(`Open failed: ${(err as Error).message}`);
     }
   };
 
@@ -115,20 +81,6 @@ export default function App() {
       applyResults(result);
     } catch (err) {
       setMessage(`Request failed: ${(err as Error).message}`);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const onSave = async () => {
-    setBusy(true);
-    try {
-      const doc = toNetwork();
-      const saved = networkId ? await updateNetwork(doc) : await createNetwork(doc);
-      setNetworkId(saved.id);
-      setMessage(`Saved (${saved.id}).`);
-    } catch (err) {
-      setMessage(`Save failed: ${(err as Error).message}`);
     } finally {
       setBusy(false);
     }
@@ -164,44 +116,22 @@ export default function App() {
               {scheme === "dark" ? "☀️" : "🌙"}
             </ActionIcon>
             <input
-              ref={fileInputRef}
-              type="file"
-              accept="application/json,.json"
-              style={{ display: "none" }}
-              onChange={onOpenFile}
-            />
-            <input
               ref={ppInputRef}
               type="file"
               accept="application/json,.json"
               style={{ display: "none" }}
-              onChange={onImportPpFile}
+              onChange={onImportFile}
             />
             <Button
               variant="default"
               size="xs"
-              onClick={() => fileInputRef.current?.click()}
+              loading={busy}
+              onClick={() => ppInputRef.current?.click()}
             >
-              Open JSON
+              Import
             </Button>
-            <Button variant="default" size="xs" onClick={onExport}>
-              Export JSON
-            </Button>
-            <Menu position="bottom-end" withinPortal>
-              <Menu.Target>
-                <Button variant="default" size="xs" loading={busy}>
-                  pandapower ▾
-                </Button>
-              </Menu.Target>
-              <Menu.Dropdown>
-                <Menu.Item onClick={onExportPp}>Export as pandapower net…</Menu.Item>
-                <Menu.Item onClick={() => ppInputRef.current?.click()}>
-                  Import pandapower net…
-                </Menu.Item>
-              </Menu.Dropdown>
-            </Menu>
-            <Button variant="default" size="xs" onClick={onSave} loading={busy}>
-              Save to server
+            <Button variant="default" size="xs" loading={busy} onClick={onExport}>
+              Export
             </Button>
             <Button size="xs" onClick={onRun} loading={busy}>
               Run load flow
