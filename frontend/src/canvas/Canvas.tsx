@@ -93,6 +93,8 @@ export function Canvas() {
       colorMode={colorScheme}
       defaultEdgeOptions={{ type: "wire" }}
       deleteKeyCode={["Backspace", "Delete"]}
+      minZoom={0.05}
+      maxZoom={4}
       fitView
     >
       <Background />

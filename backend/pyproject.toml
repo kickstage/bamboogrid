@@ -8,6 +8,7 @@ dependencies = [
     "uvicorn[standard]>=0.29",
     "pydantic>=2.6",
     "pandapower>=2.14",
+    "networkx>=3.0",
 ]
 
 [project.optional-dependencies]

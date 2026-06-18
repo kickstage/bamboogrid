@@ -24,6 +24,7 @@ import uuid
 import pandapower as pp
 import pandas as pd
 
+from .autolayout import auto_layout
 from .converter import build_net
 from .schema import Bus, Generator, Load, Network, Point, Switch
 
@@ -124,10 +125,21 @@ def pp_json_to_network(raw: str) -> Network:
         network_id = str(row.get("network_id") or network_id)
         network_name = str(row.get("network_name") or network_name)
 
+    # A foreign net (no editor diagram tables) gets an auto-generated layout so
+    # everything doesn't pile at the origin.
+    auto = auto_layout(net) if d_bus is None else None
+
     def _layout(table, idx):
         if table is None or idx not in table.index:
             return None
         return table.loc[idx]
+
+    def _pos(lay, table: str, idx: int) -> tuple[float, float]:
+        if lay is not None:
+            return float(lay["x"]), float(lay["y"])
+        if auto is not None:
+            return auto[table].get(idx, (0.0, 0.0))
+        return 0.0, 0.0
 
     def _name(value, default: str) -> str:
         return str(value) if isinstance(value, str) and value else default
@@ -145,13 +157,14 @@ def pp_json_to_network(raw: str) -> Network:
         lay = _layout(d_bus, i)
         uid = str(lay["uuid"]) if lay is not None else uuid.uuid4().hex
         bus_uuid[i] = uid
+        bx, by = _pos(lay, "bus", i)
         buses.append(
             Bus(
                 id=uid,
                 name=_name(net.bus.at[i, "name"], "Bus"),
                 vn_kv=float(net.bus.at[i, "vn_kv"]),
-                x=float(lay["x"]) if lay is not None else 0.0,
-                y=float(lay["y"]) if lay is not None else 0.0,
+                x=bx,
+                y=by,
                 width=float(lay["width"]) if lay is not None else 220.0,
             )
         )
@@ -169,8 +182,8 @@ def pp_json_to_network(raw: str) -> Network:
                 slack=bool(net.gen.at[j, "slack"]),
                 slack_weight=float(net.gen.at[j, "slack_weight"]),
                 port=_col(lay, "port"),
-                x=float(lay["x"]) if lay is not None else 0.0,
-                y=float(lay["y"]) if lay is not None else 0.0,
+                x=_pos(lay, "gen", j)[0],
+                y=_pos(lay, "gen", j)[1],
                 waypoint=_parse_waypoint(lay["waypoint_json"]) if lay is not None else None,
             )
         )
@@ -178,6 +191,7 @@ def pp_json_to_network(raw: str) -> Network:
     # We no longer have an external-grid element. A foreign net's ext_grid is
     # the slack, so import it as a slack generator to keep the reference.
     for j in net.ext_grid.index:
+        ex, ey = _pos(None, "ext_grid", j)
         generators.append(
             Generator(
                 id=uuid.uuid4().hex,
@@ -186,6 +200,8 @@ def pp_json_to_network(raw: str) -> Network:
                 p_mw=0.0,
                 vm_pu=float(net.ext_grid.at[j, "vm_pu"]),
                 slack=True,
+                x=ex,
+                y=ey,
             )
         )
 
@@ -200,8 +216,8 @@ def pp_json_to_network(raw: str) -> Network:
                 p_mw=float(net.load.at[k, "p_mw"]),
                 q_mvar=float(net.load.at[k, "q_mvar"]),
                 port=_col(lay, "port"),
-                x=float(lay["x"]) if lay is not None else 0.0,
-                y=float(lay["y"]) if lay is not None else 0.0,
+                x=_pos(lay, "load", k)[0],
+                y=_pos(lay, "load", k)[1],
                 waypoint=_parse_waypoint(lay["waypoint_json"]) if lay is not None else None,
             )
         )
@@ -220,8 +236,8 @@ def pp_json_to_network(raw: str) -> Network:
                 closed=bool(net.switch.at[s, "closed"]),
                 port_a=_col(lay, "port_a"),
                 port_b=_col(lay, "port_b"),
-                x=float(lay["x"]) if lay is not None else 0.0,
-                y=float(lay["y"]) if lay is not None else 0.0,
+                x=_pos(lay, "switch", s)[0],
+                y=_pos(lay, "switch", s)[1],
             )
         )
 
