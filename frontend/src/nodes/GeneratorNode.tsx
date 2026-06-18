@@ -15,8 +15,9 @@ export function GeneratorNode({ data, selected }: NodeProps) {
         {d.p_mw} MW{d.slack ? ` · slack ${d.slack_weight}` : ""}
       </div>
       {hasResult && (
-        <div style={{ fontSize: 9, fontWeight: 600, color: "#0ea5e9" }}>
-          P {d.res_p_mw!.toFixed(3)} · Q {(d.res_q_mvar ?? 0).toFixed(3)}
+        <div style={{ fontSize: 9, fontWeight: 600, color: "#0ea5e9", lineHeight: 1.2 }}>
+          <div>P {d.res_p_mw!.toFixed(3)} MW</div>
+          <div>Q {(d.res_q_mvar ?? 0).toFixed(3)} Mvar</div>
         </div>
       )}
       <Handle type="source" position={Position.Bottom} style={{ background: "currentColor" }} />

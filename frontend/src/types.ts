@@ -56,6 +56,7 @@ export interface Generator {
   vm_pu: number;
   slack: boolean;
   slack_weight: number;
+  port?: string;
   x: number;
   y: number;
   waypoint?: { x: number; y: number } | null;
@@ -67,6 +68,7 @@ export interface Load {
   bus_id: string;
   p_mw: number;
   q_mvar: number;
+  port?: string;
   x: number;
   y: number;
   waypoint?: { x: number; y: number } | null;
@@ -78,6 +80,8 @@ export interface Switch {
   bus_a: string;
   bus_b: string;
   closed: boolean;
+  port_a?: string;
+  port_b?: string;
   x: number;
   y: number;
 }

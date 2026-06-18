@@ -54,35 +54,32 @@ export function LoadGlyph({ size = 50, stroke = "currentColor" }: GlyphProps) {
   );
 }
 
-// pandapower/switch.svg — two terminals with a lever; closed = horizontal,
-// open = lever lifted (a visible gap).
+// A simple square switch sign with short leads: filled = closed, hollow = open.
 export function SwitchGlyph({
-  size = 56,
+  size = 48,
   stroke = "currentColor",
   closed = true,
 }: GlyphProps & { closed?: boolean }) {
   return (
     <svg
       width={size}
-      height={(size * 26) / 72}
-      viewBox="24 28 72 26"
+      height={size / 2}
+      viewBox="0 0 40 20"
       aria-hidden
       style={{ display: "block", margin: "0 auto" }}
     >
-      {/* terminal leads */}
-      <line x1={25} y1={45} x2={50} y2={45} stroke={stroke} strokeWidth={3} />
-      <line x1={70} y1={45} x2={95} y2={45} stroke={stroke} strokeWidth={3} />
-      {/* lever */}
-      <line
-        x1={50}
-        y1={45}
-        x2={closed ? 70 : 72}
-        y2={closed ? 45 : 32}
+      <line x1={0} y1={10} x2={12} y2={10} stroke={stroke} strokeWidth={2} />
+      <line x1={28} y1={10} x2={40} y2={10} stroke={stroke} strokeWidth={2} />
+      <rect
+        x={12}
+        y={2}
+        width={16}
+        height={16}
+        rx={2}
+        fill={closed ? stroke : "none"}
         stroke={stroke}
-        strokeWidth={3}
+        strokeWidth={2}
       />
-      <circle cx={50} cy={45} r={3} fill={stroke} />
-      <circle cx={70} cy={45} r={3} fill={stroke} />
     </svg>
   );
 }

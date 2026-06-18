@@ -33,7 +33,7 @@ export function Inspector() {
   return (
     <Stack gap="sm" p="sm">
       <Text size="sm" fw={700} c="dimmed">
-        {node.type?.toUpperCase()}
+        {node.type === "bus" ? "BUS BAR" : node.type?.toUpperCase()}
       </Text>
       <TextInput
         label="Name"
@@ -125,8 +125,8 @@ export function Inspector() {
       {node.type === "generator" &&
         (node.data as GeneratorData).res_p_mw !== undefined && (
           <Text size="xs" c="dimmed">
-            Result: P {(node.data as GeneratorData).res_p_mw!.toFixed(4)} MW · Q{" "}
-            {((node.data as GeneratorData).res_q_mvar ?? 0).toFixed(4)} MVar
+            Result: P {(node.data as GeneratorData).res_p_mw!.toFixed(4)} MW,
+            Q {((node.data as GeneratorData).res_q_mvar ?? 0).toFixed(4)} Mvar
           </Text>
         )}
 

@@ -56,6 +56,7 @@ def network_to_pp_json(network: Network) -> str:
                     "uuid": uid,
                     "x": by_id[uid].x,
                     "y": by_id[uid].y,
+                    "port": by_id[uid].port,
                     "waypoint_json": _waypoint_json(by_id[uid].waypoint),
                 }
                 for uid in id_map
@@ -71,22 +72,17 @@ def network_to_pp_json(network: Network) -> str:
         index=list(id_maps["bus"].values()),
     )
     net["diagram_gen"] = _component_rows(gen_by_id, id_maps["gen"])
-    net["diagram_load"] = pd.DataFrame(
-        [
-            {
-                "uuid": uid,
-                "x": load_by_id[uid].x,
-                "y": load_by_id[uid].y,
-                "waypoint_json": _waypoint_json(load_by_id[uid].waypoint),
-            }
-            for uid in id_maps["load"]
-        ],
-        index=list(id_maps["load"].values()),
-    )
+    net["diagram_load"] = _component_rows(load_by_id, id_maps["load"])
     switch_by_id = {s.id: s for s in network.switches}
     net["diagram_switch"] = pd.DataFrame(
         [
-            {"uuid": uid, "x": switch_by_id[uid].x, "y": switch_by_id[uid].y}
+            {
+                "uuid": uid,
+                "x": switch_by_id[uid].x,
+                "y": switch_by_id[uid].y,
+                "port_a": switch_by_id[uid].port_a,
+                "port_b": switch_by_id[uid].port_b,
+            }
             for uid in id_maps["switch"]
         ],
         index=list(id_maps["switch"].values()),
@@ -136,6 +132,12 @@ def pp_json_to_network(raw: str) -> Network:
     def _name(value, default: str) -> str:
         return str(value) if isinstance(value, str) and value else default
 
+    def _col(lay, key: str) -> str:
+        if lay is None or key not in lay:
+            return ""
+        value = lay[key]
+        return str(value) if isinstance(value, str) else ""
+
     # Buses, building the pandapower-index -> our-uuid map for the references.
     bus_uuid: dict[int, str] = {}
     buses: list[Bus] = []
@@ -166,6 +168,7 @@ def pp_json_to_network(raw: str) -> Network:
                 vm_pu=float(net.gen.at[j, "vm_pu"]),
                 slack=bool(net.gen.at[j, "slack"]),
                 slack_weight=float(net.gen.at[j, "slack_weight"]),
+                port=_col(lay, "port"),
                 x=float(lay["x"]) if lay is not None else 0.0,
                 y=float(lay["y"]) if lay is not None else 0.0,
                 waypoint=_parse_waypoint(lay["waypoint_json"]) if lay is not None else None,
@@ -196,6 +199,7 @@ def pp_json_to_network(raw: str) -> Network:
                 bus_id=bus_uuid[int(net.load.at[k, "bus"])],
                 p_mw=float(net.load.at[k, "p_mw"]),
                 q_mvar=float(net.load.at[k, "q_mvar"]),
+                port=_col(lay, "port"),
                 x=float(lay["x"]) if lay is not None else 0.0,
                 y=float(lay["y"]) if lay is not None else 0.0,
                 waypoint=_parse_waypoint(lay["waypoint_json"]) if lay is not None else None,
@@ -214,6 +218,8 @@ def pp_json_to_network(raw: str) -> Network:
                 bus_a=bus_uuid[int(net.switch.at[s, "bus"])],
                 bus_b=bus_uuid[int(net.switch.at[s, "element"])],
                 closed=bool(net.switch.at[s, "closed"]),
+                port_a=_col(lay, "port_a"),
+                port_b=_col(lay, "port_b"),
                 x=float(lay["x"]) if lay is not None else 0.0,
                 y=float(lay["y"]) if lay is not None else 0.0,
             )

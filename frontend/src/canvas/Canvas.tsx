@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useEffect } from "react";
 import { useComputedColorScheme } from "@mantine/core";
 import {
   Background,
@@ -25,9 +25,17 @@ export function Canvas() {
     onConnect,
     addNode,
     select,
+    fitSignal,
   } = useEditor();
-  const { screenToFlowPosition } = useReactFlow();
+  const { screenToFlowPosition, fitView } = useReactFlow();
   const colorScheme = useComputedColorScheme("light");
+
+  // After a network is loaded (import / open), bring it into view.
+  useEffect(() => {
+    if (!fitSignal) return;
+    const t = setTimeout(() => fitView({ padding: 0.2, duration: 300 }), 60);
+    return () => clearTimeout(t);
+  }, [fitSignal, fitView]);
 
   const onDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -55,11 +63,15 @@ export function Canvas() {
       if (target.type !== "bus") return false;
       const connectable = ["generator", "load", "switch"];
       if (!connectable.includes(source.type ?? "")) return false;
-      // One wire per handle (switches have two handles, others one).
-      const handleTaken = edges.some(
+      // One wire per source handle (switches have two handles, others one)...
+      const sourceTaken = edges.some(
         (e) => e.source === c.source && e.sourceHandle === c.sourceHandle,
       );
-      return !handleTaken;
+      // ...and one wire per bus port (no two elements on the same port).
+      const portTaken = edges.some(
+        (e) => e.target === c.target && e.targetHandle === c.targetHandle,
+      );
+      return !sourceTaken && !portTaken;
     },
     [nodes, edges],
   );

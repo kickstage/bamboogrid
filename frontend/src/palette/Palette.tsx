@@ -3,7 +3,7 @@ import type { ElementKind } from "../types";
 import { BusGlyph, GeneratorGlyph, LoadGlyph, SwitchGlyph } from "../nodes/glyphs";
 
 const ITEMS: { kind: ElementKind; label: string; hint: string }[] = [
-  { kind: "bus", label: "Bus", hint: "Node — components attach here" },
+  { kind: "bus", label: "Bus bar", hint: "Node — components attach here" },
   { kind: "generator", label: "Generator", hint: "Sets P + voltage; can be slack" },
   { kind: "load", label: "Load", hint: "Consumes power" },
   { kind: "switch", label: "Switch", hint: "Ties two buses (open/closed)" },

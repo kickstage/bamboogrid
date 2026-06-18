@@ -30,7 +30,7 @@ const newId = () => crypto.randomUUID();
 function defaultData(kind: ElementKind): ElementData {
   switch (kind) {
     case "bus":
-      return { name: "Bus", vn_kv: 0.4 } satisfies BusData;
+      return { name: "Bus bar", vn_kv: 0.4 } satisfies BusData;
     case "generator":
       return {
         name: "Generator",
@@ -54,6 +54,8 @@ interface EditorState {
   selectedId: string | null;
   message: string;
   showResults: boolean;
+  // Bumped whenever a network is loaded, so the canvas can re-fit the view.
+  fitSignal: number;
 
   onNodesChange: (changes: NodeChange[]) => void;
   onEdgesChange: (changes: EdgeChange[]) => void;
@@ -95,6 +97,7 @@ export const useEditor = create<EditorState>((set, get) => ({
   selectedId: null,
   message: "",
   showResults: true,
+  fitSignal: 0,
 
   onNodesChange: (changes) =>
     set({ nodes: applyNodeChanges(changes, get().nodes) as ElementNode[] }),
@@ -237,6 +240,7 @@ export const useEditor = create<EditorState>((set, get) => ({
           vm_pu: d.vm_pu,
           slack: d.slack,
           slack_weight: d.slack_weight,
+          port: edge?.targetHandle ?? "",
           x: n.position.x,
           y: n.position.y,
           waypoint: waypointOf(edge),
@@ -253,6 +257,7 @@ export const useEditor = create<EditorState>((set, get) => ({
           bus_id: edge?.target ?? "",
           p_mw: d.p_mw,
           q_mvar: d.q_mvar,
+          port: edge?.targetHandle ?? "",
           x: n.position.x,
           y: n.position.y,
           waypoint: waypointOf(edge),
@@ -271,6 +276,8 @@ export const useEditor = create<EditorState>((set, get) => ({
           bus_a: edgeA?.target ?? "",
           bus_b: edgeB?.target ?? "",
           closed: d.closed,
+          port_a: edgeA?.targetHandle ?? "",
+          port_b: edgeB?.targetHandle ?? "",
           x: n.position.x,
           y: n.position.y,
         };
@@ -315,6 +322,7 @@ export const useEditor = create<EditorState>((set, get) => ({
           id: `${g.id}->${g.bus_id}`,
           source: g.id,
           target: g.bus_id,
+          targetHandle: g.port || undefined,
           type: "wire",
           data: g.waypoint ? { waypoint: g.waypoint } : undefined,
         });
@@ -331,6 +339,7 @@ export const useEditor = create<EditorState>((set, get) => ({
           id: `${l.id}->${l.bus_id}`,
           source: l.id,
           target: l.bus_id,
+          targetHandle: l.port || undefined,
           type: "wire",
           data: l.waypoint ? { waypoint: l.waypoint } : undefined,
         });
@@ -348,6 +357,7 @@ export const useEditor = create<EditorState>((set, get) => ({
           source: s.id,
           sourceHandle: "a",
           target: s.bus_a,
+          targetHandle: s.port_a || undefined,
           type: "wire",
         });
       if (s.bus_b)
@@ -356,6 +366,7 @@ export const useEditor = create<EditorState>((set, get) => ({
           source: s.id,
           sourceHandle: "b",
           target: s.bus_b,
+          targetHandle: s.port_b || undefined,
           type: "wire",
         });
     }
@@ -366,6 +377,7 @@ export const useEditor = create<EditorState>((set, get) => ({
       edges,
       selectedId: null,
       message: "",
+      fitSignal: get().fitSignal + 1,
     });
   },
 }));

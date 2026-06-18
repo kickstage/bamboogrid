@@ -5,6 +5,16 @@ import { useEditor } from "../store";
 export const BUS_MIN_WIDTH = 140;
 export const BUS_DEFAULT_WIDTH = 220;
 
+// Connection ports at a fixed pixel spacing, anchored from the left so existing
+// ports keep their ids (and attached wires) as the bar is lengthened — a longer
+// bar just gains more ports rather than spreading the same few apart.
+const PORT_SPACING = 40;
+const PORT_MARGIN = 16;
+function portOffsets(width: number): number[] {
+  const count = Math.max(2, Math.floor((width - 2 * PORT_MARGIN) / PORT_SPACING) + 1);
+  return Array.from({ length: count }, (_, i) => PORT_MARGIN + i * PORT_SPACING);
+}
+
 // Color the busbar by voltage once a load flow has run: green near 1.0 p.u.,
 // amber/red as it drifts. Follows the theme (currentColor) before any result.
 function voltageColor(vm_pu?: number): string {
@@ -15,11 +25,12 @@ function voltageColor(vm_pu?: number): string {
   return "#dc2626";
 }
 
-export function BusNode({ data, selected }: NodeProps) {
+export function BusNode({ data, selected, width }: NodeProps) {
   const d = data as BusData;
   const showResults = useEditor((s) => s.showResults);
   const hasResult = showResults && d.vm_pu !== undefined;
   const color = hasResult ? voltageColor(d.vm_pu) : "currentColor";
+  const ports = portOffsets(width ?? BUS_DEFAULT_WIDTH);
 
   return (
     <div
@@ -38,8 +49,16 @@ export function BusNode({ data, selected }: NodeProps) {
         minWidth={BUS_MIN_WIDTH}
         shouldResize={(_e, params) => params.direction[1] === 0}
       />
-      {/* Single shared connection point; multiple elements may attach here. */}
-      <Handle type="target" position={Position.Top} style={{ background: color }} />
+      {/* Fixed-spacing ports; a wire snaps to the nearest one. */}
+      {ports.map((left, i) => (
+        <Handle
+          key={i}
+          id={`p${i}`}
+          type="target"
+          position={Position.Top}
+          style={{ left: `${left}px`, background: color }}
+        />
+      ))}
       <svg width="100%" height={20} aria-label="busbar" style={{ display: "block" }}>
         <rect
           x={0}

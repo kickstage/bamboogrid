@@ -46,6 +46,8 @@ class Generator(BaseModel):
     # (distributed slack).
     slack: bool = False
     slack_weight: float = Field(default=1.0, ge=0)
+    # Which bus port (handle id, e.g. "p2") the wire attaches to (visual only).
+    port: str = ""
     x: float = 0.0
     y: float = 0.0
     # Optional routing waypoint for this element's wire (visual only).
@@ -58,6 +60,7 @@ class Load(BaseModel):
     bus_id: str = ""
     p_mw: float = Field(default=0.0, description="Active power [MW]")
     q_mvar: float = Field(default=0.0, description="Reactive power [MVar]")
+    port: str = ""
     x: float = 0.0
     y: float = 0.0
     # Optional routing waypoint for this element's wire (visual only).
@@ -74,6 +77,9 @@ class Switch(BaseModel):
     bus_a: str = ""  # bus on handle "a" ("" while unwired)
     bus_b: str = ""  # bus on handle "b"
     closed: bool = True
+    # Which bus port each end attaches to (handle ids, visual only).
+    port_a: str = ""
+    port_b: str = ""
     x: float = 0.0
     y: float = 0.0
 
