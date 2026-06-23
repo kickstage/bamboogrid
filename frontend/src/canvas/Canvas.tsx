@@ -61,7 +61,7 @@ export function Canvas() {
       const target = nodes.find((n) => n.id === c.target);
       if (!source || !target) return false;
       if (target.type !== "bus") return false;
-      const connectable = ["generator", "load", "switch"];
+      const connectable = ["generator", "load", "switch", "trafo2w", "trafo3w"];
       if (!connectable.includes(source.type ?? "")) return false;
       // One wire per source handle (switches have two handles, others one)...
       const sourceTaken = edges.some(

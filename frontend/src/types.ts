@@ -1,7 +1,13 @@
 // Mirrors backend/app/schema.py. Kept in sync by hand for iteration 1; later
 // these can be generated from the backend OpenAPI schema.
 
-export type ElementKind = "bus" | "generator" | "load" | "switch";
+export type ElementKind =
+  | "bus"
+  | "generator"
+  | "load"
+  | "switch"
+  | "trafo2w"
+  | "trafo3w";
 
 // Object-literal `type` (not `interface`) so these satisfy React Flow's
 // `Record<string, unknown>` constraint on node data.
@@ -35,7 +41,28 @@ export type SwitchData = {
   closed: boolean;
 };
 
-export type ElementData = BusData | GeneratorData | LoadData | SwitchData;
+export type Trafo2WData = {
+  name: string;
+  std_type: string;
+  // Filled in after a load flow.
+  res_loading_percent?: number;
+  res_p_mw?: number;
+};
+
+export type Trafo3WData = {
+  name: string;
+  std_type: string;
+  res_loading_percent?: number;
+  res_p_mw?: number;
+};
+
+export type ElementData =
+  | BusData
+  | GeneratorData
+  | LoadData
+  | SwitchData
+  | Trafo2WData
+  | Trafo3WData;
 
 // --- Backend network document ---------------------------------------------
 
@@ -86,6 +113,32 @@ export interface Switch {
   y: number;
 }
 
+export interface Transformer2W {
+  id: string;
+  name: string;
+  hv_bus: string;
+  lv_bus: string;
+  std_type: string;
+  port_hv?: string;
+  port_lv?: string;
+  x: number;
+  y: number;
+}
+
+export interface Transformer3W {
+  id: string;
+  name: string;
+  hv_bus: string;
+  mv_bus: string;
+  lv_bus: string;
+  std_type: string;
+  port_hv?: string;
+  port_mv?: string;
+  port_lv?: string;
+  x: number;
+  y: number;
+}
+
 export interface Network {
   id: string;
   name: string;
@@ -93,6 +146,8 @@ export interface Network {
   generators: Generator[];
   loads: Load[];
   switches: Switch[];
+  transformers2w: Transformer2W[];
+  transformers3w: Transformer3W[];
 }
 
 export interface LoadFlowResult {
@@ -101,4 +156,6 @@ export interface LoadFlowResult {
   res_bus: { id: string; vm_pu: number | null; va_degree: number | null }[];
   res_gen: { id: string; p_mw: number | null; q_mvar: number | null }[];
   res_load: { id: string; p_mw: number | null; q_mvar: number | null }[];
+  res_trafo: { id: string; loading_percent: number | null; p_mw: number | null }[];
+  res_trafo3w: { id: string; loading_percent: number | null; p_mw: number | null }[];
 }

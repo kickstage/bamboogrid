@@ -70,7 +70,10 @@ def _to_pixels(pos: dict[int, Coord], n: int) -> dict[int, Coord]:
 
 def auto_layout(net) -> dict[str, dict[int, Coord]]:
     bus_ids = list(net.bus.index)
-    empty = {k: {} for k in ("bus", "gen", "ext_grid", "load", "switch")}
+    empty = {
+        k: {}
+        for k in ("bus", "gen", "ext_grid", "load", "switch", "trafo", "trafo3w")
+    }
     if not bus_ids:
         return empty
 
@@ -88,7 +91,20 @@ def auto_layout(net) -> dict[str, dict[int, Coord]]:
         counts[bus] = i + 1
         return (bx + i * STEP, by - GAP if side == "above" else by + GAP)
 
-    result: dict[str, dict[int, Coord]] = {"bus": bus_xy, "gen": {}, "ext_grid": {}, "load": {}, "switch": {}}
+    result: dict[str, dict[int, Coord]] = {
+        "bus": bus_xy,
+        "gen": {},
+        "ext_grid": {},
+        "load": {},
+        "switch": {},
+        "trafo": {},
+        "trafo3w": {},
+    }
+
+    def centroid(*buses: int) -> Coord:
+        pts = [bus_xy.get(b, (0.0, 0.0)) for b in buses]
+        return (sum(p[0] for p in pts) / len(pts), sum(p[1] for p in pts) / len(pts))
+
     for gi in net.gen.index:
         result["gen"][gi] = place(int(net.gen.at[gi, "bus"]), "above")
     for ei in net.ext_grid.index:
@@ -98,7 +114,17 @@ def auto_layout(net) -> dict[str, dict[int, Coord]]:
     for si in net.switch.index:
         if net.switch.at[si, "et"] != "b":
             continue
-        ax, ay = bus_xy.get(int(net.switch.at[si, "bus"]), (0.0, 0.0))
-        bx, by = bus_xy.get(int(net.switch.at[si, "element"]), (0.0, 0.0))
-        result["switch"][si] = ((ax + bx) / 2, (ay + by) / 2)
+        result["switch"][si] = centroid(
+            int(net.switch.at[si, "bus"]), int(net.switch.at[si, "element"])
+        )
+    for ti in net.trafo.index:
+        result["trafo"][ti] = centroid(
+            int(net.trafo.at[ti, "hv_bus"]), int(net.trafo.at[ti, "lv_bus"])
+        )
+    for ti in net.trafo3w.index:
+        result["trafo3w"][ti] = centroid(
+            int(net.trafo3w.at[ti, "hv_bus"]),
+            int(net.trafo3w.at[ti, "mv_bus"]),
+            int(net.trafo3w.at[ti, "lv_bus"]),
+        )
     return result

@@ -84,6 +84,38 @@ class Switch(BaseModel):
     y: float = 0.0
 
 
+class Transformer2W(BaseModel):
+    """A 2-winding transformer (pandapower ``trafo``) connecting an HV and an LV
+    bus. Electrical parameters come from a named ``std_type``."""
+
+    id: str
+    name: str = "Transformer"
+    hv_bus: str = ""
+    lv_bus: str = ""
+    std_type: str = "0.25 MVA 20/0.4 kV"
+    port_hv: str = ""
+    port_lv: str = ""
+    x: float = 0.0
+    y: float = 0.0
+
+
+class Transformer3W(BaseModel):
+    """A 3-winding transformer (pandapower ``trafo3w``) connecting HV, MV and LV
+    buses."""
+
+    id: str
+    name: str = "3W Transformer"
+    hv_bus: str = ""
+    mv_bus: str = ""
+    lv_bus: str = ""
+    std_type: str = "63/25/38 MVA 110/20/10 kV"
+    port_hv: str = ""
+    port_mv: str = ""
+    port_lv: str = ""
+    x: float = 0.0
+    y: float = 0.0
+
+
 class Network(BaseModel):
     id: str
     name: str = "Untitled network"
@@ -91,6 +123,8 @@ class Network(BaseModel):
     generators: list[Generator] = Field(default_factory=list)
     loads: list[Load] = Field(default_factory=list)
     switches: list[Switch] = Field(default_factory=list)
+    transformers2w: list[Transformer2W] = Field(default_factory=list)
+    transformers3w: list[Transformer3W] = Field(default_factory=list)
 
 
 # --- Load-flow result types ------------------------------------------------
@@ -117,9 +151,17 @@ class GenResult(BaseModel):
     q_mvar: float | None = None
 
 
+class TrafoResult(BaseModel):
+    id: str
+    loading_percent: float | None = None
+    p_mw: float | None = None  # active power entering the HV side
+
+
 class LoadFlowResult(BaseModel):
     converged: bool
     message: str = ""
     res_bus: list[BusResult] = Field(default_factory=list)
     res_gen: list[GenResult] = Field(default_factory=list)
     res_load: list[LoadResult] = Field(default_factory=list)
+    res_trafo: list[TrafoResult] = Field(default_factory=list)
+    res_trafo3w: list[TrafoResult] = Field(default_factory=list)

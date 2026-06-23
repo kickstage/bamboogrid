@@ -8,11 +8,18 @@ export const BUS_DEFAULT_WIDTH = 220;
 // Connection ports at a fixed pixel spacing, anchored from the left so existing
 // ports keep their ids (and attached wires) as the bar is lengthened — a longer
 // bar just gains more ports rather than spreading the same few apart.
-const PORT_SPACING = 40;
-const PORT_MARGIN = 16;
+export const PORT_SPACING = 40;
+export const PORT_MARGIN = 16;
 function portOffsets(width: number): number[] {
   const count = Math.max(2, Math.floor((width - 2 * PORT_MARGIN) / PORT_SPACING) + 1);
   return Array.from({ length: count }, (_, i) => PORT_MARGIN + i * PORT_SPACING);
+}
+
+// Smallest bus width whose ports (see portOffsets) can host `count` wires —
+// the inverse of portOffsets. Used to widen an imported bus so its connected
+// elements land on distinct ports instead of stacking on the first one.
+export function widthForPorts(count: number): number {
+  return Math.max(BUS_DEFAULT_WIDTH, 2 * PORT_MARGIN + Math.max(0, count - 1) * PORT_SPACING);
 }
 
 // Color the busbar by voltage once a load flow has run: green near 1.0 p.u.,

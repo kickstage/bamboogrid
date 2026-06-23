@@ -24,11 +24,16 @@ from .schema import (
     LoadFlowResult,
     LoadResult,
     Network,
+    TrafoResult,
 )
 
 
 class ConversionError(ValueError):
     """Raised when the network document cannot be turned into a valid net."""
+
+
+DEFAULT_TRAFO_STD = "0.25 MVA 20/0.4 kV"
+DEFAULT_TRAFO3W_STD = "63/25/38 MVA 110/20/10 kV"
 
 
 def _is_wired(switch) -> bool:
@@ -47,9 +52,19 @@ def _island_roots(network: Network) -> dict[str, str]:
             x = parent[x]
         return x
 
+    def union(a: str, b: str) -> None:
+        if a and b and a in parent and b in parent:
+            parent[find(a)] = find(b)
+
     for sw in network.switches:
-        if sw.closed and _is_wired(sw) and sw.bus_a in parent and sw.bus_b in parent:
-            parent[find(sw.bus_a)] = find(sw.bus_b)
+        if sw.closed and _is_wired(sw):
+            union(sw.bus_a, sw.bus_b)
+    # Transformers also connect their buses into one island.
+    for t in network.transformers2w:
+        union(t.hv_bus, t.lv_bus)
+    for t in network.transformers3w:
+        union(t.hv_bus, t.mv_bus)
+        union(t.mv_bus, t.lv_bus)
 
     return {bus_id: find(bus_id) for bus_id in parent}
 
@@ -74,6 +89,18 @@ def validate(network: Network) -> None:
             if end and end not in bus_ids:
                 raise ConversionError(
                     f"Switch '{sw.name}' references unknown bus '{end}'."
+                )
+    for t in network.transformers2w:
+        for end in (t.hv_bus, t.lv_bus):
+            if end and end not in bus_ids:
+                raise ConversionError(
+                    f"Transformer '{t.name}' references unknown bus '{end}'."
+                )
+    for t in network.transformers3w:
+        for end in (t.hv_bus, t.mv_bus, t.lv_bus):
+            if end and end not in bus_ids:
+                raise ConversionError(
+                    f"Transformer '{t.name}' references unknown bus '{end}'."
                 )
 
 
@@ -130,11 +157,49 @@ def build_net(network: Network):
             name=sw.name,
         )
 
+    # Transformers (only created when fully wired; std_type falls back to a
+    # default if the requested one isn't in the library).
+    trafo_types = set(pp.available_std_types(net, "trafo").index)
+    trafo3w_types = set(pp.available_std_types(net, "trafo3w").index)
+
+    trafo_index: dict[str, int] = {}
+    for t in network.transformers2w:
+        if t.hv_bus not in bus_index or t.lv_bus not in bus_index:
+            continue
+        std = t.std_type if t.std_type in trafo_types else DEFAULT_TRAFO_STD
+        trafo_index[t.id] = pp.create_transformer(
+            net,
+            hv_bus=bus_index[t.hv_bus],
+            lv_bus=bus_index[t.lv_bus],
+            std_type=std,
+            name=t.name,
+        )
+
+    trafo3w_index: dict[str, int] = {}
+    for t in network.transformers3w:
+        if (
+            t.hv_bus not in bus_index
+            or t.mv_bus not in bus_index
+            or t.lv_bus not in bus_index
+        ):
+            continue
+        std = t.std_type if t.std_type in trafo3w_types else DEFAULT_TRAFO3W_STD
+        trafo3w_index[t.id] = pp.create_transformer3w(
+            net,
+            hv_bus=bus_index[t.hv_bus],
+            mv_bus=bus_index[t.mv_bus],
+            lv_bus=bus_index[t.lv_bus],
+            std_type=std,
+            name=t.name,
+        )
+
     id_maps = {
         "bus": bus_index,
         "gen": gen_index,
         "load": load_index,
         "switch": switch_index,
+        "trafo": trafo_index,
+        "trafo3w": trafo3w_index,
     }
     return net, id_maps
 
@@ -193,7 +258,28 @@ def run_load_flow(network: Network) -> LoadFlowResult:
         )
         for load_id, idx in id_maps["load"].items()
     ]
+    res_trafo = [
+        TrafoResult(
+            id=tid,
+            loading_percent=_f(net.res_trafo.at[idx, "loading_percent"]),
+            p_mw=_f(net.res_trafo.at[idx, "p_hv_mw"]),
+        )
+        for tid, idx in id_maps["trafo"].items()
+    ]
+    res_trafo3w = [
+        TrafoResult(
+            id=tid,
+            loading_percent=_f(net.res_trafo3w.at[idx, "loading_percent"]),
+            p_mw=_f(net.res_trafo3w.at[idx, "p_hv_mw"]),
+        )
+        for tid, idx in id_maps["trafo3w"].items()
+    ]
 
     return LoadFlowResult(
-        converged=True, res_bus=res_bus, res_gen=res_gen, res_load=res_load
+        converged=True,
+        res_bus=res_bus,
+        res_gen=res_gen,
+        res_load=res_load,
+        res_trafo=res_trafo,
+        res_trafo3w=res_trafo3w,
     )

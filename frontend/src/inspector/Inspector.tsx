@@ -2,13 +2,43 @@ import {
   Button,
   Divider,
   NumberInput,
+  Select,
   Stack,
   Switch,
   Text,
   TextInput,
 } from "@mantine/core";
 import { useEditor } from "../store";
-import type { BusData, GeneratorData, LoadData, SwitchData } from "../types";
+import type {
+  BusData,
+  GeneratorData,
+  LoadData,
+  SwitchData,
+  Trafo2WData,
+  Trafo3WData,
+} from "../types";
+
+const TRAFO_STD_TYPES = [
+  "160 MVA 380/110 kV",
+  "100 MVA 220/110 kV",
+  "63 MVA 110/20 kV",
+  "40 MVA 110/20 kV",
+  "25 MVA 110/20 kV",
+  "63 MVA 110/10 kV",
+  "40 MVA 110/10 kV",
+  "25 MVA 110/10 kV",
+  "0.25 MVA 20/0.4 kV",
+  "0.4 MVA 20/0.4 kV",
+  "0.63 MVA 20/0.4 kV",
+  "0.25 MVA 10/0.4 kV",
+  "0.4 MVA 10/0.4 kV",
+  "0.63 MVA 10/0.4 kV",
+];
+
+const TRAFO3W_STD_TYPES = [
+  "63/25/38 MVA 110/20/10 kV",
+  "63/25/38 MVA 110/10/10 kV",
+];
 
 export function Inspector() {
   const { nodes, selectedId, updateNodeData, removeNode } = useEditor();
@@ -115,6 +145,27 @@ export function Inspector() {
         />
       )}
 
+      {node.type === "trafo2w" && (
+        <Select
+          label="Standard type"
+          data={TRAFO_STD_TYPES}
+          value={(node.data as Trafo2WData).std_type}
+          onChange={(v) => v && update({ std_type: v })}
+          allowDeselect={false}
+          searchable
+        />
+      )}
+
+      {node.type === "trafo3w" && (
+        <Select
+          label="Standard type"
+          data={TRAFO3W_STD_TYPES}
+          value={(node.data as Trafo3WData).std_type}
+          onChange={(v) => v && update({ std_type: v })}
+          allowDeselect={false}
+        />
+      )}
+
       {node.type === "bus" && (node.data as BusData).vm_pu !== undefined && (
         <Text size="xs" c="dimmed">
           Result: {(node.data as BusData).vm_pu!.toFixed(4)} p.u. ·{" "}
@@ -127,6 +178,14 @@ export function Inspector() {
           <Text size="xs" c="dimmed">
             Result: P {(node.data as GeneratorData).res_p_mw!.toFixed(4)} MW,
             Q {((node.data as GeneratorData).res_q_mvar ?? 0).toFixed(4)} Mvar
+          </Text>
+        )}
+
+      {(node.type === "trafo2w" || node.type === "trafo3w") &&
+        (node.data as Trafo2WData).res_loading_percent !== undefined && (
+          <Text size="xs" c="dimmed">
+            Result: {(node.data as Trafo2WData).res_loading_percent!.toFixed(1)}% loading,
+            P {((node.data as Trafo2WData).res_p_mw ?? 0).toFixed(4)} MW
           </Text>
         )}
 

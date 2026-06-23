@@ -26,7 +26,16 @@ import pandas as pd
 
 from .autolayout import auto_layout
 from .converter import build_net
-from .schema import Bus, Generator, Load, Network, Point, Switch
+from .schema import (
+    Bus,
+    Generator,
+    Load,
+    Network,
+    Point,
+    Switch,
+    Transformer2W,
+    Transformer3W,
+)
 
 SCHEMA_VERSION = "bamboogrid/1"
 
@@ -88,6 +97,35 @@ def network_to_pp_json(network: Network) -> str:
         ],
         index=list(id_maps["switch"].values()),
     )
+    t2_by_id = {t.id: t for t in network.transformers2w}
+    net["diagram_trafo"] = pd.DataFrame(
+        [
+            {
+                "uuid": uid,
+                "x": t2_by_id[uid].x,
+                "y": t2_by_id[uid].y,
+                "port_hv": t2_by_id[uid].port_hv,
+                "port_lv": t2_by_id[uid].port_lv,
+            }
+            for uid in id_maps["trafo"]
+        ],
+        index=list(id_maps["trafo"].values()),
+    )
+    t3_by_id = {t.id: t for t in network.transformers3w}
+    net["diagram_trafo3w"] = pd.DataFrame(
+        [
+            {
+                "uuid": uid,
+                "x": t3_by_id[uid].x,
+                "y": t3_by_id[uid].y,
+                "port_hv": t3_by_id[uid].port_hv,
+                "port_mv": t3_by_id[uid].port_mv,
+                "port_lv": t3_by_id[uid].port_lv,
+            }
+            for uid in id_maps["trafo3w"]
+        ],
+        index=list(id_maps["trafo3w"].values()),
+    )
     net["diagram_meta"] = pd.DataFrame(
         [
             {
@@ -116,6 +154,8 @@ def pp_json_to_network(raw: str) -> Network:
     d_gen = net.get("diagram_gen")
     d_load = net.get("diagram_load")
     d_switch = net.get("diagram_switch")
+    d_trafo = net.get("diagram_trafo")
+    d_trafo3w = net.get("diagram_trafo3w")
     d_meta = net.get("diagram_meta")
 
     network_id = uuid.uuid4().hex
@@ -241,6 +281,42 @@ def pp_json_to_network(raw: str) -> Network:
             )
         )
 
+    transformers2w: list[Transformer2W] = []
+    for t in net.trafo.index:
+        lay = _layout(d_trafo, t)
+        transformers2w.append(
+            Transformer2W(
+                id=str(lay["uuid"]) if lay is not None else uuid.uuid4().hex,
+                name=_name(net.trafo.at[t, "name"], "Transformer"),
+                hv_bus=bus_uuid[int(net.trafo.at[t, "hv_bus"])],
+                lv_bus=bus_uuid[int(net.trafo.at[t, "lv_bus"])],
+                std_type=_name(net.trafo.at[t, "std_type"], "0.25 MVA 20/0.4 kV"),
+                port_hv=_col(lay, "port_hv"),
+                port_lv=_col(lay, "port_lv"),
+                x=_pos(lay, "trafo", t)[0],
+                y=_pos(lay, "trafo", t)[1],
+            )
+        )
+
+    transformers3w: list[Transformer3W] = []
+    for t in net.trafo3w.index:
+        lay = _layout(d_trafo3w, t)
+        transformers3w.append(
+            Transformer3W(
+                id=str(lay["uuid"]) if lay is not None else uuid.uuid4().hex,
+                name=_name(net.trafo3w.at[t, "name"], "3W Transformer"),
+                hv_bus=bus_uuid[int(net.trafo3w.at[t, "hv_bus"])],
+                mv_bus=bus_uuid[int(net.trafo3w.at[t, "mv_bus"])],
+                lv_bus=bus_uuid[int(net.trafo3w.at[t, "lv_bus"])],
+                std_type=_name(net.trafo3w.at[t, "std_type"], "63/25/38 MVA 110/20/10 kV"),
+                port_hv=_col(lay, "port_hv"),
+                port_mv=_col(lay, "port_mv"),
+                port_lv=_col(lay, "port_lv"),
+                x=_pos(lay, "trafo3w", t)[0],
+                y=_pos(lay, "trafo3w", t)[1],
+            )
+        )
+
     return Network(
         id=network_id,
         name=network_name,
@@ -248,4 +324,6 @@ def pp_json_to_network(raw: str) -> Network:
         generators=generators,
         loads=loads,
         switches=switches,
+        transformers2w=transformers2w,
+        transformers3w=transformers3w,
     )

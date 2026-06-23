@@ -11,7 +11,7 @@ import {
   type XYPosition,
 } from "@xyflow/react";
 
-import { BUS_DEFAULT_WIDTH } from "./nodes/BusNode";
+import { BUS_DEFAULT_WIDTH, widthForPorts } from "./nodes/BusNode";
 import type {
   BusData,
   ElementData,
@@ -21,7 +21,12 @@ import type {
   LoadFlowResult,
   Network,
   SwitchData,
+  Trafo2WData,
+  Trafo3WData,
 } from "./types";
+
+export const DEFAULT_TRAFO_STD = "0.25 MVA 20/0.4 kV";
+export const DEFAULT_TRAFO3W_STD = "63/25/38 MVA 110/20/10 kV";
 
 export type ElementNode = Node<ElementData>;
 
@@ -43,6 +48,13 @@ function defaultData(kind: ElementKind): ElementData {
       return { name: "Load", p_mw: 0.01, q_mvar: 0.0 } satisfies LoadData;
     case "switch":
       return { name: "Switch", closed: true } satisfies SwitchData;
+    case "trafo2w":
+      return { name: "Transformer", std_type: DEFAULT_TRAFO_STD } satisfies Trafo2WData;
+    case "trafo3w":
+      return {
+        name: "3W Transformer",
+        std_type: DEFAULT_TRAFO3W_STD,
+      } satisfies Trafo3WData;
   }
 }
 
@@ -105,7 +117,16 @@ export const useEditor = create<EditorState>((set, get) => ({
     set({ edges: applyEdgeChanges(changes, get().edges) }),
 
   onConnect: (connection) =>
-    set({ edges: addEdge({ ...connection, type: "wire" }, get().edges) }),
+    set((s) => {
+      // Each source port carries at most one wire: drop any existing wire from
+      // the same source handle before adding, so a load/generator can't fan
+      // out to two buses (and a transformer winding stays single).
+      const handle = connection.sourceHandle ?? null;
+      const filtered = s.edges.filter(
+        (e) => !(e.source === connection.source && (e.sourceHandle ?? null) === handle),
+      );
+      return { edges: addEdge({ ...connection, type: "wire" }, filtered) };
+    }),
 
   addNode: (kind, position) =>
     set((s) => ({
@@ -158,6 +179,9 @@ export const useEditor = create<EditorState>((set, get) => ({
     set((s) => {
       const byBus = new Map(result.res_bus.map((r) => [r.id, r]));
       const byGen = new Map(result.res_gen.map((r) => [r.id, r]));
+      const byTrafo = new Map(
+        [...result.res_trafo, ...result.res_trafo3w].map((r) => [r.id, r]),
+      );
       // On a failed run, clear stale values instead of showing the last
       // successful result (which would be misleading). Unsupplied buses come
       // back as null — also treated as "no result".
@@ -188,6 +212,17 @@ export const useEditor = create<EditorState>((set, get) => ({
               },
             } as ElementNode;
           }
+          if (n.type === "trafo2w" || n.type === "trafo3w") {
+            const r = result.converged ? byTrafo.get(n.id) : undefined;
+            return {
+              ...n,
+              data: {
+                ...(n.data as Trafo2WData),
+                res_loading_percent: r?.loading_percent ?? undefined,
+                res_p_mw: r?.p_mw ?? undefined,
+              },
+            } as ElementNode;
+          }
           return n;
         }),
       };
@@ -205,6 +240,15 @@ export const useEditor = create<EditorState>((set, get) => ({
           return {
             ...n,
             data: { ...(n.data as GeneratorData), res_p_mw: undefined, res_q_mvar: undefined },
+          } as ElementNode;
+        if (n.type === "trafo2w" || n.type === "trafo3w")
+          return {
+            ...n,
+            data: {
+              ...(n.data as Trafo2WData),
+              res_loading_percent: undefined,
+              res_p_mw: undefined,
+            },
           } as ElementNode;
         return n;
       }),
@@ -280,6 +324,47 @@ export const useEditor = create<EditorState>((set, get) => ({
           y: n.position.y,
         };
       });
+    const edgeBy = (nodeId: string, handle: string) =>
+      edges.find((e) => e.source === nodeId && e.sourceHandle === handle);
+    const transformers2w = nodes
+      .filter((n) => n.type === "trafo2w")
+      .map((n) => {
+        const d = n.data as Trafo2WData;
+        const hv = edgeBy(n.id, "hv");
+        const lv = edgeBy(n.id, "lv");
+        return {
+          id: n.id,
+          name: d.name,
+          hv_bus: hv?.target ?? "",
+          lv_bus: lv?.target ?? "",
+          std_type: d.std_type,
+          port_hv: hv?.targetHandle ?? "",
+          port_lv: lv?.targetHandle ?? "",
+          x: n.position.x,
+          y: n.position.y,
+        };
+      });
+    const transformers3w = nodes
+      .filter((n) => n.type === "trafo3w")
+      .map((n) => {
+        const d = n.data as Trafo3WData;
+        const hv = edgeBy(n.id, "hv");
+        const mv = edgeBy(n.id, "mv");
+        const lv = edgeBy(n.id, "lv");
+        return {
+          id: n.id,
+          name: d.name,
+          hv_bus: hv?.target ?? "",
+          mv_bus: mv?.target ?? "",
+          lv_bus: lv?.target ?? "",
+          std_type: d.std_type,
+          port_hv: hv?.targetHandle ?? "",
+          port_mv: mv?.targetHandle ?? "",
+          port_lv: lv?.targetHandle ?? "",
+          x: n.position.x,
+          y: n.position.y,
+        };
+      });
     return {
       id: networkId ?? "",
       name: networkName,
@@ -287,12 +372,24 @@ export const useEditor = create<EditorState>((set, get) => ({
       generators,
       loads,
       switches,
+      transformers2w,
+      transformers3w,
     };
   },
 
   loadNetwork: (network) => {
     const nodes: ElementNode[] = [];
     const edges: Edge[] = [];
+    // Spread elements that carry no explicit port (e.g. a plain pandapower
+    // import) across distinct bus ports so they don't all snap to the first
+    // handle. Files we exported keep their stored ports and aren't counted.
+    const portCount = new Map<string, number>();
+    const busPort = (busId: string, explicit?: string): string | undefined => {
+      if (explicit) return explicit;
+      const i = portCount.get(busId) ?? 0;
+      portCount.set(busId, i + 1);
+      return `p${i}`;
+    };
     for (const b of network.buses) {
       nodes.push({
         id: b.id,
@@ -320,7 +417,7 @@ export const useEditor = create<EditorState>((set, get) => ({
           id: `${g.id}->${g.bus_id}`,
           source: g.id,
           target: g.bus_id,
-          targetHandle: g.port || undefined,
+          targetHandle: busPort(g.bus_id, g.port),
           type: "wire",
           data: g.waypoint ? { waypoint: g.waypoint } : undefined,
         });
@@ -337,7 +434,7 @@ export const useEditor = create<EditorState>((set, get) => ({
           id: `${l.id}->${l.bus_id}`,
           source: l.id,
           target: l.bus_id,
-          targetHandle: l.port || undefined,
+          targetHandle: busPort(l.bus_id, l.port),
           type: "wire",
           data: l.waypoint ? { waypoint: l.waypoint } : undefined,
         });
@@ -355,7 +452,7 @@ export const useEditor = create<EditorState>((set, get) => ({
           source: s.id,
           sourceHandle: "a",
           target: s.bus_a,
-          targetHandle: s.port_a || undefined,
+          targetHandle: busPort(s.bus_a, s.port_a),
           type: "wire",
         });
       if (s.bus_b)
@@ -364,9 +461,51 @@ export const useEditor = create<EditorState>((set, get) => ({
           source: s.id,
           sourceHandle: "b",
           target: s.bus_b,
-          targetHandle: s.port_b || undefined,
+          targetHandle: busPort(s.bus_b, s.port_b),
           type: "wire",
         });
+    }
+    // Helper: a transformer winding wire (source handle "hv"/"mv"/"lv" → bus).
+    const windingEdge = (
+      trafoId: string,
+      handle: string,
+      busId: string,
+      port?: string,
+    ) => ({
+      id: `${trafoId}:${handle}->${busId}`,
+      source: trafoId,
+      sourceHandle: handle,
+      target: busId,
+      targetHandle: busPort(busId, port),
+      type: "wire" as const,
+    });
+    for (const t of network.transformers2w ?? []) {
+      nodes.push({
+        id: t.id,
+        type: "trafo2w",
+        position: { x: t.x, y: t.y },
+        data: { name: t.name, std_type: t.std_type },
+      });
+      if (t.hv_bus) edges.push(windingEdge(t.id, "hv", t.hv_bus, t.port_hv));
+      if (t.lv_bus) edges.push(windingEdge(t.id, "lv", t.lv_bus, t.port_lv));
+    }
+    for (const t of network.transformers3w ?? []) {
+      nodes.push({
+        id: t.id,
+        type: "trafo3w",
+        position: { x: t.x, y: t.y },
+        data: { name: t.name, std_type: t.std_type },
+      });
+      if (t.hv_bus) edges.push(windingEdge(t.id, "hv", t.hv_bus, t.port_hv));
+      if (t.mv_bus) edges.push(windingEdge(t.id, "mv", t.mv_bus, t.port_mv));
+      if (t.lv_bus) edges.push(windingEdge(t.id, "lv", t.lv_bus, t.port_lv));
+    }
+    // Grow each bus to actually expose the ports we auto-assigned above.
+    for (const n of nodes) {
+      if (n.type === "bus") {
+        const count = portCount.get(n.id);
+        if (count) n.width = Math.max(n.width ?? BUS_DEFAULT_WIDTH, widthForPorts(count));
+      }
     }
     set({
       networkId: network.id,

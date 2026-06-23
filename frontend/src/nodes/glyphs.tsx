@@ -84,6 +84,44 @@ export function SwitchGlyph({
   );
 }
 
+// 2-winding transformer — two overlapping circles, HV on top, LV on bottom.
+export function TransformerGlyph({ size = 40, stroke = "currentColor" }: GlyphProps) {
+  return (
+    <svg
+      width={size}
+      height={(size * 48) / 40}
+      viewBox="0 0 40 48"
+      aria-hidden
+      style={{ display: "block", margin: "0 auto" }}
+    >
+      <line x1={20} y1={0} x2={20} y2={6} stroke={stroke} strokeWidth={2} />
+      <circle cx={20} cy={17} r={12} fill="none" stroke={stroke} strokeWidth={2} />
+      <circle cx={20} cy={31} r={12} fill="none" stroke={stroke} strokeWidth={2} />
+      <line x1={20} y1={42} x2={20} y2={48} stroke={stroke} strokeWidth={2} />
+    </svg>
+  );
+}
+
+// 3-winding transformer — three overlapping circles (HV top, MV/LV bottom).
+export function Transformer3WGlyph({ size = 48, stroke = "currentColor" }: GlyphProps) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 48 48"
+      aria-hidden
+      style={{ display: "block", margin: "0 auto" }}
+    >
+      <line x1={24} y1={0} x2={24} y2={5} stroke={stroke} strokeWidth={2} />
+      <circle cx={24} cy={16} r={11} fill="none" stroke={stroke} strokeWidth={2} />
+      <circle cx={17} cy={31} r={11} fill="none" stroke={stroke} strokeWidth={2} />
+      <circle cx={31} cy={31} r={11} fill="none" stroke={stroke} strokeWidth={2} />
+      <line x1={17} y1={42} x2={17} y2={48} stroke={stroke} strokeWidth={2} />
+      <line x1={31} y1={42} x2={31} y2={48} stroke={stroke} strokeWidth={2} />
+    </svg>
+  );
+}
+
 // pandapower/bus.svg — the busbar line (used small, e.g. in the palette).
 export function BusGlyph({ width = 60, stroke = "currentColor" }: { width?: number; stroke?: string }) {
   return (
