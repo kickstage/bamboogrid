@@ -1,9 +1,11 @@
-// Mirrors backend/app/schema.py. Kept in sync by hand for iteration 1; later
-// these can be generated from the backend OpenAPI schema.
+// Mirrors backend/app/schema.py, kept in sync by hand; later these can be
+// generated from the backend OpenAPI schema.
 
 export type ElementKind =
   | "bus"
   | "generator"
+  | "sgen"
+  | "extgrid"
   | "load"
   | "switch"
   | "trafo2w"
@@ -26,6 +28,24 @@ export type GeneratorData = {
   slack: boolean;
   slack_weight: number;
   // Filled in after a load flow (reactive power is solved).
+  res_p_mw?: number;
+  res_q_mvar?: number;
+};
+
+export type SgenData = {
+  name: string;
+  p_mw: number;
+  q_mvar: number;
+  // Filled in after a load flow.
+  res_p_mw?: number;
+  res_q_mvar?: number;
+};
+
+export type ExtGridData = {
+  name: string;
+  vm_pu: number;
+  va_degree: number;
+  // Filled in after a load flow (the slack's balancing P/Q is solved).
   res_p_mw?: number;
   res_q_mvar?: number;
 };
@@ -59,6 +79,8 @@ export type Trafo3WData = {
 export type ElementData =
   | BusData
   | GeneratorData
+  | SgenData
+  | ExtGridData
   | LoadData
   | SwitchData
   | Trafo2WData
@@ -83,6 +105,30 @@ export interface Generator {
   vm_pu: number;
   slack: boolean;
   slack_weight: number;
+  port?: string;
+  x: number;
+  y: number;
+  waypoint?: { x: number; y: number } | null;
+}
+
+export interface Sgen {
+  id: string;
+  name: string;
+  bus_id: string;
+  p_mw: number;
+  q_mvar: number;
+  port?: string;
+  x: number;
+  y: number;
+  waypoint?: { x: number; y: number } | null;
+}
+
+export interface ExtGrid {
+  id: string;
+  name: string;
+  bus_id: string;
+  vm_pu: number;
+  va_degree: number;
   port?: string;
   x: number;
   y: number;
@@ -144,6 +190,8 @@ export interface Network {
   name: string;
   buses: Bus[];
   generators: Generator[];
+  sgens: Sgen[];
+  ext_grids: ExtGrid[];
   loads: Load[];
   switches: Switch[];
   transformers2w: Transformer2W[];
@@ -155,6 +203,8 @@ export interface LoadFlowResult {
   message: string;
   res_bus: { id: string; vm_pu: number | null; va_degree: number | null }[];
   res_gen: { id: string; p_mw: number | null; q_mvar: number | null }[];
+  res_sgen: { id: string; p_mw: number | null; q_mvar: number | null }[];
+  res_ext_grid: { id: string; p_mw: number | null; q_mvar: number | null }[];
   res_load: { id: string; p_mw: number | null; q_mvar: number | null }[];
   res_trafo: { id: string; loading_percent: number | null; p_mw: number | null }[];
   res_trafo3w: { id: string; loading_percent: number | null; p_mw: number | null }[];

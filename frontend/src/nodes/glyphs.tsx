@@ -32,6 +32,52 @@ export function GeneratorGlyph({ size = 52, stroke = "currentColor" }: GlyphProp
   );
 }
 
+// pandapower/sgen.svg — a box with an AC sine wave and a "DC/AC" label (the
+// inverter / static-source mark).
+export function SgenGlyph({ size = 52, stroke = "currentColor" }: GlyphProps) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="30 8 60 60"
+      aria-hidden
+      style={{ display: "block", margin: "0 auto" }}
+    >
+      <rect x={36} y={24} width={48} height={36} fill="none" stroke={stroke} strokeWidth={3} />
+      {/* Symmetric AC sine, kept fully inside the box (the library's original
+          dips below the bottom edge). */}
+      <path d="M42 42 Q51 30 60 42 T78 42" fill="none" stroke={stroke} strokeWidth={2} />
+      <text
+        x={60}
+        y={20}
+        textAnchor="middle"
+        fontFamily="Arial, sans-serif"
+        fontSize={12}
+        fill={stroke}
+      >
+        DC/AC
+      </text>
+    </svg>
+  );
+}
+
+// pandapower/ext_grid.svg — a circle with a wavy line, marking the connection
+// to an external network (the slack reference).
+export function ExtGridGlyph({ size = 52, stroke = "currentColor" }: GlyphProps) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="30 12 60 60"
+      aria-hidden
+      style={{ display: "block", margin: "0 auto" }}
+    >
+      <circle cx={60} cy={42} r={24} fill="none" stroke={stroke} strokeWidth={3} />
+      <path d="M42 42 C50 26,70 58,78 42" fill="none" stroke={stroke} strokeWidth={3} />
+    </svg>
+  );
+}
+
 // pandapower/load.svg — vertical stub into a downward triangle.
 export function LoadGlyph({ size = 50, stroke = "currentColor" }: GlyphProps) {
   return (

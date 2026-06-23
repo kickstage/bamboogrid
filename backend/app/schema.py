@@ -4,10 +4,10 @@ This JSON document is the source of truth. The pandapower ``net`` is built on
 demand from it (see ``converter.py``); we never persist pandapower's own format
 as the primary representation.
 
-Iteration 1 elements are all single-port: a Bus is a node, and Generators and
-Loads each attach to exactly one bus. A "Generator" is mapped to a pandapower
-``ext_grid`` (the slack bus) for now, so a single bus with a generator + load
-converges. Lines / transformers / PV generators come in iteration 2.
+Buses are nodes; generators, static generators, external grids and loads each
+attach to one bus; switches and transformers tie buses together. A Generator is
+a pandapower ``gen`` (PV, optionally slack); an ExtGrid is the ``ext_grid`` slack
+reference; an Sgen is a PQ ``sgen`` injection.
 """
 
 from __future__ import annotations
@@ -51,6 +51,38 @@ class Generator(BaseModel):
     x: float = 0.0
     y: float = 0.0
     # Optional routing waypoint for this element's wire (visual only).
+    waypoint: Point | None = None
+
+
+class Sgen(BaseModel):
+    """A static generator — pandapower ``sgen`` (a PQ injection used for PV /
+    wind / storage feed-in). You set its active and reactive power; it never
+    controls voltage and is never a reference."""
+
+    id: str
+    name: str = "Static gen"
+    bus_id: str = ""
+    p_mw: float = Field(default=1.0, description="Active power output [MW]")
+    q_mvar: float = Field(default=0.0, description="Reactive power output [MVar]")
+    port: str = ""
+    x: float = 0.0
+    y: float = 0.0
+    waypoint: Point | None = None
+
+
+class ExtGrid(BaseModel):
+    """An external-grid connection — pandapower ``ext_grid`` (the slack/reference
+    bus). It pins its bus to a fixed voltage magnitude and angle and balances
+    the network, so it is always a slack."""
+
+    id: str
+    name: str = "External grid"
+    bus_id: str = ""
+    vm_pu: float = Field(default=1.0, gt=0, description="Voltage setpoint [p.u.]")
+    va_degree: float = Field(default=0.0, description="Voltage angle [deg]")
+    port: str = ""
+    x: float = 0.0
+    y: float = 0.0
     waypoint: Point | None = None
 
 
@@ -121,6 +153,8 @@ class Network(BaseModel):
     name: str = "Untitled network"
     buses: list[Bus] = Field(default_factory=list)
     generators: list[Generator] = Field(default_factory=list)
+    sgens: list[Sgen] = Field(default_factory=list)
+    ext_grids: list[ExtGrid] = Field(default_factory=list)
     loads: list[Load] = Field(default_factory=list)
     switches: list[Switch] = Field(default_factory=list)
     transformers2w: list[Transformer2W] = Field(default_factory=list)
@@ -162,6 +196,8 @@ class LoadFlowResult(BaseModel):
     message: str = ""
     res_bus: list[BusResult] = Field(default_factory=list)
     res_gen: list[GenResult] = Field(default_factory=list)
+    res_sgen: list[GenResult] = Field(default_factory=list)
+    res_ext_grid: list[GenResult] = Field(default_factory=list)
     res_load: list[LoadResult] = Field(default_factory=list)
     res_trafo: list[TrafoResult] = Field(default_factory=list)
     res_trafo3w: list[TrafoResult] = Field(default_factory=list)

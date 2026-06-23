@@ -1,7 +1,7 @@
 import pytest
 
 from app.converter import ConversionError, run_load_flow, validate
-from app.schema import Bus, Generator, Load, Network
+from app.schema import Bus, ExtGrid, Generator, Load, Network, Sgen
 
 
 def one_bus_with_slack_gen() -> Network:
@@ -60,3 +60,21 @@ def test_unwired_element_is_ignored():
         loads=[Load(id="l1", bus_id="", p_mw=0.01)],  # not placed yet
     )
     assert run_load_flow(net).converged
+
+
+def test_ext_grid_is_slack_and_sgen_offsets_load():
+    """An ext_grid energises its bus as the slack; an sgen injects PQ, so the
+    ext_grid only has to supply the load minus the sgen feed-in."""
+    net = Network(
+        id="t",
+        buses=[Bus(id="b", vn_kv=20.0)],
+        ext_grids=[ExtGrid(id="eg", bus_id="b", vm_pu=1.0)],
+        sgens=[Sgen(id="sg", bus_id="b", p_mw=0.3, q_mvar=0.0)],
+        loads=[Load(id="l", bus_id="b", p_mw=0.5)],
+    )
+    result = run_load_flow(net)
+    assert result.converged, result.message
+    assert result.res_bus[0].vm_pu == pytest.approx(1.0)
+    # Slack balances the remaining 0.2 MW (0.5 load - 0.3 sgen).
+    assert result.res_ext_grid[0].p_mw == pytest.approx(0.2, abs=1e-3)
+    assert result.res_sgen[0].p_mw == pytest.approx(0.3)

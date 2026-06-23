@@ -16,10 +16,12 @@ import type {
   BusData,
   ElementData,
   ElementKind,
+  ExtGridData,
   GeneratorData,
   LoadData,
   LoadFlowResult,
   Network,
+  SgenData,
   SwitchData,
   Trafo2WData,
   Trafo3WData,
@@ -44,6 +46,10 @@ function defaultData(kind: ElementKind): ElementData {
         slack: false,
         slack_weight: 1.0,
       } satisfies GeneratorData;
+    case "sgen":
+      return { name: "Static gen", p_mw: 1.0, q_mvar: 0.0 } satisfies SgenData;
+    case "extgrid":
+      return { name: "External grid", vm_pu: 1.0, va_degree: 0.0 } satisfies ExtGridData;
     case "load":
       return { name: "Load", p_mw: 0.01, q_mvar: 0.0 } satisfies LoadData;
     case "switch":
@@ -179,6 +185,8 @@ export const useEditor = create<EditorState>((set, get) => ({
     set((s) => {
       const byBus = new Map(result.res_bus.map((r) => [r.id, r]));
       const byGen = new Map(result.res_gen.map((r) => [r.id, r]));
+      const bySgen = new Map(result.res_sgen.map((r) => [r.id, r]));
+      const byExtGrid = new Map(result.res_ext_grid.map((r) => [r.id, r]));
       const byTrafo = new Map(
         [...result.res_trafo, ...result.res_trafo3w].map((r) => [r.id, r]),
       );
@@ -212,6 +220,19 @@ export const useEditor = create<EditorState>((set, get) => ({
               },
             } as ElementNode;
           }
+          if (n.type === "sgen" || n.type === "extgrid") {
+            const r = result.converged
+              ? (n.type === "sgen" ? bySgen : byExtGrid).get(n.id)
+              : undefined;
+            return {
+              ...n,
+              data: {
+                ...(n.data as SgenData | ExtGridData),
+                res_p_mw: r?.p_mw ?? undefined,
+                res_q_mvar: r?.q_mvar ?? undefined,
+              },
+            } as ElementNode;
+          }
           if (n.type === "trafo2w" || n.type === "trafo3w") {
             const r = result.converged ? byTrafo.get(n.id) : undefined;
             return {
@@ -240,6 +261,11 @@ export const useEditor = create<EditorState>((set, get) => ({
           return {
             ...n,
             data: { ...(n.data as GeneratorData), res_p_mw: undefined, res_q_mvar: undefined },
+          } as ElementNode;
+        if (n.type === "sgen" || n.type === "extgrid")
+          return {
+            ...n,
+            data: { ...(n.data as SgenData | ExtGridData), res_p_mw: undefined, res_q_mvar: undefined },
           } as ElementNode;
         if (n.type === "trafo2w" || n.type === "trafo3w")
           return {
@@ -282,6 +308,40 @@ export const useEditor = create<EditorState>((set, get) => ({
           vm_pu: d.vm_pu,
           slack: d.slack,
           slack_weight: d.slack_weight,
+          port: edge?.targetHandle ?? "",
+          x: n.position.x,
+          y: n.position.y,
+          waypoint: waypointOf(edge),
+        };
+      });
+    const sgens = nodes
+      .filter((n) => n.type === "sgen")
+      .map((n) => {
+        const d = n.data as SgenData;
+        const edge = edgeForComponent(n.id, edges);
+        return {
+          id: n.id,
+          name: d.name,
+          bus_id: edge?.target ?? "",
+          p_mw: d.p_mw,
+          q_mvar: d.q_mvar,
+          port: edge?.targetHandle ?? "",
+          x: n.position.x,
+          y: n.position.y,
+          waypoint: waypointOf(edge),
+        };
+      });
+    const extGrids = nodes
+      .filter((n) => n.type === "extgrid")
+      .map((n) => {
+        const d = n.data as ExtGridData;
+        const edge = edgeForComponent(n.id, edges);
+        return {
+          id: n.id,
+          name: d.name,
+          bus_id: edge?.target ?? "",
+          vm_pu: d.vm_pu,
+          va_degree: d.va_degree,
           port: edge?.targetHandle ?? "",
           x: n.position.x,
           y: n.position.y,
@@ -370,6 +430,8 @@ export const useEditor = create<EditorState>((set, get) => ({
       name: networkName,
       buses,
       generators,
+      sgens,
+      ext_grids: extGrids,
       loads,
       switches,
       transformers2w,
@@ -420,6 +482,40 @@ export const useEditor = create<EditorState>((set, get) => ({
           targetHandle: busPort(g.bus_id, g.port),
           type: "wire",
           data: g.waypoint ? { waypoint: g.waypoint } : undefined,
+        });
+    }
+    for (const sg of network.sgens ?? []) {
+      nodes.push({
+        id: sg.id,
+        type: "sgen",
+        position: { x: sg.x, y: sg.y },
+        data: { name: sg.name, p_mw: sg.p_mw, q_mvar: sg.q_mvar },
+      });
+      if (sg.bus_id)
+        edges.push({
+          id: `${sg.id}->${sg.bus_id}`,
+          source: sg.id,
+          target: sg.bus_id,
+          targetHandle: busPort(sg.bus_id, sg.port),
+          type: "wire",
+          data: sg.waypoint ? { waypoint: sg.waypoint } : undefined,
+        });
+    }
+    for (const eg of network.ext_grids ?? []) {
+      nodes.push({
+        id: eg.id,
+        type: "extgrid",
+        position: { x: eg.x, y: eg.y },
+        data: { name: eg.name, vm_pu: eg.vm_pu, va_degree: eg.va_degree },
+      });
+      if (eg.bus_id)
+        edges.push({
+          id: `${eg.id}->${eg.bus_id}`,
+          source: eg.id,
+          target: eg.bus_id,
+          targetHandle: busPort(eg.bus_id, eg.port),
+          type: "wire",
+          data: eg.waypoint ? { waypoint: eg.waypoint } : undefined,
         });
     }
     for (const l of network.loads) {

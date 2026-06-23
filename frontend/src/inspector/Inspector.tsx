@@ -11,8 +11,10 @@ import {
 import { useEditor } from "../store";
 import type {
   BusData,
+  ExtGridData,
   GeneratorData,
   LoadData,
+  SgenData,
   SwitchData,
   Trafo2WData,
   Trafo3WData,
@@ -40,6 +42,17 @@ const TRAFO3W_STD_TYPES = [
   "63/25/38 MVA 110/10/10 kV",
 ];
 
+const HEADERS: Record<string, string> = {
+  bus: "BUS BAR",
+  generator: "GENERATOR",
+  sgen: "STATIC GENERATOR",
+  extgrid: "EXTERNAL GRID",
+  load: "LOAD",
+  switch: "SWITCH",
+  trafo2w: "TRANSFORMER",
+  trafo3w: "3W TRANSFORMER",
+};
+
 export function Inspector() {
   const { nodes, selectedId, updateNodeData, removeNode } = useEditor();
   const node = nodes.find((n) => n.id === selectedId);
@@ -63,7 +76,7 @@ export function Inspector() {
   return (
     <Stack gap="sm" p="sm">
       <Text size="sm" fw={700} c="dimmed">
-        {node.type === "bus" ? "BUS BAR" : node.type?.toUpperCase()}
+        {HEADERS[node.type ?? ""] ?? node.type?.toUpperCase()}
       </Text>
       <TextInput
         label="Name"
@@ -115,6 +128,48 @@ export function Inspector() {
               onChange={(v) => update({ slack_weight: Number(v) || 0 })}
             />
           )}
+        </>
+      )}
+
+      {node.type === "sgen" && (
+        <>
+          <NumberInput
+            label="Active power (MW)"
+            value={(node.data as SgenData).p_mw}
+            step={0.001}
+            decimalScale={4}
+            onChange={(v) => update({ p_mw: Number(v) || 0 })}
+          />
+          <NumberInput
+            label="Reactive power (MVar)"
+            value={(node.data as SgenData).q_mvar}
+            step={0.001}
+            decimalScale={4}
+            onChange={(v) => update({ q_mvar: Number(v) || 0 })}
+          />
+        </>
+      )}
+
+      {node.type === "extgrid" && (
+        <>
+          <NumberInput
+            label="Voltage setpoint (p.u.)"
+            value={(node.data as ExtGridData).vm_pu}
+            min={0}
+            step={0.01}
+            decimalScale={3}
+            onChange={(v) => update({ vm_pu: Number(v) || 0 })}
+          />
+          <NumberInput
+            label="Voltage angle (deg)"
+            value={(node.data as ExtGridData).va_degree}
+            step={0.1}
+            decimalScale={2}
+            onChange={(v) => update({ va_degree: Number(v) || 0 })}
+          />
+          <Text size="xs" c="dimmed">
+            Always a slack (voltage reference) that balances the network.
+          </Text>
         </>
       )}
 
@@ -178,6 +233,14 @@ export function Inspector() {
           <Text size="xs" c="dimmed">
             Result: P {(node.data as GeneratorData).res_p_mw!.toFixed(4)} MW,
             Q {((node.data as GeneratorData).res_q_mvar ?? 0).toFixed(4)} Mvar
+          </Text>
+        )}
+
+      {(node.type === "sgen" || node.type === "extgrid") &&
+        (node.data as SgenData | ExtGridData).res_p_mw !== undefined && (
+          <Text size="xs" c="dimmed">
+            Result: P {(node.data as SgenData | ExtGridData).res_p_mw!.toFixed(4)} MW,
+            Q {((node.data as SgenData | ExtGridData).res_q_mvar ?? 0).toFixed(4)} Mvar
           </Text>
         )}
 

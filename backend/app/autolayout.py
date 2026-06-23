@@ -56,8 +56,8 @@ def _to_pixels(pos: dict[int, Coord], n: int) -> dict[int, Coord]:
     min_y, max_y = min(ys), max(ys)
     span_x = (max_x - min_x) or 1.0
     span_y = (max_y - min_y) or 1.0
-    width = max(400.0, 180.0 * (n - 1))
-    height = max(300.0, 150.0 * (n - 1))
+    width = max(500.0, 280.0 * (n - 1))
+    height = max(360.0, 220.0 * (n - 1))
     margin = 80.0
     return {
         b: (
@@ -72,15 +72,17 @@ def auto_layout(net) -> dict[str, dict[int, Coord]]:
     bus_ids = list(net.bus.index)
     empty = {
         k: {}
-        for k in ("bus", "gen", "ext_grid", "load", "switch", "trafo", "trafo3w")
+        for k in ("bus", "gen", "sgen", "ext_grid", "load", "switch", "trafo", "trafo3w")
     }
     if not bus_ids:
         return empty
 
     bus_xy = _to_pixels(_normalized_positions(net, bus_ids), len(bus_ids))
 
-    # Stack multiple sources/loads on the same bus side by side.
-    GAP, STEP = 100.0, 70.0
+    # Stack multiple sources/loads on the same bus side by side. STEP must clear
+    # a node's width (~64 px) so stacked elements don't overlap; GAP keeps them
+    # clear of the bus bar and its labels.
+    GAP, STEP = 150.0, 120.0
     above: dict[int, int] = {}
     below: dict[int, int] = {}
 
@@ -94,6 +96,7 @@ def auto_layout(net) -> dict[str, dict[int, Coord]]:
     result: dict[str, dict[int, Coord]] = {
         "bus": bus_xy,
         "gen": {},
+        "sgen": {},
         "ext_grid": {},
         "load": {},
         "switch": {},
@@ -107,6 +110,8 @@ def auto_layout(net) -> dict[str, dict[int, Coord]]:
 
     for gi in net.gen.index:
         result["gen"][gi] = place(int(net.gen.at[gi, "bus"]), "above")
+    for si in net.sgen.index:
+        result["sgen"][si] = place(int(net.sgen.at[si, "bus"]), "above")
     for ei in net.ext_grid.index:
         result["ext_grid"][ei] = place(int(net.ext_grid.at[ei, "bus"]), "above")
     for li in net.load.index:

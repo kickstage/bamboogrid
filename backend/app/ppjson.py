@@ -28,10 +28,12 @@ from .autolayout import auto_layout
 from .converter import build_net
 from .schema import (
     Bus,
+    ExtGrid,
     Generator,
     Load,
     Network,
     Point,
+    Sgen,
     Switch,
     Transformer2W,
     Transformer3W,
@@ -57,6 +59,8 @@ def network_to_pp_json(network: Network) -> str:
 
     bus_by_id = {b.id: b for b in network.buses}
     gen_by_id = {g.id: g for g in network.generators}
+    sgen_by_id = {s.id: s for s in network.sgens}
+    ext_grid_by_id = {e.id: e for e in network.ext_grids}
     load_by_id = {load.id: load for load in network.loads}
 
     def _component_rows(by_id, id_map):
@@ -82,6 +86,8 @@ def network_to_pp_json(network: Network) -> str:
         index=list(id_maps["bus"].values()),
     )
     net["diagram_gen"] = _component_rows(gen_by_id, id_maps["gen"])
+    net["diagram_sgen"] = _component_rows(sgen_by_id, id_maps["sgen"])
+    net["diagram_ext_grid"] = _component_rows(ext_grid_by_id, id_maps["ext_grid"])
     net["diagram_load"] = _component_rows(load_by_id, id_maps["load"])
     switch_by_id = {s.id: s for s in network.switches}
     net["diagram_switch"] = pd.DataFrame(
@@ -145,13 +151,15 @@ def pp_json_to_network(raw: str) -> Network:
 
     Works on files we exported (rich diagram tables) and, best-effort, on plain
     pandapower nets with no diagram_* tables (positions default, ids generated).
-    Only bus / gen / ext_grid / load / bus-bus switch are reconstructed for now;
-    other element tables (line, trafo, sgen, …) are ignored until supported.
+    Buses, gens, sgens, ext_grids, loads, bus-bus switches and transformers are
+    reconstructed; other element tables (line, …) are ignored until supported.
     """
     net = pp.from_json_string(raw)
 
     d_bus = net.get("diagram_bus")
     d_gen = net.get("diagram_gen")
+    d_sgen = net.get("diagram_sgen")
+    d_ext_grid = net.get("diagram_ext_grid")
     d_load = net.get("diagram_load")
     d_switch = net.get("diagram_switch")
     d_trafo = net.get("diagram_trafo")
@@ -228,20 +236,38 @@ def pp_json_to_network(raw: str) -> Network:
             )
         )
 
-    # We no longer have an external-grid element. A foreign net's ext_grid is
-    # the slack, so import it as a slack generator to keep the reference.
+    sgens: list[Sgen] = []
+    for j in net.sgen.index:
+        lay = _layout(d_sgen, j)
+        sgens.append(
+            Sgen(
+                id=str(lay["uuid"]) if lay is not None else uuid.uuid4().hex,
+                name=_name(net.sgen.at[j, "name"], "Static gen"),
+                bus_id=bus_uuid[int(net.sgen.at[j, "bus"])],
+                p_mw=float(net.sgen.at[j, "p_mw"]),
+                q_mvar=float(net.sgen.at[j, "q_mvar"]),
+                port=_col(lay, "port"),
+                x=_pos(lay, "sgen", j)[0],
+                y=_pos(lay, "sgen", j)[1],
+                waypoint=_parse_waypoint(lay["waypoint_json"]) if lay is not None else None,
+            )
+        )
+
+    ext_grids: list[ExtGrid] = []
     for j in net.ext_grid.index:
-        ex, ey = _pos(None, "ext_grid", j)
-        generators.append(
-            Generator(
-                id=uuid.uuid4().hex,
-                name=_name(net.ext_grid.at[j, "name"], "Slack"),
+        lay = _layout(d_ext_grid, j)
+        va = net.ext_grid.at[j, "va_degree"] if "va_degree" in net.ext_grid else 0.0
+        ext_grids.append(
+            ExtGrid(
+                id=str(lay["uuid"]) if lay is not None else uuid.uuid4().hex,
+                name=_name(net.ext_grid.at[j, "name"], "External grid"),
                 bus_id=bus_uuid[int(net.ext_grid.at[j, "bus"])],
-                p_mw=0.0,
                 vm_pu=float(net.ext_grid.at[j, "vm_pu"]),
-                slack=True,
-                x=ex,
-                y=ey,
+                va_degree=float(va) if va is not None else 0.0,
+                port=_col(lay, "port"),
+                x=_pos(lay, "ext_grid", j)[0],
+                y=_pos(lay, "ext_grid", j)[1],
+                waypoint=_parse_waypoint(lay["waypoint_json"]) if lay is not None else None,
             )
         )
 
@@ -322,6 +348,8 @@ def pp_json_to_network(raw: str) -> Network:
         name=network_name,
         buses=buses,
         generators=generators,
+        sgens=sgens,
+        ext_grids=ext_grids,
         loads=loads,
         switches=switches,
         transformers2w=transformers2w,

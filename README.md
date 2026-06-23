@@ -3,17 +3,33 @@
 A web-based editor for building power networks and running load-flow (power-flow)
 calculations with [pandapower](https://pandapower.org).
 
-You drag elements (buses, generators, loads) onto a canvas, wire them together,
-set their parameters, and run a load flow. The network is the editor's own JSON
-document; a pandapower network is built from it on demand to solve. The long-term
-aim is to also export to a pandapower DataFrame and to CGMES.
+You drag elements onto a canvas, wire them together, set their parameters, and
+run a load flow. The network is the editor's own JSON document; a pandapower
+network is built from it on demand to solve. The long-term aim is to also export
+to a pandapower DataFrame and to CGMES.
 
-> **Status — iteration 1.** Supports **buses, generators, and loads** only.
-> A "generator" is modelled as a pandapower `ext_grid` (slack/reference source),
-> so it pins its bus to its voltage setpoint. There are no lines/transformers yet,
-> so a network is a single bus (or several independent single-bus islands).
-> Connecting buses with lines — which is what makes load flow interesting
-> (voltage drop under load) — is the next step.
+> **Status.** The editor supports **buses**, three source types (**external
+> grid**/slack, **generator**, **static generator**), **loads**, bus–bus
+> **switches**, and two- and three-winding **transformers** — enough to model
+> multi-voltage-level networks and observe voltage drop, transformer loading and
+> slack balancing under load. Networks import and export as **pandapower JSON**
+> (the file also carries the diagram layout). CGMES export is a planned next step.
+
+## Elements
+
+| Element | pandapower | Role |
+| --- | --- | --- |
+| Bus bar | `bus` | A node at a nominal voltage (kV); everything attaches to a bus. |
+| External grid | `ext_grid` | The slack / voltage reference; holds its bus voltage and balances the network. |
+| Generator | `gen` | A PV unit: set its active power and the voltage it holds; reactive power is solved. |
+| Static generator | `sgen` | A PQ injection (PV / wind / storage feed-in): set active and reactive power. |
+| Load | `load` | Consumes a fixed P and Q. |
+| Switch | `switch` (`et="b"`) | Ties two buses; closed = one node, open = separated. |
+| Transformer | `trafo` | 2-winding, connects an HV and an LV bus (from a standard type). |
+| 3W transformer | `trafo3w` | 3-winding, connects HV / MV / LV buses. |
+
+See [`examples/`](examples/) for a guided tour of these elements — three small,
+progressively richer networks you can import and solve.
 
 ## Architecture
 
@@ -78,16 +94,24 @@ npm run build       # tsc + vite build
 
 ## Using the editor
 
-1. **Drag** a Bus, a Generator, and a Load from the left palette onto the canvas.
-2. **Connect** the generator's and load's handles to the bus (only
-   generator/load → bus is allowed; one bus per component).
+1. **Drag** elements from the left palette (grouped into *Nodes*, *Sources*,
+   *Loads*, *Connections*) onto the canvas.
+2. **Connect** their handles to buses. A component (generator, static generator,
+   external grid, load) wires to one bus; a switch wires each of its two ends to
+   a bus; a transformer wires each winding (HV/LV, or HV/MV/LV) to a bus. Each
+   handle carries a single wire, and the busbar grows ports as you attach more.
 3. **Select** an element and edit its parameters in the right-hand inspector
-   (bus `vn_kv`; generator `vm_pu`; load `p_mw` / `q_mvar`).
-4. **Run load flow** — bus voltages (`vm_pu`) are painted onto the buses; the bus
-   tints green/amber/red by how far the voltage is from 1.0 p.u. A failed solve
-   shows a banner and clears stale results.
-5. **Save / share** — *Export JSON* downloads the network as a portable file;
-   *Open JSON* loads one back; *Save to server* persists it via the API.
+   (e.g. bus `vn_kv`; generator `p_mw`/`vm_pu`; load `p_mw`/`q_mvar`; external
+   grid `vm_pu`; transformer standard type).
+4. **Run load flow** — bus voltages (`vm_pu`) are painted onto the buses (tinted
+   green/amber/red by how far they are from 1.0 p.u.); generators, sgens and
+   external grids show their solved P/Q, and transformers their loading %. A
+   failed solve shows a banner and clears stale results. Toggle the **Results**
+   switch to show/hide them.
+5. **Import / Export** — *Export* downloads the network as a single pandapower
+   JSON (a valid pandapower net plus `diagram_*` layout tables); *Import* loads a
+   pandapower JSON back — either one we exported, or a plain pandapower net
+   (which gets an automatic layout).
 
 Delete elements or wires with **Backspace/Delete**, or via the inspector's
 **Delete element** button / the **×** that appears on a selected wire. Toggle

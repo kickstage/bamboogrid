@@ -1,14 +1,11 @@
 """Convert an editor :class:`Network` document into a pandapower net and run
 the load flow.
 
-Validation rules for iteration 1:
-  * every generator/load must reference an existing bus;
-  * every electrically-connected island must contain at least one generator
-    (the slack), otherwise the load flow has no voltage reference. With no
-    lines yet, each bus is its own island, so the rule simplifies to: every
-    bus that carries a load needs a generator on it. We enforce the general
-    "at least one generator overall on a bus that has load" pragmatically by
-    requiring each load's bus to also host a generator.
+Validation is structural only: every element must reference an existing bus.
+We deliberately do NOT require a slack/reference — a network that won't solve is
+a valid thing to draw, and simply comes back as not-converged. Switches (closed)
+and transformers merge their buses into one electrical island; an island with no
+ext_grid or slack generator stays unsupplied (its bus results come back as None).
 """
 
 from __future__ import annotations
@@ -77,6 +74,8 @@ def validate(network: Network) -> None:
 
     for kind, items in (
         ("Generator", network.generators),
+        ("Static generator", network.sgens),
+        ("External grid", network.ext_grids),
         ("Load", network.loads),
     ):
         for el in items:
@@ -129,6 +128,32 @@ def build_net(network: Network):
             name=gen.name,
             slack=gen.slack,
             slack_weight=gen.slack_weight,
+        )
+
+    # Static generators are pandapower sgens: a PQ injection, never a reference.
+    sgen_index: dict[str, int] = {}
+    for sg in network.sgens:
+        if sg.bus_id not in bus_index:
+            continue
+        sgen_index[sg.id] = pp.create_sgen(
+            net,
+            bus=bus_index[sg.bus_id],
+            p_mw=sg.p_mw,
+            q_mvar=sg.q_mvar,
+            name=sg.name,
+        )
+
+    # External grids are pandapower ext_grids: the slack/voltage reference.
+    ext_grid_index: dict[str, int] = {}
+    for eg in network.ext_grids:
+        if eg.bus_id not in bus_index:
+            continue
+        ext_grid_index[eg.id] = pp.create_ext_grid(
+            net,
+            bus=bus_index[eg.bus_id],
+            vm_pu=eg.vm_pu,
+            va_degree=eg.va_degree,
+            name=eg.name,
         )
 
     load_index: dict[str, int] = {}
@@ -196,6 +221,8 @@ def build_net(network: Network):
     id_maps = {
         "bus": bus_index,
         "gen": gen_index,
+        "sgen": sgen_index,
+        "ext_grid": ext_grid_index,
         "load": load_index,
         "switch": switch_index,
         "trafo": trafo_index,
@@ -250,6 +277,22 @@ def run_load_flow(network: Network) -> LoadFlowResult:
         )
         for gen_id, idx in id_maps["gen"].items()
     ]
+    res_sgen = [
+        GenResult(
+            id=sgen_id,
+            p_mw=_f(net.res_sgen.at[idx, "p_mw"]),
+            q_mvar=_f(net.res_sgen.at[idx, "q_mvar"]),
+        )
+        for sgen_id, idx in id_maps["sgen"].items()
+    ]
+    res_ext_grid = [
+        GenResult(
+            id=eg_id,
+            p_mw=_f(net.res_ext_grid.at[idx, "p_mw"]),
+            q_mvar=_f(net.res_ext_grid.at[idx, "q_mvar"]),
+        )
+        for eg_id, idx in id_maps["ext_grid"].items()
+    ]
     res_load = [
         LoadResult(
             id=load_id,
@@ -279,6 +322,8 @@ def run_load_flow(network: Network) -> LoadFlowResult:
         converged=True,
         res_bus=res_bus,
         res_gen=res_gen,
+        res_sgen=res_sgen,
+        res_ext_grid=res_ext_grid,
         res_load=res_load,
         res_trafo=res_trafo,
         res_trafo3w=res_trafo3w,

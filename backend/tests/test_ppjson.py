@@ -68,17 +68,24 @@ def test_slack_generator_fields_roundtrip():
     assert gen.slack_weight == 2.5
 
 
-def test_import_plain_pandapower_net_converts_ext_grid_to_slack_gen():
+def test_import_plain_pandapower_net_brings_in_gen_sgen_ext_grid():
     net = pp.create_empty_network()
     b = pp.create_bus(net, vn_kv=0.4, name="B")
     pp.create_ext_grid(net, bus=b, vm_pu=1.0)  # foreign net's slack
     pp.create_gen(net, bus=b, p_mw=0.5, vm_pu=1.0)
+    pp.create_sgen(net, bus=b, p_mw=0.3, q_mvar=0.1)
     pp.create_load(net, bus=b, p_mw=0.02)
 
     restored = pp_json_to_network(pp.to_json(net))
     assert len(restored.buses) == 1
     assert len(restored.loads) == 1
-    # The ext_grid + the gen both become generators; the ext_grid is the slack.
-    assert len(restored.generators) == 2
-    assert sum(1 for g in restored.generators if g.slack) == 1
-    assert all(g.bus_id == restored.buses[0].id for g in restored.generators)
+    # Each source type maps to its own element; the ext_grid is the slack.
+    assert len(restored.generators) == 1
+    assert len(restored.ext_grids) == 1
+    assert restored.ext_grids[0].vm_pu == 1.0
+    assert len(restored.sgens) == 1
+    assert restored.sgens[0].p_mw == 0.3 and restored.sgens[0].q_mvar == 0.1
+    bus_id = restored.buses[0].id
+    assert restored.generators[0].bus_id == bus_id
+    assert restored.ext_grids[0].bus_id == bus_id
+    assert restored.sgens[0].bus_id == bus_id
