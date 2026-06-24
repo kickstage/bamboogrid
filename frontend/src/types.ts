@@ -256,6 +256,21 @@ export interface Line {
   y: number;
 }
 
+// A shunt (capacitor/reactor on one bus). Imported and solved for fidelity but
+// not drawn on the canvas yet — the editor carries it through unchanged.
+export interface Shunt {
+  id: string;
+  name: string;
+  bus_id: string;
+  p_mw: number;
+  q_mvar: number;
+  vn_kv: number | null;
+  step: number;
+  x: number;
+  y: number;
+  port?: string;
+}
+
 export interface Network {
   id: string;
   name: string;
@@ -270,6 +285,7 @@ export interface Network {
   transformers2w: Transformer2W[];
   transformers3w: Transformer3W[];
   lines: Line[];
+  shunts: Shunt[];
 }
 
 export interface LoadFlowResult {

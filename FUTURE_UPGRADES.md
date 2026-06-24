@@ -64,51 +64,39 @@ parameter set (`pp.available_std_types(net, "trafo")`). The inspector calls it
 
 ---
 
-## 2. Tap-changer (off-nominal ratio) support
+## 2. Shunt as a visible / editable canvas element
 
 ### Why
 
-`Trafo2WParams` / `Trafo3WParams` capture the core electrical parameters but
-**not the tap changer** (`tap_side`, `tap_pos`, `tap_neutral`, `tap_min`,
-`tap_max`, `tap_step_percent`, `tap_step_degree`, `tap_changer_type`). Many real
-transformers regulate voltage by tapping, so today:
-
-- An imported net whose transformers use taps (e.g. **IEEE14**, whose three
-  135 kV transformers sit at `tap_pos = -1`) converges but solves to **slightly
-  different voltages than the source** (~1–2% on the transformer-fed buses).
-- This is the open item behind the deferred *faithful transformer round-trip*
-  work — adding taps is what closes that gap so the editor reproduces a source
-  net's solution exactly.
+Shunts (capacitor banks / reactors on a single bus) are now **imported and
+solved** (`Shunt` in `schema.py`, built via `create_shunt`, carried through the
+store unchanged) — this is what makes IEEE14 match its reference solution. But a
+shunt has **no glyph on the canvas yet**: it affects the load flow without being
+visible, so a user can't see it, edit it, or add one. Same gap lines had before
+they got a proper element.
 
 ### What
 
-1. Add the tap fields to `Trafo2WParams` / `Trafo3WParams` (nullable; `None`
-   means "no tap changer").
-2. Capture them on import in `ppjson.py` (`_trafo2w_params` / `_trafo3w_params`),
-   handling `NaN → None` for the optional numeric fields and the string
-   `tap_side` / `tap_changer_type`.
-3. Pass them through `create_transformer_from_parameters` in `converter.py`.
-4. Surface tap controls in the transformer **Advanced expander** (item 1): tap
-   side (HV/LV), position, neutral, step %, and min/max range.
+Give `Shunt` a first-class canvas element, mirroring `Load` (a single-bus
+attachment):
+
+1. A `ShuntNode` + palette glyph, drawn and wired to a bus like a load.
+2. `store.ts`: build/serialize it through `nodes`/`edges` (rather than the
+   current opaque `shunts` pass-through array), and an inspector panel for
+   `q_mvar` / `p_mw` (and `step`).
+3. Show its solved reactive contribution after a load flow (needs `res_shunt`
+   plumbed through `LoadFlowResult`, analogous to `res_line`).
 
 ### Files
 
-- `backend/app/schema.py` — tap fields on the params models.
-- `backend/app/ppjson.py` — capture them (NaN-safe) on import; they already
-  round-trip through the standard pandapower `trafo` table on export.
-- `backend/app/converter.py` — forward the tap kwargs when building.
-- `frontend/src/inspector/Inspector.tsx` — tap UI inside the expander.
+- `frontend/src/types.ts`, `nodes/ShuntNode.tsx`, `nodes/glyphs.tsx`,
+  `palette/Palette.tsx`, `inspector/Inspector.tsx`, `store.ts`.
+- `backend/app/schema.py` / `converter.py` — add `res_shunt` if showing results.
 
-### Verify
+### Done when
 
-- Re-import `examples/IEEE14.pp.json`, run load flow, and compare bus voltages
-  against `pandapower.networks.case14()` solved directly — they should now match
-  to solver tolerance (was ~1–2% off on transformer-fed buses).
-- Round-trip (export → re-import) preserves tap settings.
+- An imported shunt appears on the bus it's attached to and is editable.
+- A user can drop a new shunt from the palette onto a bus.
 
-### Note from earlier investigation
-
-When this was first attempted, capturing every visible tap column still left a
-small mismatch until `tap_changer_type` (`"Ratio"`) was also carried — that
-column defaults differently between a JSON-loaded transformer and one built via
-`create_transformer_from_parameters`. Capture it explicitly.
+> Until then the opaque pass-through keeps imported shunts intact through
+> save / run / export, so IEEE14 stays correct.

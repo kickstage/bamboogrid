@@ -33,6 +33,23 @@ class ConversionError(ValueError):
 DEFAULT_TRAFO_STD = "0.25 MVA 20/0.4 kV"
 DEFAULT_TRAFO3W_STD = "63/25/38 MVA 110/20/10 kV"
 
+# Tap-changer fields forwarded verbatim to pandapower's *_from_parameters
+# builders. Shared by 2W and 3W params (a None field means "no tap changer").
+_TAP_FIELDS = (
+    "tap_side",
+    "tap_neutral",
+    "tap_min",
+    "tap_max",
+    "tap_step_percent",
+    "tap_step_degree",
+    "tap_pos",
+    "tap_changer_type",
+)
+
+
+def _tap_kwargs(params) -> dict:
+    return {k: getattr(params, k) for k in _TAP_FIELDS}
+
 
 def _is_wired(switch) -> bool:
     """A switch is electrically meaningful only when both ends are connected."""
@@ -81,6 +98,7 @@ def validate(network: Network) -> None:
         ("Static generator", network.sgens),
         ("External grid", network.ext_grids),
         ("Load", network.loads),
+        ("Shunt", network.shunts),
     ):
         for el in items:
             if el.bus_id and el.bus_id not in bus_ids:
@@ -180,6 +198,16 @@ def build_net(network: Network):
             name=load.name,
         )
 
+    # Shunts: a fixed reactive/active device on one bus (capacitor/reactor).
+    shunt_index: dict[str, int] = {}
+    for sh in network.shunts:
+        if sh.bus_id not in bus_index:
+            continue
+        kwargs = dict(q_mvar=sh.q_mvar, p_mw=sh.p_mw, step=sh.step, name=sh.name)
+        if sh.vn_kv is not None:
+            kwargs["vn_kv"] = sh.vn_kv
+        shunt_index[sh.id] = pp.create_shunt(net, bus=bus_index[sh.bus_id], **kwargs)
+
     switch_index: dict[str, int] = {}
     for sw in network.switches:
         # Only fully-wired switches are electrically meaningful.
@@ -220,6 +248,7 @@ def build_net(network: Network):
                 i0_percent=p.i0_percent,
                 shift_degree=p.shift_degree,
                 name=t.name,
+                **_tap_kwargs(p),
             )
             continue
         std = t.std_type if t.std_type in trafo_types else DEFAULT_TRAFO_STD
@@ -263,6 +292,7 @@ def build_net(network: Network):
                 shift_mv_degree=p.shift_mv_degree,
                 shift_lv_degree=p.shift_lv_degree,
                 name=t.name,
+                **_tap_kwargs(p),
             )
             continue
         std = t.std_type if t.std_type in trafo3w_types else DEFAULT_TRAFO3W_STD
@@ -299,6 +329,7 @@ def build_net(network: Network):
         "sgen": sgen_index,
         "ext_grid": ext_grid_index,
         "load": load_index,
+        "shunt": shunt_index,
         "switch": switch_index,
         "trafo": trafo_index,
         "trafo3w": trafo3w_index,

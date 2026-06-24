@@ -99,6 +99,28 @@ class Load(BaseModel):
     waypoint: Point | None = None
 
 
+class Shunt(BaseModel):
+    """A shunt element (pandapower ``shunt``): a fixed reactive (or active)
+    device attached to one bus — a capacitor bank or reactor used for voltage
+    support. ``q_mvar``/``p_mw`` are the values at the rated voltage ``vn_kv``
+    (defaults to the bus voltage), scaled by ``step``.
+
+    Imported and solved for fidelity (e.g. IEEE14's −19 MVar shunt) but not yet
+    drawn on the canvas; the editor carries it through unchanged."""
+
+    id: str
+    name: str = "Shunt"
+    bus_id: str = ""
+    p_mw: float = Field(default=0.0, description="Active power at vn_kv [MW]")
+    q_mvar: float = Field(default=0.0, description="Reactive power at vn_kv [MVar]")
+    vn_kv: float | None = Field(default=None, description="Rated voltage [kV]")
+    step: int = 1
+    # Layout, kept for round-trip; unused until a canvas element exists.
+    x: float = 0.0
+    y: float = 0.0
+    port: str = ""
+
+
 class Switch(BaseModel):
     """A bus–bus switch (pandapower ``et='b'``). Closed ties the two buses into
     one electrical node; open separates them. Single type for now (no
@@ -123,9 +145,8 @@ class Trafo2WParams(BaseModel):
     via ``create_transformer_from_parameters`` so the net solves and round-trips;
     otherwise the editor builds the transformer from ``std_type``.
 
-    Note: tap-changer (off-nominal ratio) settings are not captured yet, so an
-    imported net whose transformers use taps will solve to slightly different
-    voltages than the source until tap support is added."""
+    The ``tap_*`` fields describe an off-nominal-ratio tap changer; they are
+    ``None`` when the transformer has no tap changer."""
 
     sn_mva: float = Field(gt=0)
     vn_hv_kv: float = Field(gt=0)
@@ -135,6 +156,15 @@ class Trafo2WParams(BaseModel):
     pfe_kw: float = Field(ge=0)
     i0_percent: float = Field(ge=0)
     shift_degree: float = 0.0
+    # Tap changer (off-nominal ratio). None ⇒ no tap changer.
+    tap_side: str | None = None
+    tap_neutral: float | None = None
+    tap_min: float | None = None
+    tap_max: float | None = None
+    tap_step_percent: float | None = None
+    tap_step_degree: float | None = None
+    tap_pos: float | None = None
+    tap_changer_type: str | None = None
 
 
 class Trafo3WParams(BaseModel):
@@ -158,6 +188,15 @@ class Trafo3WParams(BaseModel):
     i0_percent: float = Field(ge=0)
     shift_mv_degree: float = 0.0
     shift_lv_degree: float = 0.0
+    # Tap changer (off-nominal ratio). None ⇒ no tap changer.
+    tap_side: str | None = None
+    tap_neutral: float | None = None
+    tap_min: float | None = None
+    tap_max: float | None = None
+    tap_step_percent: float | None = None
+    tap_step_degree: float | None = None
+    tap_pos: float | None = None
+    tap_changer_type: str | None = None
 
 
 class Transformer2W(BaseModel):
@@ -239,6 +278,7 @@ class Network(BaseModel):
     transformers2w: list[Transformer2W] = Field(default_factory=list)
     transformers3w: list[Transformer3W] = Field(default_factory=list)
     lines: list[Line] = Field(default_factory=list)
+    shunts: list[Shunt] = Field(default_factory=list)
 
 
 # --- Load-flow result types ------------------------------------------------

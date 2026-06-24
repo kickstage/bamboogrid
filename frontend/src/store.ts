@@ -23,6 +23,7 @@ import type {
   LoadFlowResult,
   Network,
   SgenData,
+  Shunt,
   SwitchData,
   Trafo2WData,
   Trafo3WData,
@@ -90,6 +91,8 @@ interface EditorState {
   // System frequency / per-unit base, preserved from imports and passed back.
   f_hz: number;
   sn_mva: number;
+  // Imported shunts, carried through verbatim (no canvas element yet).
+  shunts: Shunt[];
   nodes: ElementNode[];
   edges: Edge[];
   selectedId: string | null;
@@ -174,6 +177,7 @@ export const useEditor = create<EditorState>((set, get) => ({
   networkName: "Untitled network",
   f_hz: 50.0,
   sn_mva: 1.0,
+  shunts: [],
   nodes: [],
   edges: [],
   selectedId: null,
@@ -470,7 +474,7 @@ export const useEditor = create<EditorState>((set, get) => ({
     })),
 
   toNetwork: () => {
-    const { nodes, edges, networkId, networkName, f_hz, sn_mva } = get();
+    const { nodes, edges, networkId, networkName, f_hz, sn_mva, shunts } = get();
     const buses = nodes
       .filter((n) => n.type === "bus")
       .map((n) => {
@@ -656,6 +660,9 @@ export const useEditor = create<EditorState>((set, get) => ({
       transformers2w,
       transformers3w,
       lines,
+      // Carry imported shunts through unchanged, but drop any whose bus was
+      // deleted (they're not editable on the canvas yet).
+      shunts: shunts.filter((sh) => nodes.some((n) => n.id === sh.bus_id)),
     };
   },
 
@@ -854,6 +861,7 @@ export const useEditor = create<EditorState>((set, get) => ({
       networkName: network.name,
       f_hz: network.f_hz ?? 50.0,
       sn_mva: network.sn_mva ?? 1.0,
+      shunts: network.shunts ?? [],
       nodes,
       edges,
       selectedId: null,
@@ -869,6 +877,7 @@ export const useEditor = create<EditorState>((set, get) => ({
       networkName: "Untitled network",
       f_hz: 50.0,
       sn_mva: 1.0,
+      shunts: [],
       nodes: [],
       edges: [],
       selectedId: null,

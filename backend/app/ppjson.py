@@ -35,6 +35,7 @@ from .schema import (
     Network,
     Point,
     Sgen,
+    Shunt,
     Switch,
     Trafo2WParams,
     Trafo3WParams,
@@ -56,9 +57,39 @@ def _parse_waypoint(value) -> Point | None:
     return Point(x=float(data["x"]), y=float(data["y"]))
 
 
+def _opt_f(value) -> float | None:
+    """A pandapower cell as an optional float (NaN/missing → None)."""
+    return None if value is None or pd.isna(value) else float(value)
+
+
+def _opt_s(value) -> str | None:
+    """A pandapower cell as an optional string (NaN/empty → None)."""
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return None
+    return str(value) or None
+
+
+def _tap_fields(row) -> dict:
+    """Tap-changer columns common to ``trafo`` and ``trafo3w``, NaN-safe. The
+    ``tap_changer_type`` column only exists in newer pandapower versions."""
+    return dict(
+        tap_side=_opt_s(row["tap_side"]),
+        tap_neutral=_opt_f(row["tap_neutral"]),
+        tap_min=_opt_f(row["tap_min"]),
+        tap_max=_opt_f(row["tap_max"]),
+        tap_step_percent=_opt_f(row["tap_step_percent"]),
+        tap_step_degree=_opt_f(row["tap_step_degree"]),
+        tap_pos=_opt_f(row["tap_pos"]),
+        tap_changer_type=(
+            _opt_s(row["tap_changer_type"]) if "tap_changer_type" in row else None
+        ),
+    )
+
+
 def _trafo2w_params(row) -> Trafo2WParams:
-    """Capture a pandapower ``trafo`` row's explicit electrical parameters (used
-    when the transformer has no recognized std_type). Taps are not captured yet."""
+    """Capture a pandapower ``trafo`` row's explicit electrical parameters,
+    including its tap changer (used when the transformer has no recognized
+    std_type)."""
     return Trafo2WParams(
         sn_mva=float(row["sn_mva"]),
         vn_hv_kv=float(row["vn_hv_kv"]),
@@ -68,6 +99,7 @@ def _trafo2w_params(row) -> Trafo2WParams:
         pfe_kw=float(row["pfe_kw"]),
         i0_percent=float(row["i0_percent"]),
         shift_degree=float(row["shift_degree"]),
+        **_tap_fields(row),
     )
 
 
@@ -90,6 +122,7 @@ def _trafo3w_params(row) -> Trafo3WParams:
         i0_percent=float(row["i0_percent"]),
         shift_mv_degree=float(row["shift_mv_degree"]),
         shift_lv_degree=float(row["shift_lv_degree"]),
+        **_tap_fields(row),
     )
 
 
@@ -186,6 +219,15 @@ def network_to_pp_json(network: Network) -> str:
         ],
         index=list(id_maps["line"].values()),
     )
+    shunt_by_id = {s.id: s for s in network.shunts}
+    net["diagram_shunt"] = pd.DataFrame(
+        [
+            {"uuid": uid, "x": shunt_by_id[uid].x, "y": shunt_by_id[uid].y,
+             "port": shunt_by_id[uid].port}
+            for uid in id_maps["shunt"]
+        ],
+        index=list(id_maps["shunt"].values()),
+    )
     net["diagram_meta"] = pd.DataFrame(
         [
             {
@@ -220,6 +262,7 @@ def pp_json_to_network(raw: str) -> Network:
     d_trafo = net.get("diagram_trafo")
     d_trafo3w = net.get("diagram_trafo3w")
     d_line = net.get("diagram_line")
+    d_shunt = net.get("diagram_shunt")
     d_meta = net.get("diagram_meta")
 
     network_id = uuid.uuid4().hex
@@ -445,6 +488,25 @@ def pp_json_to_network(raw: str) -> Network:
             )
         )
 
+    shunts: list[Shunt] = []
+    for s in net.shunt.index:
+        lay = _layout(d_shunt, s)
+        step = net.shunt.at[s, "step"]
+        shunts.append(
+            Shunt(
+                id=str(lay["uuid"]) if lay is not None else uuid.uuid4().hex,
+                name=_name(net.shunt.at[s, "name"], "Shunt"),
+                bus_id=bus_uuid[int(net.shunt.at[s, "bus"])],
+                p_mw=float(net.shunt.at[s, "p_mw"]),
+                q_mvar=float(net.shunt.at[s, "q_mvar"]),
+                vn_kv=_opt_f(net.shunt.at[s, "vn_kv"]),
+                step=int(step) if not pd.isna(step) else 1,
+                port=_col(lay, "port"),
+                x=float(lay["x"]) if lay is not None else 0.0,
+                y=float(lay["y"]) if lay is not None else 0.0,
+            )
+        )
+
     return Network(
         id=network_id,
         name=network_name,
@@ -459,4 +521,5 @@ def pp_json_to_network(raw: str) -> Network:
         transformers2w=transformers2w,
         transformers3w=transformers3w,
         lines=lines,
+        shunts=shunts,
     )
