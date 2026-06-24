@@ -51,7 +51,7 @@ const newId = () => crypto.randomUUID();
 function defaultData(kind: ElementKind): ElementData {
   switch (kind) {
     case "bus":
-      return { name: "Bus bar", vn_kv: 0.4 } satisfies BusData;
+      return { name: "Bus", vn_kv: 0.4 } satisfies BusData;
     case "generator":
       return {
         name: "Generator",
@@ -109,7 +109,6 @@ interface EditorState {
   // Create a bus-to-bus branch from a connection the user drew (chosen explicitly
   // from the canvas "add connection" menu, never inferred).
   addLineBetween: (c: Connection) => void;
-  addSwitchBetween: (c: Connection) => void;
   addTransformerBetween: (c: Connection) => void;
   addNode: (kind: ElementKind, position: XYPosition) => void;
   updateNodeData: (id: string, patch: Partial<ElementData>) => void;
@@ -225,28 +224,6 @@ export const useEditor = create<EditorState>((set, get) => ({
         },
       ],
     })),
-
-  addSwitchBetween: (c) =>
-    set((s) => {
-      const a = s.nodes.find((n) => n.id === c.source);
-      const b = s.nodes.find((n) => n.id === c.target);
-      if (!a || !b) return {};
-      const id = newId();
-      const node: ElementNode = {
-        id,
-        type: "switch",
-        position: midpoint(a, b),
-        data: { name: "Switch", closed: true } satisfies SwitchData,
-      };
-      return {
-        nodes: [...s.nodes, node],
-        edges: [
-          ...s.edges,
-          branchWire(id, "a", c.source, c.sourceHandle),
-          branchWire(id, "b", c.target, c.targetHandle),
-        ],
-      };
-    }),
 
   addTransformerBetween: (c) =>
     set((s) => {

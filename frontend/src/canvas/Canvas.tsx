@@ -7,6 +7,7 @@ import {
   ReactFlow,
   type Connection,
   type Edge,
+  type FinalConnectionState,
   type Node,
   useReactFlow,
 } from "@xyflow/react";
@@ -18,8 +19,8 @@ import { useEditor } from "../store";
 import type { BusData, ElementKind } from "../types";
 
 // The "add connection" menu shown after a bus → bus drag: the user explicitly
-// picks the branch type (we never infer it). Same-voltage buses can take a line
-// or an ideal tie (switch); different voltages need a transformer.
+// picks the branch type (we never infer it). Same-voltage buses take a line;
+// different voltages need a transformer.
 type BranchMenu = { conn: Connection; x: number; y: number; sameVoltage: boolean };
 
 export function Canvas() {
@@ -30,11 +31,11 @@ export function Canvas() {
     onEdgesChange,
     onConnect,
     addLineBetween,
-    addSwitchBetween,
     addTransformerBetween,
     addNode,
     select,
     selectEdge,
+    setMessage,
     fitSignal,
   } = useEditor();
   const { screenToFlowPosition, fitView } = useReactFlow();
@@ -92,24 +93,35 @@ export function Canvas() {
   );
 
   const handleConnectEnd = useCallback(
-    (event: MouseEvent | TouchEvent) => {
+    (event: MouseEvent | TouchEvent, conn: FinalConnectionState) => {
       const c = pendingConn.current;
       pendingConn.current = null;
-      if (!c) return;
-      const source = nodes.find((n) => n.id === c.source);
-      const target = nodes.find((n) => n.id === c.target);
-      if (!source || !target) return;
-      const vS = (source.data as BusData).vn_kv;
-      const vT = (target.data as BusData).vn_kv;
-      const pt = "clientX" in event ? event : event.changedTouches[0];
-      setMenu({
-        conn: c,
-        x: pt.clientX,
-        y: pt.clientY,
-        sameVoltage: Math.abs(vS - vT) < 1e-9,
-      });
+      // Bus → bus: open the explicit branch-type menu at the drop point.
+      if (c) {
+        const source = nodes.find((n) => n.id === c.source);
+        const target = nodes.find((n) => n.id === c.target);
+        if (!source || !target) return;
+        const vS = (source.data as BusData).vn_kv;
+        const vT = (target.data as BusData).vn_kv;
+        const pt = "clientX" in event ? event : event.changedTouches[0];
+        setMenu({
+          conn: c,
+          x: pt.clientX,
+          y: pt.clientY,
+          sameVoltage: Math.abs(vS - vT) < 1e-9,
+        });
+        return;
+      }
+      // Dropped on a non-bus element (e.g. a switch onto a load): everything
+      // connects through a bus, so explain why it was rejected. A valid drop only
+      // ever lands on a bus, so any non-bus target here was rejected.
+      if (conn.toNode && conn.toNode.type !== "bus") {
+        setMessage(
+          "Connections must go through a bus — attach to a bus, not directly to another element.",
+        );
+      }
     },
-    [nodes],
+    [nodes, setMessage],
   );
 
   const choose = (make: (c: Connection) => void) => {
@@ -207,14 +219,9 @@ export function Canvas() {
             </Text>
             <Stack gap={2}>
               {menu.sameVoltage ? (
-                <>
-                  <Button variant="subtle" size="xs" justify="flex-start" onClick={() => choose(addLineBetween)}>
-                    Line — carries power (impedance)
-                  </Button>
-                  <Button variant="subtle" size="xs" justify="flex-start" onClick={() => choose(addSwitchBetween)}>
-                    Switch — ideal tie (no impedance)
-                  </Button>
-                </>
+                <Button variant="subtle" size="xs" justify="flex-start" onClick={() => choose(addLineBetween)}>
+                  Line — carries power (impedance)
+                </Button>
               ) : (
                 <Button variant="subtle" size="xs" justify="flex-start" onClick={() => choose(addTransformerBetween)}>
                   Transformer — across voltage levels

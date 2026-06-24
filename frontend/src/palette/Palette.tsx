@@ -16,7 +16,7 @@ type Item = { kind: ElementKind; label: string; hint: string };
 const GROUPS: { title: string; items: Item[] }[] = [
   {
     title: "Nodes",
-    items: [{ kind: "bus", label: "Bus bar", hint: "Node — components attach here" }],
+    items: [{ kind: "bus", label: "Bus", hint: "Node — components attach here" }],
   },
   {
     title: "Sources",

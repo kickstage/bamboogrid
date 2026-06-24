@@ -1,6 +1,7 @@
 import {
   Button,
   Divider,
+  Group,
   NumberInput,
   Select,
   Stack,
@@ -43,8 +44,33 @@ const TRAFO3W_STD_TYPES = [
   "63/25/38 MVA 110/10/10 kV",
 ];
 
+// Explains the busbar colors a load flow paints on (see voltageColor in
+// BusNode): how far each bus's solved voltage sits from nominal (1.0 p.u.).
+function VoltageLegend() {
+  const Row = ({ color, label }: { color: string; label: string }) => (
+    <Group gap={6} wrap="nowrap">
+      <span
+        style={{ width: 11, height: 11, borderRadius: 2, background: color, flex: "none" }}
+      />
+      <Text size="xs" c="dimmed">
+        {label}
+      </Text>
+    </Group>
+  );
+  return (
+    <Stack gap={4}>
+      <Text size="xs" fw={600} c="dimmed">
+        BUS VOLTAGE AFTER LOAD FLOW
+      </Text>
+      <Row color="#16a34a" label="Green — within 5% of nominal" />
+      <Row color="#d97706" label="Orange — 5–10% off nominal" />
+      <Row color="#dc2626" label="Red — more than 10% off" />
+    </Stack>
+  );
+}
+
 const HEADERS: Record<string, string> = {
-  bus: "BUS BAR",
+  bus: "BUS",
   generator: "GENERATOR",
   sgen: "STATIC GENERATOR",
   extgrid: "EXTERNAL GRID",
@@ -353,6 +379,13 @@ export function Inspector() {
       <Text size="xs" c="dimmed">
         Tip: select an element or wire and press Backspace/Delete.
       </Text>
+
+      {node.type === "bus" && (
+        <>
+          <Divider my="xs" />
+          <VoltageLegend />
+        </>
+      )}
     </Stack>
   );
 }
