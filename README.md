@@ -80,9 +80,9 @@ npm install
 npm run dev
 ```
 
-Open <http://localhost:5173>. The frontend talks to the backend at
-`http://localhost:8000` (configured in `frontend/src/api.ts`; CORS for the Vite
-origin is set in `backend/app/main.py`).
+Open <http://localhost:5173>. The frontend calls the API on its own origin
+(relative paths); in dev, Vite proxies `/run-loadflow`, `/export`, `/import` and
+`/health` to `http://localhost:8000` (see `frontend/vite.config.ts`).
 
 Type-check / production build:
 
@@ -90,6 +90,41 @@ Type-check / production build:
 cd frontend
 npm run typecheck   # tsc --noEmit
 npm run build       # tsc + vite build
+```
+
+## Docker / Kubernetes
+
+The whole app ships as a **single container**: the FastAPI backend serves the
+built SPA as static files, so UI and API share one origin on port 8000.
+
+```bash
+docker build -t bamboogrid .
+docker run --rm -p 8000:8000 bamboogrid
+```
+
+Open <http://localhost:8000>.
+
+CI publishes the image to **`ghcr.io/kickstage/bamboogrid`**
+(nightly via `nightly` tag, and on GitHub release as semver + `latest`).
+
+A Helm chart lives in [`deploy/helm/bamboogrid`](deploy/helm/bamboogrid):
+
+```bash
+helm install bamboogrid deploy/helm/bamboogrid \
+  --set image.tag=nightly
+```
+
+The package is private by default (private repo), so the cluster needs a pull
+secret. Create one and reference it via `imagePullSecrets`:
+
+```bash
+kubectl create secret docker-registry ghcr-pull \
+  --docker-server=ghcr.io \
+  --docker-username=<github-user> \
+  --docker-password=<PAT with read:packages>
+
+helm install bamboogrid deploy/helm/bamboogrid \
+  --set 'imagePullSecrets[0].name=ghcr-pull'
 ```
 
 ## Using the editor

@@ -1,7 +1,16 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
+// In dev the SPA calls the API on its own origin (BASE=""); proxy those paths
+// to the separately-running backend so the two-process workflow still works.
+const proxy = Object.fromEntries(
+  ["/run-loadflow", "/export", "/import", "/health"].map((p) => [
+    p,
+    { target: "http://localhost:8000", changeOrigin: true },
+  ]),
+);
+
 export default defineConfig({
   plugins: [react()],
-  server: { port: 5173 },
+  server: { port: 5173, proxy },
 });

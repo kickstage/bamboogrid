@@ -1,0 +1,10 @@
+**/node_modules
+**/.venv
+**/dist
+**/__pycache__
+.git
+**/*.egg-info
+.pytest_cache
+**/.pytest_cache
+.DS_Store
+backend/data

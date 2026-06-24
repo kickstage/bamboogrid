@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import os
+
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from .converter import run_load_flow
 from .ppjson import network_to_pp_json, pp_json_to_network
@@ -57,3 +60,10 @@ async def import_pandapower(request: Request) -> Network:
         raise HTTPException(
             status_code=400, detail=f"Could not import pandapower JSON: {exc}"
         )
+
+
+# Serve the built SPA (same origin as the API). Mounted last so the API routes
+# above win; skipped in dev when the build dir is absent.
+_STATIC_DIR = os.getenv("STATIC_DIR", "/app/static")
+if os.path.isdir(_STATIC_DIR):
+    app.mount("/", StaticFiles(directory=_STATIC_DIR, html=True), name="static")

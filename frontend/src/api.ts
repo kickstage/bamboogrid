@@ -1,6 +1,6 @@
 import type { LoadFlowResult, Network } from "./types";
 
-const BASE = "http://localhost:8000";
+const BASE = "";
 
 async function json<T>(res: Response): Promise<T> {
   if (!res.ok) {
