@@ -139,7 +139,7 @@ export function Canvas() {
       }
       // Element → bus attachment.
       if (target.type !== "bus") return false;
-      const connectable = ["generator", "load", "switch", "trafo2w", "trafo3w"];
+      const connectable = ["generator", "sgen", "extgrid", "load", "switch", "trafo2w", "trafo3w"];
       if (!connectable.includes(source.type ?? "")) return false;
       const sourceTaken = edges.some(
         (e) => e.source === c.source && e.sourceHandle === c.sourceHandle,
