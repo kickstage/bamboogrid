@@ -30,6 +30,7 @@ export default function App() {
     applyResults,
     showResults,
     setShowResults,
+    resetNetwork,
   } = useEditor();
   const [busy, setBusy] = useState(false);
   const ppInputRef = useRef<HTMLInputElement>(null);
@@ -74,6 +75,16 @@ export default function App() {
     }
   };
 
+  // Clear the whole canvas back to an empty network. Destructive, so confirm
+  // first (skip the prompt when there's nothing to lose).
+  const onReset = () => {
+    const { nodes, edges } = useEditor.getState();
+    const empty = nodes.length === 0 && edges.length === 0;
+    if (empty || window.confirm("Clear the editor and remove everything?")) {
+      resetNetwork();
+    }
+  };
+
   const onRun = async () => {
     setBusy(true);
     try {
@@ -98,6 +109,9 @@ export default function App() {
               size="xs"
               w={220}
             />
+            <Button variant="default" size="xs" onClick={onReset}>
+              Reset editor
+            </Button>
           </Group>
           <Group>
             <Switch
@@ -106,15 +120,6 @@ export default function App() {
               checked={showResults}
               onChange={(e) => setShowResults(e.currentTarget.checked)}
             />
-            <ActionIcon
-              variant="default"
-              size="lg"
-              onClick={toggleScheme}
-              aria-label="Toggle color scheme"
-              title="Toggle dark mode"
-            >
-              {scheme === "dark" ? "☀️" : "🌙"}
-            </ActionIcon>
             <input
               ref={ppInputRef}
               type="file"
@@ -136,6 +141,15 @@ export default function App() {
             <Button size="xs" onClick={onRun} loading={busy}>
               Run load flow
             </Button>
+            <ActionIcon
+              variant="default"
+              size="lg"
+              onClick={toggleScheme}
+              aria-label="Toggle color scheme"
+              title="Toggle dark mode"
+            >
+              {scheme === "dark" ? "☀️" : "🌙"}
+            </ActionIcon>
           </Group>
         </Group>
         {message && (

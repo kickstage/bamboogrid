@@ -125,6 +125,8 @@ interface EditorState {
   clearResults: () => void;
   toNetwork: () => Network;
   loadNetwork: (network: Network) => void;
+  // Clear everything back to an empty, untitled network.
+  resetNetwork: () => void;
 }
 
 // A component (generator/load) has at most one wire, to its bus.
@@ -860,4 +862,18 @@ export const useEditor = create<EditorState>((set, get) => ({
       fitSignal: get().fitSignal + 1,
     });
   },
+
+  resetNetwork: () =>
+    set((s) => ({
+      networkId: null,
+      networkName: "Untitled network",
+      f_hz: 50.0,
+      sn_mva: 1.0,
+      nodes: [],
+      edges: [],
+      selectedId: null,
+      selectedEdgeId: null,
+      message: "",
+      fitSignal: s.fitSignal + 1,
+    })),
 }));
