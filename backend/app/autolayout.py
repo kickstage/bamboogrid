@@ -56,8 +56,13 @@ def _to_pixels(pos: dict[int, Coord], n: int) -> dict[int, Coord]:
     min_y, max_y = min(ys), max(ys)
     span_x = (max_x - min_x) or 1.0
     span_y = (max_y - min_y) or 1.0
-    width = max(500.0, 280.0 * (n - 1))
-    height = max(360.0, 220.0 * (n - 1))
+    # The canvas grows with sqrt(n), not n: a graph layout spreads buses across
+    # ~sqrt(n) per axis, so scaling the whole bounding box linearly would make
+    # node-to-node spacing balloon on big nets (e.g. IEEE14). Sqrt scaling keeps
+    # spacing roughly constant — small nets are unchanged, large ones pull in.
+    spread = math.sqrt(max(1, n - 1))
+    width = max(500.0, 420.0 * spread)
+    height = max(360.0, 300.0 * spread)
     margin = 80.0
     return {
         b: (
