@@ -72,7 +72,9 @@ def auto_layout(net) -> dict[str, dict[int, Coord]]:
     bus_ids = list(net.bus.index)
     empty = {
         k: {}
-        for k in ("bus", "gen", "sgen", "ext_grid", "load", "switch", "trafo", "trafo3w")
+        for k in (
+            "bus", "gen", "sgen", "ext_grid", "load", "switch", "trafo", "trafo3w", "line"
+        )
     }
     if not bus_ids:
         return empty
@@ -102,6 +104,7 @@ def auto_layout(net) -> dict[str, dict[int, Coord]]:
         "switch": {},
         "trafo": {},
         "trafo3w": {},
+        "line": {},
     }
 
     def centroid(*buses: int) -> Coord:
@@ -131,5 +134,11 @@ def auto_layout(net) -> dict[str, dict[int, Coord]]:
             int(net.trafo3w.at[ti, "hv_bus"]),
             int(net.trafo3w.at[ti, "mv_bus"]),
             int(net.trafo3w.at[ti, "lv_bus"]),
+        )
+    # A line is drawn as an edge (no body); a midpoint is kept only for uniform
+    # round-tripping of the layout tables.
+    for li in net.line.index:
+        result["line"][li] = centroid(
+            int(net.line.at[li, "from_bus"]), int(net.line.at[li, "to_bus"])
         )
     return result

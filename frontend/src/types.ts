@@ -76,6 +76,22 @@ export type Trafo3WData = {
   res_p_mw?: number;
 };
 
+// Line data lives on a React Flow *edge* (drawn bus → bus), not a node.
+export type LineData = {
+  name: string;
+  length_km: number;
+  r_ohm_per_km: number;
+  x_ohm_per_km: number;
+  c_nf_per_km: number;
+  max_i_ka: number;
+  std_type: string;
+  // A draggable routing point, like the plain wire edges.
+  waypoint?: { x: number; y: number };
+  // Filled in after a load flow.
+  res_loading_percent?: number;
+  res_p_mw?: number;
+};
+
 export type ElementData =
   | BusData
   | GeneratorData
@@ -185,9 +201,28 @@ export interface Transformer3W {
   y: number;
 }
 
+export interface Line {
+  id: string;
+  name: string;
+  from_bus: string;
+  to_bus: string;
+  length_km: number;
+  r_ohm_per_km: number;
+  x_ohm_per_km: number;
+  c_nf_per_km: number;
+  max_i_ka: number;
+  std_type: string;
+  port_from?: string;
+  port_to?: string;
+  x: number;
+  y: number;
+}
+
 export interface Network {
   id: string;
   name: string;
+  f_hz: number;
+  sn_mva: number;
   buses: Bus[];
   generators: Generator[];
   sgens: Sgen[];
@@ -196,6 +231,7 @@ export interface Network {
   switches: Switch[];
   transformers2w: Transformer2W[];
   transformers3w: Transformer3W[];
+  lines: Line[];
 }
 
 export interface LoadFlowResult {
@@ -208,4 +244,5 @@ export interface LoadFlowResult {
   res_load: { id: string; p_mw: number | null; q_mvar: number | null }[];
   res_trafo: { id: string; loading_percent: number | null; p_mw: number | null }[];
   res_trafo3w: { id: string; loading_percent: number | null; p_mw: number | null }[];
+  res_line: { id: string; loading_percent: number | null; p_mw: number | null }[];
 }

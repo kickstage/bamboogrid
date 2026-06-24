@@ -1,13 +1,14 @@
-"""Regenerate the numbered tutorial networks (01–03) in this folder.
+"""Regenerate the example networks in this folder.
 
 Run from the backend (so the ``app`` package and pandapower are importable):
 
     cd backend
     .venv/bin/python ../examples/generate_examples.py
 
-Each network is written as a plain pandapower JSON (no editor layout tables), so
-the editor lays it out automatically on import. See README.md for what each one
-demonstrates.
+The numbered files (01–03) are a guided tour; ``IEEE14`` is a standard IEEE
+reference network. Each network is written as a plain pandapower JSON (no editor
+layout tables), so the editor lays it out automatically on import. See README.md
+for what each one demonstrates.
 """
 
 from __future__ import annotations
@@ -15,6 +16,7 @@ from __future__ import annotations
 import os
 
 import pandapower as pp
+import pandapower.networks as nw
 
 EX = os.path.dirname(os.path.abspath(__file__))
 
@@ -55,7 +57,12 @@ def main() -> None:
     pp.create_load(n3, bus=lv, p_mw=6.0, q_mvar=2.0, name="Rail supply")
     pp.to_json(n3, os.path.join(EX, "03_substation_3w_switch.pp.json"))
 
-    print("Wrote 01–03 example networks to", EX)
+    # IEEE14 — the standard IEEE 14-bus reference network.
+    n14 = nw.case14()
+    n14.name = "IEEE 14-bus system"
+    pp.to_json(n14, os.path.join(EX, "IEEE14.pp.json"))
+
+    print("Wrote 01–03 and IEEE14 example networks to", EX)
 
 
 if __name__ == "__main__":

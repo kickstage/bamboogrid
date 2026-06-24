@@ -30,6 +30,7 @@ from .schema import (
     Bus,
     ExtGrid,
     Generator,
+    Line,
     Load,
     Network,
     Point,
@@ -132,6 +133,20 @@ def network_to_pp_json(network: Network) -> str:
         ],
         index=list(id_maps["trafo3w"].values()),
     )
+    line_by_id = {ln.id: ln for ln in network.lines}
+    net["diagram_line"] = pd.DataFrame(
+        [
+            {
+                "uuid": uid,
+                "x": line_by_id[uid].x,
+                "y": line_by_id[uid].y,
+                "port_from": line_by_id[uid].port_from,
+                "port_to": line_by_id[uid].port_to,
+            }
+            for uid in id_maps["line"]
+        ],
+        index=list(id_maps["line"].values()),
+    )
     net["diagram_meta"] = pd.DataFrame(
         [
             {
@@ -151,8 +166,9 @@ def pp_json_to_network(raw: str) -> Network:
 
     Works on files we exported (rich diagram tables) and, best-effort, on plain
     pandapower nets with no diagram_* tables (positions default, ids generated).
-    Buses, gens, sgens, ext_grids, loads, bus-bus switches and transformers are
-    reconstructed; other element tables (line, …) are ignored until supported.
+    Buses, gens, sgens, ext_grids, loads, lines, bus-bus switches and
+    transformers are reconstructed; remaining element tables are ignored until
+    supported.
     """
     net = pp.from_json_string(raw)
 
@@ -164,6 +180,7 @@ def pp_json_to_network(raw: str) -> Network:
     d_switch = net.get("diagram_switch")
     d_trafo = net.get("diagram_trafo")
     d_trafo3w = net.get("diagram_trafo3w")
+    d_line = net.get("diagram_line")
     d_meta = net.get("diagram_meta")
 
     network_id = uuid.uuid4().hex
@@ -343,9 +360,32 @@ def pp_json_to_network(raw: str) -> Network:
             )
         )
 
+    lines: list[Line] = []
+    for k in net.line.index:
+        lay = _layout(d_line, k)
+        lines.append(
+            Line(
+                id=str(lay["uuid"]) if lay is not None else uuid.uuid4().hex,
+                name=_name(net.line.at[k, "name"], "Line"),
+                from_bus=bus_uuid[int(net.line.at[k, "from_bus"])],
+                to_bus=bus_uuid[int(net.line.at[k, "to_bus"])],
+                length_km=float(net.line.at[k, "length_km"]),
+                r_ohm_per_km=float(net.line.at[k, "r_ohm_per_km"]),
+                x_ohm_per_km=float(net.line.at[k, "x_ohm_per_km"]),
+                c_nf_per_km=float(net.line.at[k, "c_nf_per_km"]),
+                max_i_ka=float(net.line.at[k, "max_i_ka"]),
+                port_from=_col(lay, "port_from"),
+                port_to=_col(lay, "port_to"),
+                x=_pos(lay, "line", k)[0],
+                y=_pos(lay, "line", k)[1],
+            )
+        )
+
     return Network(
         id=network_id,
         name=network_name,
+        f_hz=float(net.f_hz) if net.f_hz else 50.0,
+        sn_mva=float(net.sn_mva) if net.sn_mva else 1.0,
         buses=buses,
         generators=generators,
         sgens=sgens,
@@ -354,4 +394,5 @@ def pp_json_to_network(raw: str) -> Network:
         switches=switches,
         transformers2w=transformers2w,
         transformers3w=transformers3w,
+        lines=lines,
     )

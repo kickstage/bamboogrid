@@ -18,6 +18,7 @@ import pandapower as pp
 from .schema import (
     BusResult,
     GenResult,
+    LineResult,
     LoadFlowResult,
     LoadResult,
     Network,
@@ -62,6 +63,9 @@ def _island_roots(network: Network) -> dict[str, str]:
     for t in network.transformers3w:
         union(t.hv_bus, t.mv_bus)
         union(t.mv_bus, t.lv_bus)
+    # Lines join their two buses into one island.
+    for ln in network.lines:
+        union(ln.from_bus, ln.to_bus)
 
     return {bus_id: find(bus_id) for bus_id in parent}
 
@@ -101,6 +105,12 @@ def validate(network: Network) -> None:
                 raise ConversionError(
                     f"Transformer '{t.name}' references unknown bus '{end}'."
                 )
+    for ln in network.lines:
+        for end in (ln.from_bus, ln.to_bus):
+            if end and end not in bus_ids:
+                raise ConversionError(
+                    f"Line '{ln.name}' references unknown bus '{end}'."
+                )
 
 
 def build_net(network: Network):
@@ -108,7 +118,9 @@ def build_net(network: Network):
     editor element ids to pandapower element indices, per element table."""
     validate(network)
 
-    net = pp.create_empty_network(name=network.name)
+    net = pp.create_empty_network(
+        name=network.name, f_hz=network.f_hz, sn_mva=network.sn_mva
+    )
 
     bus_index: dict[str, int] = {}
     for bus in network.buses:
@@ -218,6 +230,24 @@ def build_net(network: Network):
             name=t.name,
         )
 
+    # Lines connect two buses at one voltage. Parameters are stored explicitly,
+    # so we always build from parameters (no std_type lookup/fallback).
+    line_index: dict[str, int] = {}
+    for ln in network.lines:
+        if ln.from_bus not in bus_index or ln.to_bus not in bus_index:
+            continue
+        line_index[ln.id] = pp.create_line_from_parameters(
+            net,
+            from_bus=bus_index[ln.from_bus],
+            to_bus=bus_index[ln.to_bus],
+            length_km=ln.length_km,
+            r_ohm_per_km=ln.r_ohm_per_km,
+            x_ohm_per_km=ln.x_ohm_per_km,
+            c_nf_per_km=ln.c_nf_per_km,
+            max_i_ka=ln.max_i_ka,
+            name=ln.name,
+        )
+
     id_maps = {
         "bus": bus_index,
         "gen": gen_index,
@@ -227,6 +257,7 @@ def build_net(network: Network):
         "switch": switch_index,
         "trafo": trafo_index,
         "trafo3w": trafo3w_index,
+        "line": line_index,
     }
     return net, id_maps
 
@@ -317,6 +348,14 @@ def run_load_flow(network: Network) -> LoadFlowResult:
         )
         for tid, idx in id_maps["trafo3w"].items()
     ]
+    res_line = [
+        LineResult(
+            id=lid,
+            loading_percent=_f(net.res_line.at[idx, "loading_percent"]),
+            p_mw=_f(net.res_line.at[idx, "p_from_mw"]),
+        )
+        for lid, idx in id_maps["line"].items()
+    ]
 
     return LoadFlowResult(
         converged=True,
@@ -327,4 +366,5 @@ def run_load_flow(network: Network) -> LoadFlowResult:
         res_load=res_load,
         res_trafo=res_trafo,
         res_trafo3w=res_trafo3w,
+        res_line=res_line,
     )

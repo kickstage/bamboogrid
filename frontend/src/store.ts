@@ -18,6 +18,7 @@ import type {
   ElementKind,
   ExtGridData,
   GeneratorData,
+  LineData,
   LoadData,
   LoadFlowResult,
   Network,
@@ -29,6 +30,18 @@ import type {
 
 export const DEFAULT_TRAFO_STD = "0.25 MVA 20/0.4 kV";
 export const DEFAULT_TRAFO3W_STD = "63/25/38 MVA 110/20/10 kV";
+
+// A freshly drawn line: a 1 km MV-ish overhead line. Users tune it in the
+// inspector; the explicit params (not a std_type) are what the solver uses.
+export const DEFAULT_LINE = (): LineData => ({
+  name: "Line",
+  length_km: 1.0,
+  r_ohm_per_km: 0.1,
+  x_ohm_per_km: 0.1,
+  c_nf_per_km: 0.0,
+  max_i_ka: 1.0,
+  std_type: "",
+});
 
 export type ElementNode = Node<ElementData>;
 
@@ -67,9 +80,14 @@ function defaultData(kind: ElementKind): ElementData {
 interface EditorState {
   networkId: string | null;
   networkName: string;
+  // System frequency / per-unit base, preserved from imports and passed back.
+  f_hz: number;
+  sn_mva: number;
   nodes: ElementNode[];
   edges: Edge[];
   selectedId: string | null;
+  // A selected line edge (mutually exclusive with selectedId), for the inspector.
+  selectedEdgeId: string | null;
   message: string;
   showResults: boolean;
   // Bumped whenever a network is loaded, so the canvas can re-fit the view.
@@ -78,14 +96,21 @@ interface EditorState {
   onNodesChange: (changes: NodeChange[]) => void;
   onEdgesChange: (changes: EdgeChange[]) => void;
   onConnect: (connection: Connection) => void;
+  // Create a bus-to-bus branch from a connection the user drew (chosen explicitly
+  // from the canvas "add connection" menu, never inferred).
+  addLineBetween: (c: Connection) => void;
+  addSwitchBetween: (c: Connection) => void;
+  addTransformerBetween: (c: Connection) => void;
   addNode: (kind: ElementKind, position: XYPosition) => void;
   updateNodeData: (id: string, patch: Partial<ElementData>) => void;
+  updateEdgeData: (id: string, patch: Partial<LineData>) => void;
   removeNode: (id: string) => void;
   removeEdge: (id: string) => void;
   // Set (or clear, with null) a wire's routing waypoint — a draggable point the
   // line is computed through. Purely visual; ignored by the load-flow converter.
   setEdgeWaypoint: (id: string, point: { x: number; y: number } | null) => void;
   select: (id: string | null) => void;
+  selectEdge: (id: string | null) => void;
   setNetworkName: (name: string) => void;
   setMessage: (message: string) => void;
   setShowResults: (show: boolean) => void;
@@ -100,6 +125,32 @@ function edgeForComponent(componentId: string, edges: Edge[]): Edge | undefined 
   return edges.find((e) => e.source === componentId);
 }
 
+// Midpoint of two nodes' positions — where an inserted switch/transformer body
+// sits between the two buses it joins.
+function midpoint(a: ElementNode, b: ElementNode): XYPosition {
+  return {
+    x: (a.position.x + b.position.x) / 2,
+    y: (a.position.y + b.position.y) / 2,
+  };
+}
+
+// A wire from a switch/transformer winding handle to one of its buses.
+function branchWire(
+  nodeId: string,
+  handle: string,
+  busId: string,
+  port?: string | null,
+): Edge {
+  return {
+    id: `${nodeId}:${handle}->${busId}`,
+    source: nodeId,
+    sourceHandle: handle,
+    target: busId,
+    targetHandle: port ?? undefined,
+    type: "wire",
+  };
+}
+
 function waypointOf(edge: Edge | undefined): { x: number; y: number } | null {
   const wp = (edge?.data as { waypoint?: { x: number; y: number } } | undefined)
     ?.waypoint;
@@ -109,9 +160,12 @@ function waypointOf(edge: Edge | undefined): { x: number; y: number } | null {
 export const useEditor = create<EditorState>((set, get) => ({
   networkId: null,
   networkName: "Untitled network",
+  f_hz: 50.0,
+  sn_mva: 1.0,
   nodes: [],
   edges: [],
   selectedId: null,
+  selectedEdgeId: null,
   message: "",
   showResults: true,
   fitSignal: 0,
@@ -124,14 +178,83 @@ export const useEditor = create<EditorState>((set, get) => ({
 
   onConnect: (connection) =>
     set((s) => {
-      // Each source port carries at most one wire: drop any existing wire from
-      // the same source handle before adding, so a load/generator can't fan
-      // out to two buses (and a transformer winding stays single).
+      // Element → bus attachment. (A bus → bus drag is intercepted by the canvas,
+      // which opens the "add connection" menu instead — see addBranch actions.)
+      // Each source port carries at most one wire: drop any existing wire from the
+      // same source handle before adding, so a load/generator can't fan out to two
+      // buses (and a transformer winding stays single).
       const handle = connection.sourceHandle ?? null;
       const filtered = s.edges.filter(
         (e) => !(e.source === connection.source && (e.sourceHandle ?? null) === handle),
       );
       return { edges: addEdge({ ...connection, type: "wire" }, filtered) };
+    }),
+
+  addLineBetween: (c) =>
+    set((s) => ({
+      edges: [
+        ...s.edges,
+        {
+          id: `line-${newId()}`,
+          source: c.source,
+          target: c.target,
+          sourceHandle: c.sourceHandle ?? undefined,
+          targetHandle: c.targetHandle ?? undefined,
+          type: "line",
+          data: DEFAULT_LINE(),
+        },
+      ],
+    })),
+
+  addSwitchBetween: (c) =>
+    set((s) => {
+      const a = s.nodes.find((n) => n.id === c.source);
+      const b = s.nodes.find((n) => n.id === c.target);
+      if (!a || !b) return {};
+      const id = newId();
+      const node: ElementNode = {
+        id,
+        type: "switch",
+        position: midpoint(a, b),
+        data: { name: "Switch", closed: true } satisfies SwitchData,
+      };
+      return {
+        nodes: [...s.nodes, node],
+        edges: [
+          ...s.edges,
+          branchWire(id, "a", c.source, c.sourceHandle),
+          branchWire(id, "b", c.target, c.targetHandle),
+        ],
+      };
+    }),
+
+  addTransformerBetween: (c) =>
+    set((s) => {
+      const a = s.nodes.find((n) => n.id === c.source);
+      const b = s.nodes.find((n) => n.id === c.target);
+      if (!a || !b) return {};
+      // HV winding goes on the higher-voltage bus.
+      const vA = (a.data as BusData).vn_kv;
+      const vB = (b.data as BusData).vn_kv;
+      const [hvBus, lvBus, hvPort, lvPort] =
+        vA >= vB
+          ? [c.source, c.target, c.sourceHandle, c.targetHandle]
+          : [c.target, c.source, c.targetHandle, c.sourceHandle];
+      const id = newId();
+      const node: ElementNode = {
+        id,
+        type: "trafo2w",
+        position: midpoint(a, b),
+        data: { name: "Transformer", std_type: DEFAULT_TRAFO_STD } satisfies Trafo2WData,
+      };
+      return {
+        nodes: [...s.nodes, node],
+        edges: [
+          ...s.edges,
+          branchWire(id, "hv", hvBus, hvPort),
+          branchWire(id, "lv", lvBus, lvPort),
+        ],
+      };
     }),
 
   addNode: (kind, position) =>
@@ -156,6 +279,13 @@ export const useEditor = create<EditorState>((set, get) => ({
       ),
     })),
 
+  updateEdgeData: (id, patch) =>
+    set((s) => ({
+      edges: s.edges.map((e) =>
+        e.id === id ? { ...e, data: { ...e.data, ...patch } } : e,
+      ),
+    })),
+
   removeNode: (id) =>
     set((s) => ({
       nodes: s.nodes.filter((n) => n.id !== id),
@@ -176,7 +306,8 @@ export const useEditor = create<EditorState>((set, get) => ({
       ),
     })),
 
-  select: (id) => set({ selectedId: id }),
+  select: (id) => set({ selectedId: id, selectedEdgeId: null }),
+  selectEdge: (id) => set({ selectedEdgeId: id, selectedId: null }),
   setNetworkName: (name) => set({ networkName: name }),
   setMessage: (message) => set({ message }),
   setShowResults: (show) => set({ showResults: show }),
@@ -190,6 +321,7 @@ export const useEditor = create<EditorState>((set, get) => ({
       const byTrafo = new Map(
         [...result.res_trafo, ...result.res_trafo3w].map((r) => [r.id, r]),
       );
+      const byLine = new Map(result.res_line.map((r) => [r.id, r]));
       // On a failed run, clear stale values instead of showing the last
       // successful result (which would be misleading). Unsupplied buses come
       // back as null — also treated as "no result".
@@ -197,6 +329,18 @@ export const useEditor = create<EditorState>((set, get) => ({
         message: result.converged
           ? "Load flow converged."
           : `Did not converge: ${result.message}`,
+        edges: s.edges.map((e) => {
+          if (e.type !== "line") return e;
+          const r = result.converged ? byLine.get(e.id) : undefined;
+          return {
+            ...e,
+            data: {
+              ...(e.data as LineData),
+              res_loading_percent: r?.loading_percent ?? undefined,
+              res_p_mw: r?.p_mw ?? undefined,
+            },
+          };
+        }),
         nodes: s.nodes.map((n) => {
           if (n.type === "bus") {
             const r = result.converged ? byBus.get(n.id) : undefined;
@@ -251,6 +395,18 @@ export const useEditor = create<EditorState>((set, get) => ({
 
   clearResults: () =>
     set((s) => ({
+      edges: s.edges.map((e) =>
+        e.type === "line"
+          ? {
+              ...e,
+              data: {
+                ...(e.data as LineData),
+                res_loading_percent: undefined,
+                res_p_mw: undefined,
+              },
+            }
+          : e,
+      ),
       nodes: s.nodes.map((n) => {
         if (n.type === "bus")
           return {
@@ -281,7 +437,7 @@ export const useEditor = create<EditorState>((set, get) => ({
     })),
 
   toNetwork: () => {
-    const { nodes, edges, networkId, networkName } = get();
+    const { nodes, edges, networkId, networkName, f_hz, sn_mva } = get();
     const buses = nodes
       .filter((n) => n.type === "bus")
       .map((n) => {
@@ -425,9 +581,33 @@ export const useEditor = create<EditorState>((set, get) => ({
           y: n.position.y,
         };
       });
+    // Lines are edges drawn bus → bus (source/target are bus node ids).
+    const lines = edges
+      .filter((e) => e.type === "line")
+      .map((e) => {
+        const d = e.data as LineData;
+        return {
+          id: e.id,
+          name: d.name,
+          from_bus: e.source,
+          to_bus: e.target,
+          length_km: d.length_km,
+          r_ohm_per_km: d.r_ohm_per_km,
+          x_ohm_per_km: d.x_ohm_per_km,
+          c_nf_per_km: d.c_nf_per_km,
+          max_i_ka: d.max_i_ka,
+          std_type: d.std_type,
+          port_from: e.sourceHandle ?? "",
+          port_to: e.targetHandle ?? "",
+          x: 0,
+          y: 0,
+        };
+      });
     return {
       id: networkId ?? "",
       name: networkName,
+      f_hz,
+      sn_mva,
       buses,
       generators,
       sgens,
@@ -436,6 +616,7 @@ export const useEditor = create<EditorState>((set, get) => ({
       switches,
       transformers2w,
       transformers3w,
+      lines,
     };
   },
 
@@ -596,6 +777,28 @@ export const useEditor = create<EditorState>((set, get) => ({
       if (t.mv_bus) edges.push(windingEdge(t.id, "mv", t.mv_bus, t.port_mv));
       if (t.lv_bus) edges.push(windingEdge(t.id, "lv", t.lv_bus, t.port_lv));
     }
+    // Lines are bus → bus edges (no node body); they carry their electrical
+    // params as edge data so they round-trip and solve.
+    for (const l of network.lines ?? []) {
+      if (!l.from_bus || !l.to_bus) continue;
+      edges.push({
+        id: l.id,
+        source: l.from_bus,
+        sourceHandle: busPort(l.from_bus, l.port_from),
+        target: l.to_bus,
+        targetHandle: busPort(l.to_bus, l.port_to),
+        type: "line",
+        data: {
+          name: l.name,
+          length_km: l.length_km,
+          r_ohm_per_km: l.r_ohm_per_km,
+          x_ohm_per_km: l.x_ohm_per_km,
+          c_nf_per_km: l.c_nf_per_km,
+          max_i_ka: l.max_i_ka,
+          std_type: l.std_type,
+        } satisfies LineData,
+      });
+    }
     // Grow each bus to actually expose the ports we auto-assigned above.
     for (const n of nodes) {
       if (n.type === "bus") {
@@ -606,9 +809,12 @@ export const useEditor = create<EditorState>((set, get) => ({
     set({
       networkId: network.id,
       networkName: network.name,
+      f_hz: network.f_hz ?? 50.0,
+      sn_mva: network.sn_mva ?? 1.0,
       nodes,
       edges,
       selectedId: null,
+      selectedEdgeId: null,
       message: "",
       fitSignal: get().fitSignal + 1,
     });

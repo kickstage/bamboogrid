@@ -56,15 +56,25 @@ export function BusNode({ data, selected, width }: NodeProps) {
         minWidth={BUS_MIN_WIDTH}
         shouldResize={(_e, params) => params.direction[1] === 0}
       />
-      {/* Fixed-spacing ports; a wire snaps to the nearest one. */}
+      {/* Fixed-spacing ports; a wire snaps to the nearest one. Each port exposes
+          both a target handle (elements attach here) and a source handle (so a
+          line can be *drawn from* the bus) at the same spot — without the source
+          handle a bus→bus line has no anchor and won't render. */}
       {ports.map((left, i) => (
-        <Handle
-          key={i}
-          id={`p${i}`}
-          type="target"
-          position={Position.Top}
-          style={{ left: `${left}px`, background: color }}
-        />
+        <span key={i}>
+          <Handle
+            id={`p${i}`}
+            type="target"
+            position={Position.Top}
+            style={{ left: `${left}px`, background: color }}
+          />
+          <Handle
+            id={`p${i}`}
+            type="source"
+            position={Position.Top}
+            style={{ left: `${left}px`, background: color }}
+          />
+        </span>
       ))}
       <svg width="100%" height={20} aria-label="busbar" style={{ display: "block" }}>
         <rect

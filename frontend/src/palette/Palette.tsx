@@ -110,7 +110,8 @@ export function Palette() {
         </Stack>
       ))}
       <Text size="xs" c="dimmed" mt="xs">
-        Drag onto the canvas. Connect a generator/load handle to a bus.
+        Drag onto the canvas. Connect a generator/load handle to a bus. Drag bus →
+        bus and pick what to add (line or switch; a transformer across voltages).
       </Text>
     </Stack>
   );

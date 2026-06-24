@@ -148,9 +148,38 @@ class Transformer3W(BaseModel):
     y: float = 0.0
 
 
+class Line(BaseModel):
+    """A line (pandapower ``line``) connecting two buses at the same voltage. It
+    carries power across distance and has impedance, so unlike a closed switch it
+    introduces losses, a voltage drop and a thermal limit. Electrical parameters
+    are stored explicitly (per length) so any imported net round-trips faithfully;
+    ``std_type`` is an optional convenience that the editor uses to fill them."""
+
+    id: str
+    name: str = "Line"
+    from_bus: str = ""  # bus on handle "from" ("" while unwired)
+    to_bus: str = ""  # bus on handle "to"
+    length_km: float = Field(default=1.0, gt=0, description="Line length [km]")
+    r_ohm_per_km: float = Field(default=0.1, ge=0, description="Resistance [ohm/km]")
+    x_ohm_per_km: float = Field(default=0.1, ge=0, description="Reactance [ohm/km]")
+    c_nf_per_km: float = Field(default=0.0, ge=0, description="Capacitance [nF/km]")
+    max_i_ka: float = Field(default=1.0, gt=0, description="Thermal limit [kA]")
+    std_type: str = ""  # optional named type the editor offers; not required
+    # Which bus port each end attaches to (handle ids, visual only).
+    port_from: str = ""
+    port_to: str = ""
+    # An edge has no body; x/y are kept only so the layout round-trips uniformly.
+    x: float = 0.0
+    y: float = 0.0
+
+
 class Network(BaseModel):
     id: str
     name: str = "Untitled network"
+    # System frequency and per-unit base — preserved from an imported net so line
+    # charging (∝ f) and reported per-unit values match the source exactly.
+    f_hz: float = Field(default=50.0, gt=0, description="System frequency [Hz]")
+    sn_mva: float = Field(default=1.0, gt=0, description="Per-unit base [MVA]")
     buses: list[Bus] = Field(default_factory=list)
     generators: list[Generator] = Field(default_factory=list)
     sgens: list[Sgen] = Field(default_factory=list)
@@ -159,6 +188,7 @@ class Network(BaseModel):
     switches: list[Switch] = Field(default_factory=list)
     transformers2w: list[Transformer2W] = Field(default_factory=list)
     transformers3w: list[Transformer3W] = Field(default_factory=list)
+    lines: list[Line] = Field(default_factory=list)
 
 
 # --- Load-flow result types ------------------------------------------------
@@ -191,6 +221,12 @@ class TrafoResult(BaseModel):
     p_mw: float | None = None  # active power entering the HV side
 
 
+class LineResult(BaseModel):
+    id: str
+    loading_percent: float | None = None
+    p_mw: float | None = None  # active power entering the from-bus side
+
+
 class LoadFlowResult(BaseModel):
     converged: bool
     message: str = ""
@@ -201,3 +237,4 @@ class LoadFlowResult(BaseModel):
     res_load: list[LoadResult] = Field(default_factory=list)
     res_trafo: list[TrafoResult] = Field(default_factory=list)
     res_trafo3w: list[TrafoResult] = Field(default_factory=list)
+    res_line: list[LineResult] = Field(default_factory=list)

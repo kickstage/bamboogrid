@@ -5,8 +5,8 @@ editor. The three numbered examples are a guided tour: each one introduces a few
 element types, building from a single bus up to a full substation. Import one,
 press **Run load flow**, and read the solved values on the canvas.
 
-The remaining files (`case9`, `case30`, `cgmes_*`, `example_simple`) are larger
-reference networks for stress-testing import and layout.
+`IEEE14` is the standard **IEEE 14-bus** reference network — a larger, realistic
+grid for stress-testing import, layout, and load flow.
 
 ## The elements at a glance
 
@@ -74,6 +74,21 @@ a rail-supply load on LV, and a 3 MW wind **static generator** on MV bus A.
 
 **Teaches:** 3-winding transformer across three voltage levels, bus-coupler
 switch (and what "island with no reference" looks like).
+
+## IEEE14 — IEEE 14-bus system
+`IEEE14.pp.json`
+
+The standard **IEEE 14-bus** test case: 14 buses across several voltage levels
+(from a 135 kV transmission level down through 14 / 12 kV), 15 lines, 5
+transformers, one external grid, 4 generators and 11 loads. A classic benchmark
+for power-flow studies.
+
+- Much larger than the numbered tutorials — a good test of the editor's
+  auto-layout and of reading solved values on a busy canvas.
+- Press **Run load flow** to solve it, then explore voltages, line loadings and
+  generator dispatch across the whole network.
+
+**Teaches:** working with a realistic, full-size grid end to end.
 
 ---
 

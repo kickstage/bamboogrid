@@ -13,6 +13,7 @@ import type {
   BusData,
   ExtGridData,
   GeneratorData,
+  LineData,
   LoadData,
   SgenData,
   SwitchData,
@@ -54,8 +55,63 @@ const HEADERS: Record<string, string> = {
 };
 
 export function Inspector() {
-  const { nodes, selectedId, updateNodeData, removeNode } = useEditor();
+  const {
+    nodes,
+    edges,
+    selectedId,
+    selectedEdgeId,
+    updateNodeData,
+    updateEdgeData,
+    removeNode,
+    removeEdge,
+  } = useEditor();
   const node = nodes.find((n) => n.id === selectedId);
+  const lineEdge = edges.find((e) => e.id === selectedEdgeId && e.type === "line");
+
+  // A line is a bus-to-bus edge; edit its explicit electrical parameters (the
+  // solver builds the line straight from these).
+  if (lineEdge) {
+    const d = lineEdge.data as LineData;
+    const set = (patch: Partial<LineData>) =>
+      updateEdgeData(lineEdge.id, patch);
+    const num = (label: string, key: keyof LineData, step: number, dp: number) => (
+      <NumberInput
+        label={label}
+        value={d[key] as number}
+        min={0}
+        step={step}
+        decimalScale={dp}
+        onChange={(v) => set({ [key]: Number(v) || 0 } as Partial<LineData>)}
+      />
+    );
+    return (
+      <Stack gap="sm" p="sm">
+        <Text size="sm" fw={700} c="dimmed">
+          LINE
+        </Text>
+        <TextInput
+          label="Name"
+          value={d.name}
+          onChange={(e) => set({ name: e.currentTarget.value })}
+        />
+        {num("Length (km)", "length_km", 0.1, 3)}
+        {num("Resistance (ohm/km)", "r_ohm_per_km", 0.01, 4)}
+        {num("Reactance (ohm/km)", "x_ohm_per_km", 0.01, 4)}
+        {num("Capacitance (nF/km)", "c_nf_per_km", 1, 2)}
+        {num("Max current (kA)", "max_i_ka", 0.01, 4)}
+        {d.res_loading_percent !== undefined && (
+          <Text size="xs" c="dimmed">
+            Result: {d.res_loading_percent.toFixed(1)}% loading, P{" "}
+            {(d.res_p_mw ?? 0).toFixed(4)} MW
+          </Text>
+        )}
+        <Divider my="xs" />
+        <Button color="red" variant="light" size="xs" onClick={() => removeEdge(lineEdge.id)}>
+          Delete line
+        </Button>
+      </Stack>
+    );
+  }
 
   if (!node) {
     return (
