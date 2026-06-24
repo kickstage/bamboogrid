@@ -61,9 +61,44 @@ export type SwitchData = {
   closed: boolean;
 };
 
+// Explicit pandapower transformer parameters, present on imports whose
+// transformer has no recognized std_type (e.g. case14). The editor treats them
+// as opaque pass-through data: when set they drive the solve and take precedence
+// over std_type; picking a std_type in the inspector clears them.
+export type Trafo2WParams = {
+  sn_mva: number;
+  vn_hv_kv: number;
+  vn_lv_kv: number;
+  vk_percent: number;
+  vkr_percent: number;
+  pfe_kw: number;
+  i0_percent: number;
+  shift_degree: number;
+};
+
+export type Trafo3WParams = {
+  sn_hv_mva: number;
+  sn_mv_mva: number;
+  sn_lv_mva: number;
+  vn_hv_kv: number;
+  vn_mv_kv: number;
+  vn_lv_kv: number;
+  vk_hv_percent: number;
+  vk_mv_percent: number;
+  vk_lv_percent: number;
+  vkr_hv_percent: number;
+  vkr_mv_percent: number;
+  vkr_lv_percent: number;
+  pfe_kw: number;
+  i0_percent: number;
+  shift_mv_degree: number;
+  shift_lv_degree: number;
+};
+
 export type Trafo2WData = {
   name: string;
   std_type: string;
+  params?: Trafo2WParams | null;
   // Filled in after a load flow.
   res_loading_percent?: number;
   res_p_mw?: number;
@@ -72,6 +107,7 @@ export type Trafo2WData = {
 export type Trafo3WData = {
   name: string;
   std_type: string;
+  params?: Trafo3WParams | null;
   res_loading_percent?: number;
   res_p_mw?: number;
 };
@@ -181,6 +217,7 @@ export interface Transformer2W {
   hv_bus: string;
   lv_bus: string;
   std_type: string;
+  params?: Trafo2WParams | null;
   port_hv?: string;
   port_lv?: string;
   x: number;
@@ -194,6 +231,7 @@ export interface Transformer3W {
   mv_bus: string;
   lv_bus: string;
   std_type: string;
+  params?: Trafo3WParams | null;
   port_hv?: string;
   port_mv?: string;
   port_lv?: string;

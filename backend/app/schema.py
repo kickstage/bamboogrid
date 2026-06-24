@@ -116,15 +116,63 @@ class Switch(BaseModel):
     y: float = 0.0
 
 
+class Trafo2WParams(BaseModel):
+    """Explicit pandapower ``trafo`` parameters. Captured on import when a
+    transformer has no recognized ``std_type`` (e.g. case14, whose trafos store
+    raw parameters with a null std_type). When present these are used verbatim
+    via ``create_transformer_from_parameters`` so the net solves and round-trips;
+    otherwise the editor builds the transformer from ``std_type``.
+
+    Note: tap-changer (off-nominal ratio) settings are not captured yet, so an
+    imported net whose transformers use taps will solve to slightly different
+    voltages than the source until tap support is added."""
+
+    sn_mva: float = Field(gt=0)
+    vn_hv_kv: float = Field(gt=0)
+    vn_lv_kv: float = Field(gt=0)
+    vk_percent: float = Field(gt=0)
+    vkr_percent: float = Field(ge=0)
+    pfe_kw: float = Field(ge=0)
+    i0_percent: float = Field(ge=0)
+    shift_degree: float = 0.0
+
+
+class Trafo3WParams(BaseModel):
+    """Explicit pandapower ``trafo3w`` parameters — the 3-winding analogue of
+    :class:`Trafo2WParams`, captured on import for transformers with no
+    recognized ``std_type``."""
+
+    sn_hv_mva: float = Field(gt=0)
+    sn_mv_mva: float = Field(gt=0)
+    sn_lv_mva: float = Field(gt=0)
+    vn_hv_kv: float = Field(gt=0)
+    vn_mv_kv: float = Field(gt=0)
+    vn_lv_kv: float = Field(gt=0)
+    vk_hv_percent: float = Field(gt=0)
+    vk_mv_percent: float = Field(gt=0)
+    vk_lv_percent: float = Field(gt=0)
+    vkr_hv_percent: float = Field(ge=0)
+    vkr_mv_percent: float = Field(ge=0)
+    vkr_lv_percent: float = Field(ge=0)
+    pfe_kw: float = Field(ge=0)
+    i0_percent: float = Field(ge=0)
+    shift_mv_degree: float = 0.0
+    shift_lv_degree: float = 0.0
+
+
 class Transformer2W(BaseModel):
     """A 2-winding transformer (pandapower ``trafo``) connecting an HV and an LV
-    bus. Electrical parameters come from a named ``std_type``."""
+    bus. Electrical parameters normally come from a named ``std_type``; an
+    imported net whose transformer has no recognized std_type instead carries
+    explicit ``params`` (used verbatim by the solver)."""
 
     id: str
     name: str = "Transformer"
     hv_bus: str = ""
     lv_bus: str = ""
     std_type: str = "0.25 MVA 20/0.4 kV"
+    # When set, these explicit parameters take precedence over ``std_type``.
+    params: Trafo2WParams | None = None
     port_hv: str = ""
     port_lv: str = ""
     x: float = 0.0
@@ -133,7 +181,8 @@ class Transformer2W(BaseModel):
 
 class Transformer3W(BaseModel):
     """A 3-winding transformer (pandapower ``trafo3w``) connecting HV, MV and LV
-    buses."""
+    buses. Like :class:`Transformer2W`, it builds from ``std_type`` unless
+    explicit ``params`` are present (captured on import)."""
 
     id: str
     name: str = "3W Transformer"
@@ -141,6 +190,7 @@ class Transformer3W(BaseModel):
     mv_bus: str = ""
     lv_bus: str = ""
     std_type: str = "63/25/38 MVA 110/20/10 kV"
+    params: Trafo3WParams | None = None
     port_hv: str = ""
     port_mv: str = ""
     port_lv: str = ""

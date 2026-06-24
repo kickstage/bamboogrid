@@ -194,14 +194,33 @@ def build_net(network: Network):
             name=sw.name,
         )
 
-    # Transformers (only created when fully wired; std_type falls back to a
-    # default if the requested one isn't in the library).
+    # Transformers (only created when fully wired). Explicit ``params`` (captured
+    # on import from a net with no recognized std_type) are built verbatim from
+    # parameters; otherwise we build from the named std_type, falling back to a
+    # default if the requested one isn't in the library.
     trafo_types = set(pp.available_std_types(net, "trafo").index)
     trafo3w_types = set(pp.available_std_types(net, "trafo3w").index)
 
     trafo_index: dict[str, int] = {}
     for t in network.transformers2w:
         if t.hv_bus not in bus_index or t.lv_bus not in bus_index:
+            continue
+        if t.params is not None:
+            p = t.params
+            trafo_index[t.id] = pp.create_transformer_from_parameters(
+                net,
+                hv_bus=bus_index[t.hv_bus],
+                lv_bus=bus_index[t.lv_bus],
+                sn_mva=p.sn_mva,
+                vn_hv_kv=p.vn_hv_kv,
+                vn_lv_kv=p.vn_lv_kv,
+                vk_percent=p.vk_percent,
+                vkr_percent=p.vkr_percent,
+                pfe_kw=p.pfe_kw,
+                i0_percent=p.i0_percent,
+                shift_degree=p.shift_degree,
+                name=t.name,
+            )
             continue
         std = t.std_type if t.std_type in trafo_types else DEFAULT_TRAFO_STD
         trafo_index[t.id] = pp.create_transformer(
@@ -219,6 +238,32 @@ def build_net(network: Network):
             or t.mv_bus not in bus_index
             or t.lv_bus not in bus_index
         ):
+            continue
+        if t.params is not None:
+            p = t.params
+            trafo3w_index[t.id] = pp.create_transformer3w_from_parameters(
+                net,
+                hv_bus=bus_index[t.hv_bus],
+                mv_bus=bus_index[t.mv_bus],
+                lv_bus=bus_index[t.lv_bus],
+                sn_hv_mva=p.sn_hv_mva,
+                sn_mv_mva=p.sn_mv_mva,
+                sn_lv_mva=p.sn_lv_mva,
+                vn_hv_kv=p.vn_hv_kv,
+                vn_mv_kv=p.vn_mv_kv,
+                vn_lv_kv=p.vn_lv_kv,
+                vk_hv_percent=p.vk_hv_percent,
+                vk_mv_percent=p.vk_mv_percent,
+                vk_lv_percent=p.vk_lv_percent,
+                vkr_hv_percent=p.vkr_hv_percent,
+                vkr_mv_percent=p.vkr_mv_percent,
+                vkr_lv_percent=p.vkr_lv_percent,
+                pfe_kw=p.pfe_kw,
+                i0_percent=p.i0_percent,
+                shift_mv_degree=p.shift_mv_degree,
+                shift_lv_degree=p.shift_lv_degree,
+                name=t.name,
+            )
             continue
         std = t.std_type if t.std_type in trafo3w_types else DEFAULT_TRAFO3W_STD
         trafo3w_index[t.id] = pp.create_transformer3w(

@@ -36,6 +36,8 @@ from .schema import (
     Point,
     Sgen,
     Switch,
+    Trafo2WParams,
+    Trafo3WParams,
     Transformer2W,
     Transformer3W,
 )
@@ -52,6 +54,43 @@ def _parse_waypoint(value) -> Point | None:
         return None
     data = json.loads(value)
     return Point(x=float(data["x"]), y=float(data["y"]))
+
+
+def _trafo2w_params(row) -> Trafo2WParams:
+    """Capture a pandapower ``trafo`` row's explicit electrical parameters (used
+    when the transformer has no recognized std_type). Taps are not captured yet."""
+    return Trafo2WParams(
+        sn_mva=float(row["sn_mva"]),
+        vn_hv_kv=float(row["vn_hv_kv"]),
+        vn_lv_kv=float(row["vn_lv_kv"]),
+        vk_percent=float(row["vk_percent"]),
+        vkr_percent=float(row["vkr_percent"]),
+        pfe_kw=float(row["pfe_kw"]),
+        i0_percent=float(row["i0_percent"]),
+        shift_degree=float(row["shift_degree"]),
+    )
+
+
+def _trafo3w_params(row) -> Trafo3WParams:
+    """Capture a pandapower ``trafo3w`` row's explicit electrical parameters."""
+    return Trafo3WParams(
+        sn_hv_mva=float(row["sn_hv_mva"]),
+        sn_mv_mva=float(row["sn_mv_mva"]),
+        sn_lv_mva=float(row["sn_lv_mva"]),
+        vn_hv_kv=float(row["vn_hv_kv"]),
+        vn_mv_kv=float(row["vn_mv_kv"]),
+        vn_lv_kv=float(row["vn_lv_kv"]),
+        vk_hv_percent=float(row["vk_hv_percent"]),
+        vk_mv_percent=float(row["vk_mv_percent"]),
+        vk_lv_percent=float(row["vk_lv_percent"]),
+        vkr_hv_percent=float(row["vkr_hv_percent"]),
+        vkr_mv_percent=float(row["vkr_mv_percent"]),
+        vkr_lv_percent=float(row["vkr_lv_percent"]),
+        pfe_kw=float(row["pfe_kw"]),
+        i0_percent=float(row["i0_percent"]),
+        shift_mv_degree=float(row["shift_mv_degree"]),
+        shift_lv_degree=float(row["shift_lv_degree"]),
+    )
 
 
 def network_to_pp_json(network: Network) -> str:
@@ -324,16 +363,33 @@ def pp_json_to_network(raw: str) -> Network:
             )
         )
 
+    # A transformer with a recognized std_type keeps using it; one with a null or
+    # foreign std_type (e.g. case14, built from raw parameters) instead carries
+    # explicit params so it solves correctly.
+    trafo_std = set(pp.available_std_types(net, "trafo").index)
+    trafo3w_std = set(pp.available_std_types(net, "trafo3w").index)
+
     transformers2w: list[Transformer2W] = []
     for t in net.trafo.index:
         lay = _layout(d_trafo, t)
+        std_raw = net.trafo.at[t, "std_type"]
+        std_name = std_raw if isinstance(std_raw, str) and std_raw else ""
+        params = None
+        if std_name not in trafo_std:
+            # A type we don't carry: keep the exact electrical parameters and
+            # leave std_type empty. The inspector then shows "Custom (imported)"
+            # rather than a misleading default, and the params (not a standard
+            # type) drive the solve until the user picks one.
+            params = _trafo2w_params(net.trafo.loc[t])
+            std_name = ""
         transformers2w.append(
             Transformer2W(
                 id=str(lay["uuid"]) if lay is not None else uuid.uuid4().hex,
                 name=_name(net.trafo.at[t, "name"], "Transformer"),
                 hv_bus=bus_uuid[int(net.trafo.at[t, "hv_bus"])],
                 lv_bus=bus_uuid[int(net.trafo.at[t, "lv_bus"])],
-                std_type=_name(net.trafo.at[t, "std_type"], "0.25 MVA 20/0.4 kV"),
+                std_type=std_name,
+                params=params,
                 port_hv=_col(lay, "port_hv"),
                 port_lv=_col(lay, "port_lv"),
                 x=_pos(lay, "trafo", t)[0],
@@ -344,6 +400,13 @@ def pp_json_to_network(raw: str) -> Network:
     transformers3w: list[Transformer3W] = []
     for t in net.trafo3w.index:
         lay = _layout(d_trafo3w, t)
+        std_raw = net.trafo3w.at[t, "std_type"]
+        std_name = std_raw if isinstance(std_raw, str) and std_raw else ""
+        params3 = None
+        if std_name not in trafo3w_std:
+            # See the 2W note: keep exact params, leave std_type empty.
+            params3 = _trafo3w_params(net.trafo3w.loc[t])
+            std_name = ""
         transformers3w.append(
             Transformer3W(
                 id=str(lay["uuid"]) if lay is not None else uuid.uuid4().hex,
@@ -351,7 +414,8 @@ def pp_json_to_network(raw: str) -> Network:
                 hv_bus=bus_uuid[int(net.trafo3w.at[t, "hv_bus"])],
                 mv_bus=bus_uuid[int(net.trafo3w.at[t, "mv_bus"])],
                 lv_bus=bus_uuid[int(net.trafo3w.at[t, "lv_bus"])],
-                std_type=_name(net.trafo3w.at[t, "std_type"], "63/25/38 MVA 110/20/10 kV"),
+                std_type=std_name,
+                params=params3,
                 port_hv=_col(lay, "port_hv"),
                 port_mv=_col(lay, "port_mv"),
                 port_lv=_col(lay, "port_lv"),

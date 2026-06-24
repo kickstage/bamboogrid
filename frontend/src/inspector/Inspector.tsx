@@ -257,24 +257,62 @@ export function Inspector() {
       )}
 
       {node.type === "trafo2w" && (
-        <Select
-          label="Standard type"
-          data={TRAFO_STD_TYPES}
-          value={(node.data as Trafo2WData).std_type}
-          onChange={(v) => v && update({ std_type: v })}
-          allowDeselect={false}
-          searchable
-        />
+        <>
+          {(node.data as Trafo2WData).params && (
+            <Text size="xs" c="dimmed">
+              Imported with custom parameters (
+              {(node.data as Trafo2WData).params!.sn_mva} MVA,{" "}
+              {(node.data as Trafo2WData).params!.vn_hv_kv}/
+              {(node.data as Trafo2WData).params!.vn_lv_kv} kV). Choosing a standard
+              type replaces them.
+            </Text>
+          )}
+          <Select
+            label="Standard type"
+            data={TRAFO_STD_TYPES}
+            value={
+              TRAFO_STD_TYPES.includes((node.data as Trafo2WData).std_type)
+                ? (node.data as Trafo2WData).std_type
+                : null
+            }
+            placeholder={
+              (node.data as Trafo2WData).params ? "Custom (imported)" : undefined
+            }
+            // Picking a standard type discards any imported explicit params so
+            // the chosen type drives the solve.
+            onChange={(v) => v && update({ std_type: v, params: null })}
+            allowDeselect={false}
+            searchable
+          />
+        </>
       )}
 
       {node.type === "trafo3w" && (
-        <Select
-          label="Standard type"
-          data={TRAFO3W_STD_TYPES}
-          value={(node.data as Trafo3WData).std_type}
-          onChange={(v) => v && update({ std_type: v })}
-          allowDeselect={false}
-        />
+        <>
+          {(node.data as Trafo3WData).params && (
+            <Text size="xs" c="dimmed">
+              Imported with custom parameters (
+              {(node.data as Trafo3WData).params!.sn_hv_mva}/
+              {(node.data as Trafo3WData).params!.sn_mv_mva}/
+              {(node.data as Trafo3WData).params!.sn_lv_mva} MVA). Choosing a
+              standard type replaces them.
+            </Text>
+          )}
+          <Select
+            label="Standard type"
+            data={TRAFO3W_STD_TYPES}
+            value={
+              TRAFO3W_STD_TYPES.includes((node.data as Trafo3WData).std_type)
+                ? (node.data as Trafo3WData).std_type
+                : null
+            }
+            placeholder={
+              (node.data as Trafo3WData).params ? "Custom (imported)" : undefined
+            }
+            onChange={(v) => v && update({ std_type: v, params: null })}
+            allowDeselect={false}
+          />
+        </>
       )}
 
       {node.type === "bus" && (node.data as BusData).vm_pu !== undefined && (

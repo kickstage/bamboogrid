@@ -62,13 +62,20 @@ function defaultData(kind: ElementKind): ElementData {
     case "sgen":
       return { name: "Static gen", p_mw: 1.0, q_mvar: 0.0 } satisfies SgenData;
     case "extgrid":
-      return { name: "External grid", vm_pu: 1.0, va_degree: 0.0 } satisfies ExtGridData;
+      return {
+        name: "External grid",
+        vm_pu: 1.0,
+        va_degree: 0.0,
+      } satisfies ExtGridData;
     case "load":
       return { name: "Load", p_mw: 0.01, q_mvar: 0.0 } satisfies LoadData;
     case "switch":
       return { name: "Switch", closed: true } satisfies SwitchData;
     case "trafo2w":
-      return { name: "Transformer", std_type: DEFAULT_TRAFO_STD } satisfies Trafo2WData;
+      return {
+        name: "Transformer",
+        std_type: DEFAULT_TRAFO_STD,
+      } satisfies Trafo2WData;
     case "trafo3w":
       return {
         name: "3W Transformer",
@@ -121,7 +128,10 @@ interface EditorState {
 }
 
 // A component (generator/load) has at most one wire, to its bus.
-function edgeForComponent(componentId: string, edges: Edge[]): Edge | undefined {
+function edgeForComponent(
+  componentId: string,
+  edges: Edge[],
+): Edge | undefined {
   return edges.find((e) => e.source === componentId);
 }
 
@@ -185,7 +195,11 @@ export const useEditor = create<EditorState>((set, get) => ({
       // buses (and a transformer winding stays single).
       const handle = connection.sourceHandle ?? null;
       const filtered = s.edges.filter(
-        (e) => !(e.source === connection.source && (e.sourceHandle ?? null) === handle),
+        (e) =>
+          !(
+            e.source === connection.source &&
+            (e.sourceHandle ?? null) === handle
+          ),
       );
       return { edges: addEdge({ ...connection, type: "wire" }, filtered) };
     }),
@@ -245,7 +259,10 @@ export const useEditor = create<EditorState>((set, get) => ({
         id,
         type: "trafo2w",
         position: midpoint(a, b),
-        data: { name: "Transformer", std_type: DEFAULT_TRAFO_STD } satisfies Trafo2WData,
+        data: {
+          name: "Transformer",
+          std_type: DEFAULT_TRAFO_STD,
+        } satisfies Trafo2WData,
       };
       return {
         nodes: [...s.nodes, node],
@@ -275,7 +292,9 @@ export const useEditor = create<EditorState>((set, get) => ({
   updateNodeData: (id, patch) =>
     set((s) => ({
       nodes: s.nodes.map((n) =>
-        n.id === id ? { ...n, data: { ...n.data, ...patch } } : n,
+        n.id === id
+          ? ({ ...n, data: { ...n.data, ...patch } } as ElementNode)
+          : n,
       ),
     })),
 
@@ -411,17 +430,29 @@ export const useEditor = create<EditorState>((set, get) => ({
         if (n.type === "bus")
           return {
             ...n,
-            data: { ...(n.data as BusData), vm_pu: undefined, va_degree: undefined },
+            data: {
+              ...(n.data as BusData),
+              vm_pu: undefined,
+              va_degree: undefined,
+            },
           } as ElementNode;
         if (n.type === "generator")
           return {
             ...n,
-            data: { ...(n.data as GeneratorData), res_p_mw: undefined, res_q_mvar: undefined },
+            data: {
+              ...(n.data as GeneratorData),
+              res_p_mw: undefined,
+              res_q_mvar: undefined,
+            },
           } as ElementNode;
         if (n.type === "sgen" || n.type === "extgrid")
           return {
             ...n,
-            data: { ...(n.data as SgenData | ExtGridData), res_p_mw: undefined, res_q_mvar: undefined },
+            data: {
+              ...(n.data as SgenData | ExtGridData),
+              res_p_mw: undefined,
+              res_q_mvar: undefined,
+            },
           } as ElementNode;
         if (n.type === "trafo2w" || n.type === "trafo3w")
           return {
@@ -526,8 +557,12 @@ export const useEditor = create<EditorState>((set, get) => ({
       .map((n) => {
         const d = n.data as SwitchData;
         // The two wires are distinguished by their source handle id ("a"/"b").
-        const edgeA = edges.find((e) => e.source === n.id && e.sourceHandle === "a");
-        const edgeB = edges.find((e) => e.source === n.id && e.sourceHandle === "b");
+        const edgeA = edges.find(
+          (e) => e.source === n.id && e.sourceHandle === "a",
+        );
+        const edgeB = edges.find(
+          (e) => e.source === n.id && e.sourceHandle === "b",
+        );
         return {
           id: n.id,
           name: d.name,
@@ -554,6 +589,7 @@ export const useEditor = create<EditorState>((set, get) => ({
           hv_bus: hv?.target ?? "",
           lv_bus: lv?.target ?? "",
           std_type: d.std_type,
+          params: d.params ?? null,
           port_hv: hv?.targetHandle ?? "",
           port_lv: lv?.targetHandle ?? "",
           x: n.position.x,
@@ -574,6 +610,7 @@ export const useEditor = create<EditorState>((set, get) => ({
           mv_bus: mv?.target ?? "",
           lv_bus: lv?.target ?? "",
           std_type: d.std_type,
+          params: d.params ?? null,
           port_hv: hv?.targetHandle ?? "",
           port_mv: mv?.targetHandle ?? "",
           port_lv: lv?.targetHandle ?? "",
@@ -761,7 +798,7 @@ export const useEditor = create<EditorState>((set, get) => ({
         id: t.id,
         type: "trafo2w",
         position: { x: t.x, y: t.y },
-        data: { name: t.name, std_type: t.std_type },
+        data: { name: t.name, std_type: t.std_type, params: t.params ?? null },
       });
       if (t.hv_bus) edges.push(windingEdge(t.id, "hv", t.hv_bus, t.port_hv));
       if (t.lv_bus) edges.push(windingEdge(t.id, "lv", t.lv_bus, t.port_lv));
@@ -771,7 +808,7 @@ export const useEditor = create<EditorState>((set, get) => ({
         id: t.id,
         type: "trafo3w",
         position: { x: t.x, y: t.y },
-        data: { name: t.name, std_type: t.std_type },
+        data: { name: t.name, std_type: t.std_type, params: t.params ?? null },
       });
       if (t.hv_bus) edges.push(windingEdge(t.id, "hv", t.hv_bus, t.port_hv));
       if (t.mv_bus) edges.push(windingEdge(t.id, "mv", t.mv_bus, t.port_mv));
@@ -803,7 +840,11 @@ export const useEditor = create<EditorState>((set, get) => ({
     for (const n of nodes) {
       if (n.type === "bus") {
         const count = portCount.get(n.id);
-        if (count) n.width = Math.max(n.width ?? BUS_DEFAULT_WIDTH, widthForPorts(count));
+        if (count)
+          n.width = Math.max(
+            n.width ?? BUS_DEFAULT_WIDTH,
+            widthForPorts(count),
+          );
       }
     }
     set({
