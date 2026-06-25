@@ -26,7 +26,7 @@ type BranchMenu = { conn: Connection; x: number; y: number; sameVoltage: boolean
 // Elements that attach to a bus. Every attachment edge is stored element→bus
 // (source = element, target = bus port), but the user may draw it from either
 // end, so attachments are normalized to that orientation before use.
-const ATTACHABLE = ["generator", "sgen", "extgrid", "load", "switch", "trafo2w", "trafo3w"];
+const ATTACHABLE = ["generator", "sgen", "extgrid", "load", "shunt", "switch", "trafo2w", "trafo3w"];
 
 // Given a connection and the node lookup, return it oriented element→bus, or
 // null if it isn't a valid element↔bus attachment. Handles both drag directions.

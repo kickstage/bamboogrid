@@ -2,7 +2,7 @@ import { Handle, Position, type NodeProps } from "@xyflow/react";
 import type { ExtGridData } from "../types";
 import { ExtGridGlyph } from "./glyphs";
 import { Readout, Value } from "./Readout";
-import { fixed } from "../format";
+import { signed } from "../format";
 import { useEditor } from "../store";
 
 export function ExtGridNode({ data, selected }: NodeProps) {
@@ -16,8 +16,8 @@ export function ExtGridNode({ data, selected }: NodeProps) {
       <Value>{d.vm_pu} p.u. · slack</Value>
       {hasResult && (
         <Readout>
-          <div>{fixed(d.res_p_mw!, 3)} MW</div>
-          <div>{fixed(d.res_q_mvar ?? 0, 3)} Mvar</div>
+          <div>{signed(d.res_p_mw!, 3)} MW</div>
+          <div>{signed(d.res_q_mvar ?? 0, 3)} Mvar</div>
         </Readout>
       )}
       <Handle type="source" position={Position.Bottom} style={{ background: "currentColor" }} />

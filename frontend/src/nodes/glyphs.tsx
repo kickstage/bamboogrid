@@ -98,6 +98,26 @@ export function LoadGlyph({ size = 50, stroke = "currentColor" }: GlyphProps) {
   );
 }
 
+// Shunt — a capacitor symbol (stub into two parallel plates, then a short
+// ground lead). Covers both capacitor and reactor; the sign of q_mvar says which.
+export function ShuntGlyph({ size = 50, stroke = "currentColor" }: GlyphProps) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="32 14 56 56"
+      aria-hidden
+      style={{ display: "block", margin: "0 auto" }}
+    >
+      <line x1={60} y1={18} x2={60} y2={36} stroke={stroke} strokeWidth={3} strokeLinecap="round" />
+      <line x1={46} y1={36} x2={74} y2={36} stroke={stroke} strokeWidth={3} strokeLinecap="round" />
+      <line x1={46} y1={44} x2={74} y2={44} stroke={stroke} strokeWidth={3} strokeLinecap="round" />
+      <line x1={60} y1={44} x2={60} y2={54} stroke={stroke} strokeWidth={3} strokeLinecap="round" />
+      <line x1={50} y1={58} x2={70} y2={58} stroke={stroke} strokeWidth={2} strokeLinecap="round" />
+    </svg>
+  );
+}
+
 // A simple square switch sign with short leads: filled = closed, hollow = open.
 export function SwitchGlyph({
   size = 48,

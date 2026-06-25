@@ -46,7 +46,6 @@ export function startAutosave(): () => void {
       state.nodes !== prev.nodes ||
       state.edges !== prev.edges ||
       state.networkName !== prev.networkName ||
-      state.shunts !== prev.shunts ||
       state.f_hz !== prev.f_hz ||
       state.sn_mva !== prev.sn_mva
     ) {

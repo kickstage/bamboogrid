@@ -18,6 +18,7 @@ import type {
   LineData,
   LoadData,
   SgenData,
+  ShuntData,
   SwitchData,
   Trafo2WData,
   Trafo3WData,
@@ -76,6 +77,7 @@ const HEADERS: Record<string, string> = {
   sgen: "STATIC GENERATOR",
   extgrid: "EXTERNAL GRID",
   load: "LOAD",
+  shunt: "SHUNT",
   switch: "SWITCH",
   trafo2w: "TRANSFORMER",
   trafo3w: "3W TRANSFORMER",
@@ -124,6 +126,14 @@ function nodeResultRows(type: string | undefined, data: unknown): ResultRow[] {
     return [
       ["P", `${fixed(g.res_p_mw, 4)} MW`],
       ["Q", `${fixed(g.res_q_mvar ?? 0, 4)} Mvar`],
+    ];
+  }
+  if (type === "shunt") {
+    const sh = data as ShuntData;
+    if (sh.res_q_mvar === undefined) return [];
+    return [
+      ["P", `${fixed(sh.res_p_mw ?? 0, 4)} MW`],
+      ["Q", `${fixed(sh.res_q_mvar, 4)} Mvar`],
     ];
   }
   if (type === "trafo2w" || type === "trafo3w") {
@@ -333,6 +343,30 @@ export function Inspector() {
             decimalScale={4}
             onChange={(v) => update({ q_mvar: Number(v) || 0 })}
           />
+        </>
+      )}
+
+      {node.type === "shunt" && (
+        <>
+          <NumberInput
+            label="Active power (MW)"
+            value={(node.data as ShuntData).p_mw}
+            min={0}
+            step={0.001}
+            decimalScale={4}
+            onChange={(v) => update({ p_mw: Math.max(0, Number(v) || 0) })}
+          />
+          <NumberInput
+            label="Reactive power (MVar)"
+            value={(node.data as ShuntData).q_mvar}
+            step={0.001}
+            decimalScale={4}
+            onChange={(v) => update({ q_mvar: Number(v) || 0 })}
+          />
+          <Text size="xs" c="dimmed">
+            Negative MVar = capacitor (injects reactive power); positive = reactor
+            (absorbs it).
+          </Text>
         </>
       )}
 

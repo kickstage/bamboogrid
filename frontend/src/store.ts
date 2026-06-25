@@ -23,7 +23,7 @@ import type {
   LoadFlowResult,
   Network,
   SgenData,
-  Shunt,
+  ShuntData,
   SwitchData,
   Trafo2WData,
   Trafo3WData,
@@ -70,6 +70,16 @@ function defaultData(kind: ElementKind): ElementData {
       } satisfies ExtGridData;
     case "load":
       return { name: "Load", p_mw: 0.01, q_mvar: 0.0 } satisfies LoadData;
+    case "shunt":
+      // A new shunt defaults to a 1 Mvar capacitor (negative q_mvar injects
+      // reactive power). vn_kv null = use the bus voltage; step 1 = one stage.
+      return {
+        name: "Shunt",
+        p_mw: 0.0,
+        q_mvar: -1.0,
+        vn_kv: null,
+        step: 1,
+      } satisfies ShuntData;
     case "switch":
       return { name: "Switch", closed: true } satisfies SwitchData;
     case "trafo2w":
@@ -91,8 +101,6 @@ interface EditorState {
   // System frequency / per-unit base, preserved from imports and passed back.
   f_hz: number;
   sn_mva: number;
-  // Imported shunts, carried through verbatim (no canvas element yet).
-  shunts: Shunt[];
   nodes: ElementNode[];
   edges: Edge[];
   selectedId: string | null;
@@ -176,7 +184,6 @@ export const useEditor = create<EditorState>((set, get) => ({
   networkName: "Untitled network",
   f_hz: 50.0,
   sn_mva: 1.0,
-  shunts: [],
   nodes: [],
   edges: [],
   selectedId: null,
@@ -320,6 +327,7 @@ export const useEditor = create<EditorState>((set, get) => ({
       const byGen = new Map(result.res_gen.map((r) => [r.id, r]));
       const bySgen = new Map(result.res_sgen.map((r) => [r.id, r]));
       const byExtGrid = new Map(result.res_ext_grid.map((r) => [r.id, r]));
+      const byShunt = new Map(result.res_shunt.map((r) => [r.id, r]));
       const byTrafo = new Map(
         [...result.res_trafo, ...result.res_trafo3w].map((r) => [r.id, r]),
       );
@@ -375,6 +383,17 @@ export const useEditor = create<EditorState>((set, get) => ({
               ...n,
               data: {
                 ...(n.data as SgenData | ExtGridData),
+                res_p_mw: r?.p_mw ?? undefined,
+                res_q_mvar: r?.q_mvar ?? undefined,
+              },
+            } as ElementNode;
+          }
+          if (n.type === "shunt") {
+            const r = result.converged ? byShunt.get(n.id) : undefined;
+            return {
+              ...n,
+              data: {
+                ...(n.data as ShuntData),
                 res_p_mw: r?.p_mw ?? undefined,
                 res_q_mvar: r?.q_mvar ?? undefined,
               },
@@ -439,6 +458,15 @@ export const useEditor = create<EditorState>((set, get) => ({
               res_q_mvar: undefined,
             },
           } as ElementNode;
+        if (n.type === "shunt")
+          return {
+            ...n,
+            data: {
+              ...(n.data as ShuntData),
+              res_p_mw: undefined,
+              res_q_mvar: undefined,
+            },
+          } as ElementNode;
         if (n.type === "trafo2w" || n.type === "trafo3w")
           return {
             ...n,
@@ -453,7 +481,7 @@ export const useEditor = create<EditorState>((set, get) => ({
     })),
 
   toNetwork: () => {
-    const { nodes, edges, networkId, networkName, f_hz, sn_mva, shunts } = get();
+    const { nodes, edges, networkId, networkName, f_hz, sn_mva } = get();
     const buses = nodes
       .filter((n) => n.type === "bus")
       .map((n) => {
@@ -535,6 +563,24 @@ export const useEditor = create<EditorState>((set, get) => ({
           x: n.position.x,
           y: n.position.y,
           waypoint: waypointOf(edge),
+        };
+      });
+    const shuntsOut = nodes
+      .filter((n) => n.type === "shunt")
+      .map((n) => {
+        const d = n.data as ShuntData;
+        const edge = edgeForComponent(n.id, edges);
+        return {
+          id: n.id,
+          name: d.name,
+          bus_id: edge?.target ?? "",
+          p_mw: d.p_mw,
+          q_mvar: d.q_mvar,
+          vn_kv: d.vn_kv,
+          step: d.step,
+          port: edge?.targetHandle ?? "",
+          x: n.position.x,
+          y: n.position.y,
         };
       });
     const switches = nodes
@@ -639,9 +685,7 @@ export const useEditor = create<EditorState>((set, get) => ({
       transformers2w,
       transformers3w,
       lines,
-      // Carry imported shunts through unchanged, but drop any whose bus was
-      // deleted (they're not editable on the canvas yet).
-      shunts: shunts.filter((sh) => nodes.some((n) => n.id === sh.bus_id)),
+      shunts: shuntsOut,
     };
   },
 
@@ -739,6 +783,28 @@ export const useEditor = create<EditorState>((set, get) => ({
           targetHandle: busPort(l.bus_id, l.port),
           type: "wire",
           data: l.waypoint ? { waypoint: l.waypoint } : undefined,
+        });
+    }
+    for (const sh of network.shunts ?? []) {
+      nodes.push({
+        id: sh.id,
+        type: "shunt",
+        position: { x: sh.x, y: sh.y },
+        data: {
+          name: sh.name,
+          p_mw: sh.p_mw,
+          q_mvar: sh.q_mvar,
+          vn_kv: sh.vn_kv,
+          step: sh.step,
+        },
+      });
+      if (sh.bus_id)
+        edges.push({
+          id: `${sh.id}->${sh.bus_id}`,
+          source: sh.id,
+          target: sh.bus_id,
+          targetHandle: busPort(sh.bus_id, sh.port),
+          type: "wire",
         });
     }
     for (const s of network.switches ?? []) {
@@ -840,7 +906,6 @@ export const useEditor = create<EditorState>((set, get) => ({
       networkName: network.name,
       f_hz: network.f_hz ?? 50.0,
       sn_mva: network.sn_mva ?? 1.0,
-      shunts: network.shunts ?? [],
       nodes,
       edges,
       selectedId: null,
@@ -856,7 +921,6 @@ export const useEditor = create<EditorState>((set, get) => ({
       networkName: "Untitled network",
       f_hz: 50.0,
       sn_mva: 1.0,
-      shunts: [],
       nodes: [],
       edges: [],
       selectedId: null,

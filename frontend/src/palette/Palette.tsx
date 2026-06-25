@@ -6,6 +6,7 @@ import {
   GeneratorGlyph,
   LoadGlyph,
   SgenGlyph,
+  ShuntGlyph,
   SwitchGlyph,
   TransformerGlyph,
   Transformer3WGlyph,
@@ -28,7 +29,10 @@ const GROUPS: { title: string; items: Item[] }[] = [
   },
   {
     title: "Loads",
-    items: [{ kind: "load", label: "Load", hint: "Consumes power" }],
+    items: [
+      { kind: "load", label: "Load", hint: "Consumes power" },
+      { kind: "shunt", label: "Shunt", hint: "Capacitor / reactor (reactive support)" },
+    ],
   },
   {
     title: "Connections",
@@ -45,6 +49,7 @@ function Glyph({ kind }: { kind: ElementKind }) {
   if (kind === "sgen") return <SgenGlyph size={34} />;
   if (kind === "extgrid") return <ExtGridGlyph size={34} />;
   if (kind === "load") return <LoadGlyph size={34} />;
+  if (kind === "shunt") return <ShuntGlyph size={34} />;
   if (kind === "switch") return <SwitchGlyph size={40} />;
   if (kind === "trafo2w") return <TransformerGlyph size={26} />;
   if (kind === "trafo3w") return <Transformer3WGlyph size={34} />;

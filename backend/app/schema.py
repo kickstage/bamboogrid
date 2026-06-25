@@ -329,6 +329,7 @@ class LoadFlowResult(BaseModel):
     res_sgen: list[GenResult] = Field(default_factory=list)
     res_ext_grid: list[GenResult] = Field(default_factory=list)
     res_load: list[LoadResult] = Field(default_factory=list)
+    res_shunt: list[LoadResult] = Field(default_factory=list)
     res_trafo: list[TrafoResult] = Field(default_factory=list)
     res_trafo3w: list[TrafoResult] = Field(default_factory=list)
     res_line: list[LineResult] = Field(default_factory=list)

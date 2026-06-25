@@ -416,6 +416,14 @@ def run_load_flow(network: Network) -> LoadFlowResult:
         )
         for load_id, idx in id_maps["load"].items()
     ]
+    res_shunt = [
+        LoadResult(
+            id=shunt_id,
+            p_mw=_f(net.res_shunt.at[idx, "p_mw"]),
+            q_mvar=_f(net.res_shunt.at[idx, "q_mvar"]),
+        )
+        for shunt_id, idx in id_maps["shunt"].items()
+    ]
     res_trafo = [
         TrafoResult(
             id=tid,
@@ -449,6 +457,7 @@ def run_load_flow(network: Network) -> LoadFlowResult:
         res_sgen=res_sgen,
         res_ext_grid=res_ext_grid,
         res_load=res_load,
+        res_shunt=res_shunt,
         res_trafo=res_trafo,
         res_trafo3w=res_trafo3w,
         res_line=res_line,

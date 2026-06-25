@@ -2,7 +2,7 @@ import { Handle, Position, type NodeProps } from "@xyflow/react";
 import type { GeneratorData } from "../types";
 import { GeneratorGlyph } from "./glyphs";
 import { Readout, Value } from "./Readout";
-import { fixed } from "../format";
+import { signed } from "../format";
 import { useEditor } from "../store";
 
 export function GeneratorNode({ data, selected }: NodeProps) {
@@ -18,8 +18,8 @@ export function GeneratorNode({ data, selected }: NodeProps) {
       </Value>
       {hasResult && (
         <Readout>
-          <div>{fixed(d.res_p_mw!, 3)} MW</div>
-          <div>{fixed(d.res_q_mvar ?? 0, 3)} Mvar</div>
+          <div>{signed(d.res_p_mw!, 3)} MW</div>
+          <div>{signed(d.res_q_mvar ?? 0, 3)} Mvar</div>
         </Readout>
       )}
       <Handle type="source" position={Position.Bottom} style={{ background: "currentColor" }} />

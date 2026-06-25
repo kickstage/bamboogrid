@@ -7,6 +7,7 @@ export type ElementKind =
   | "sgen"
   | "extgrid"
   | "load"
+  | "shunt"
   | "switch"
   | "trafo2w"
   | "trafo3w";
@@ -129,12 +130,29 @@ export type LineData = {
   res_i_ka?: number;
 };
 
+// A shunt (pandapower `shunt`): a fixed device on one bus. p_mw is always ≥ 0;
+// q_mvar may be negative — by pandapower's convention negative q_mvar injects
+// reactive power (a capacitor) and positive absorbs it (a reactor). vn_kv/step
+// aren't user-edited (the minimal UI is p_mw/q_mvar) but are preserved so an
+// imported shunt round-trips unchanged.
+export type ShuntData = {
+  name: string;
+  p_mw: number;
+  q_mvar: number;
+  vn_kv: number | null;
+  step: number;
+  // Filled in after a load flow.
+  res_p_mw?: number;
+  res_q_mvar?: number;
+};
+
 export type ElementData =
   | BusData
   | GeneratorData
   | SgenData
   | ExtGridData
   | LoadData
+  | ShuntData
   | SwitchData
   | Trafo2WData
   | Trafo3WData;
@@ -297,6 +315,7 @@ export interface LoadFlowResult {
   res_sgen: { id: string; p_mw: number | null; q_mvar: number | null }[];
   res_ext_grid: { id: string; p_mw: number | null; q_mvar: number | null }[];
   res_load: { id: string; p_mw: number | null; q_mvar: number | null }[];
+  res_shunt: { id: string; p_mw: number | null; q_mvar: number | null }[];
   res_trafo: { id: string; loading_percent: number | null; p_mw: number | null }[];
   res_trafo3w: { id: string; loading_percent: number | null; p_mw: number | null }[];
   res_line: {
