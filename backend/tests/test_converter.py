@@ -1,7 +1,7 @@
 import pytest
 
 from app.converter import ConversionError, run_load_flow, validate
-from app.schema import Bus, ExtGrid, Generator, Load, Network, Sgen
+from app.schema import Bus, ExtGrid, Generator, Line, Load, Network, Sgen
 
 
 def one_bus_with_slack_gen() -> Network:
@@ -50,6 +50,33 @@ def test_unknown_bus_reference_is_rejected():
     )
     with pytest.raises(ConversionError):
         validate(net)
+
+
+def test_zero_length_line_is_rejected_by_name():
+    # A zero-length line is accepted by the schema (drawable) but reported with a
+    # message that names the line, instead of an opaque solver/validation error.
+    net = Network(
+        id="t6",
+        buses=[Bus(id="b1", vn_kv=0.4), Bus(id="b2", vn_kv=0.4)],
+        lines=[
+            Line(id="ln1", name="Feeder A", from_bus="b1", to_bus="b2", length_km=0)
+        ],
+    )
+    result = run_load_flow(net)
+    assert not result.converged
+    assert "Feeder A" in result.message
+    with pytest.raises(ConversionError, match="Feeder A"):
+        validate(net)
+
+
+def test_unwired_zero_length_line_is_ignored():
+    # Not wired to both buses → skipped, like other unwired elements.
+    net = Network(
+        id="t7",
+        buses=[Bus(id="b1", vn_kv=0.4)],
+        lines=[Line(id="ln1", name="dangling", from_bus="b1", to_bus="", length_km=0)],
+    )
+    validate(net)  # no exception
 
 
 def test_unwired_element_is_ignored():

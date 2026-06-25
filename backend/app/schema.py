@@ -248,7 +248,10 @@ class Line(BaseModel):
     name: str = "Line"
     from_bus: str = ""  # bus on handle "from" ("" while unwired)
     to_bus: str = ""  # bus on handle "to"
-    length_km: float = Field(default=1.0, gt=0, description="Line length [km]")
+    # No gt=0 here on purpose: an invalid (e.g. zero) length is a thing the user
+    # can draw, and is reported with a line-named message at load-flow time (see
+    # converter.validate) rather than as an opaque 422 from the API boundary.
+    length_km: float = Field(default=1.0, description="Line length [km]")
     r_ohm_per_km: float = Field(default=0.1, ge=0, description="Resistance [ohm/km]")
     x_ohm_per_km: float = Field(default=0.1, ge=0, description="Reactance [ohm/km]")
     c_nf_per_km: float = Field(default=0.0, ge=0, description="Capacitance [nF/km]")

@@ -23,6 +23,36 @@ import type { BusData, ElementKind } from "../types";
 // different voltages need a transformer.
 type BranchMenu = { conn: Connection; x: number; y: number; sameVoltage: boolean };
 
+// Elements that attach to a bus. Every attachment edge is stored element→bus
+// (source = element, target = bus port), but the user may draw it from either
+// end, so attachments are normalized to that orientation before use.
+const ATTACHABLE = ["generator", "sgen", "extgrid", "load", "switch", "trafo2w", "trafo3w"];
+
+// Given a connection and the node lookup, return it oriented element→bus, or
+// null if it isn't a valid element↔bus attachment. Handles both drag directions.
+function asAttachment(
+  c: Connection | Edge,
+  nodeType: (id: string) => string | undefined,
+): Connection | null {
+  const s = nodeType(c.source);
+  const t = nodeType(c.target);
+  if (t === "bus" && ATTACHABLE.includes(s ?? ""))
+    return {
+      source: c.source,
+      sourceHandle: c.sourceHandle ?? null,
+      target: c.target,
+      targetHandle: c.targetHandle ?? null,
+    };
+  if (s === "bus" && ATTACHABLE.includes(t ?? ""))
+    return {
+      source: c.target,
+      sourceHandle: c.targetHandle ?? null,
+      target: c.source,
+      targetHandle: c.sourceHandle ?? null,
+    };
+  return null;
+}
+
 export function Canvas() {
   const {
     nodes,
@@ -81,13 +111,14 @@ export function Canvas() {
   // held back so connect-end can open the explicit branch-type menu.
   const handleConnect = useCallback(
     (c: Connection) => {
-      const source = nodes.find((n) => n.id === c.source);
-      const target = nodes.find((n) => n.id === c.target);
-      if (source?.type === "bus" && target?.type === "bus") {
+      const nodeType = (id: string) => nodes.find((n) => n.id === id)?.type;
+      if (nodeType(c.source) === "bus" && nodeType(c.target) === "bus") {
         pendingConn.current = c;
         return;
       }
-      onConnect(c);
+      // Attachments may be drawn bus → element; store them element → bus.
+      const attachment = asAttachment(c, nodeType);
+      if (attachment) onConnect(attachment);
     },
     [nodes, onConnect],
   );
@@ -112,13 +143,28 @@ export function Canvas() {
         });
         return;
       }
-      // Dropped on a non-bus element (e.g. a switch onto a load): everything
-      // connects through a bus, so explain why it was rejected. A valid drop only
-      // ever lands on a bus, so any non-bus target here was rejected.
-      if (conn.toNode && conn.toNode.type !== "bus") {
-        setMessage(
-          "Connections must go through a bus — attach to a bus, not directly to another element.",
+      // Dropped on another node that's neither a bus → bus branch nor a valid
+      // element ↔ bus attachment (e.g. a switch onto a load): everything connects
+      // through a bus, so explain why it was rejected.
+      if (conn.fromNode && conn.toNode) {
+        const nodeType = (id: string) =>
+          nodes.find((n) => n.id === id)?.type;
+        const bothBus =
+          conn.fromNode.type === "bus" && conn.toNode.type === "bus";
+        const isAttachment = asAttachment(
+          {
+            source: conn.fromNode.id,
+            sourceHandle: conn.fromHandle?.id ?? null,
+            target: conn.toNode.id,
+            targetHandle: conn.toHandle?.id ?? null,
+          },
+          nodeType,
         );
+        if (!bothBus && !isAttachment) {
+          setMessage(
+            "Connections must go through a bus — attach to a bus, not directly to another element.",
+          );
+        }
       }
     },
     [nodes, setMessage],
@@ -149,15 +195,15 @@ export function Canvas() {
           !portTaken(target.id, c.targetHandle)
         );
       }
-      // Element → bus attachment.
-      if (target.type !== "bus") return false;
-      const connectable = ["generator", "sgen", "extgrid", "load", "switch", "trafo2w", "trafo3w"];
-      if (!connectable.includes(source.type ?? "")) return false;
+      // Element ↔ bus attachment, drawn from either end. Normalize to element →
+      // bus, then check the element's wire port and the bus port are both free.
+      const a = asAttachment(c, (id) => nodes.find((n) => n.id === id)?.type);
+      if (!a) return false;
       const sourceTaken = edges.some(
-        (e) => e.source === c.source && e.sourceHandle === c.sourceHandle,
+        (e) => e.source === a.source && e.sourceHandle === a.sourceHandle,
       );
       const targetPortTaken = edges.some(
-        (e) => e.target === c.target && e.targetHandle === c.targetHandle,
+        (e) => e.target === a.target && e.targetHandle === a.targetHandle,
       );
       return !sourceTaken && !targetPortTaken;
     },

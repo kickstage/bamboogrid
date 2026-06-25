@@ -129,6 +129,14 @@ def validate(network: Network) -> None:
                 raise ConversionError(
                     f"Line '{ln.name}' references unknown bus '{end}'."
                 )
+        # A zero (or negative) length gives the line zero impedance, which makes
+        # the bus admittance matrix singular and the solver fail with an opaque
+        # numerical error. Reject it here with a message that names the line.
+        if ln.from_bus and ln.to_bus and ln.length_km <= 0:
+            raise ConversionError(
+                f"Line '{ln.name}' has a length of {ln.length_km} km. "
+                "Give it a length greater than 0 km."
+            )
 
 
 def build_net(network: Network):
