@@ -1,6 +1,8 @@
 import { Handle, Position, type NodeProps } from "@xyflow/react";
 import type { GeneratorData } from "../types";
 import { GeneratorGlyph } from "./glyphs";
+import { Readout, Value } from "./Readout";
+import { fixed } from "../format";
 import { useEditor } from "../store";
 
 export function GeneratorNode({ data, selected }: NodeProps) {
@@ -11,14 +13,14 @@ export function GeneratorNode({ data, selected }: NodeProps) {
     <div style={{ width: 64, textAlign: "center", color: "var(--mantine-color-text)" }}>
       <GeneratorGlyph size={52} stroke={selected ? "#0ea5e9" : "currentColor"} />
       <div style={{ fontSize: 10, fontWeight: 600 }}>{d.name}</div>
-      <div style={{ fontSize: 9, opacity: 0.7 }}>
+      <Value>
         {d.p_mw} MW{d.slack ? ` · slack ${d.slack_weight}` : ""}
-      </div>
+      </Value>
       {hasResult && (
-        <div style={{ fontSize: 9, fontWeight: 600, color: "#0ea5e9", lineHeight: 1.2 }}>
-          <div>P {d.res_p_mw!.toFixed(3)} MW</div>
-          <div>Q {(d.res_q_mvar ?? 0).toFixed(3)} Mvar</div>
-        </div>
+        <Readout>
+          <div>{fixed(d.res_p_mw!, 3)} MW</div>
+          <div>{fixed(d.res_q_mvar ?? 0, 3)} Mvar</div>
+        </Readout>
       )}
       <Handle type="source" position={Position.Bottom} style={{ background: "currentColor" }} />
     </div>

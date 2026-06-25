@@ -7,6 +7,8 @@ import {
 } from "@xyflow/react";
 import { useEditor } from "../store";
 import type { LineData } from "../types";
+import { Readout } from "../nodes/Readout";
+import { fixed } from "../format";
 
 type Point = { x: number; y: number };
 
@@ -64,6 +66,7 @@ export function LineEdge({
   const d = data as LineData | undefined;
   const waypoint = d?.waypoint;
   const loading = showResults ? d?.res_loading_percent : undefined;
+  const resI = showResults ? d?.res_i_ka : undefined;
 
   let path: string;
   let dotX: number;
@@ -107,8 +110,10 @@ export function LineEdge({
     window.addEventListener("pointerup", onUp);
   };
 
-  const label =
-    loading !== undefined ? `${d?.name ?? "Line"} · ${loading.toFixed(1)}%` : d?.name;
+  // The name rides above the line (dimmed, like before); load-flow results sit
+  // below it in blue, matching how the element nodes show their readouts.
+  const label = d?.name;
+  const hasResult = loading !== undefined;
 
   return (
     <>
@@ -132,6 +137,23 @@ export function LineEdge({
             }}
           >
             {label}
+          </div>
+        )}
+        {hasResult && (
+          <div
+            style={{
+              position: "absolute",
+              transform: `translate(-50%, -50%) translate(${dotX}px, ${dotY + 16}px)`,
+              background: "var(--mantine-color-body)",
+              padding: "0 3px",
+              borderRadius: 3,
+              pointerEvents: "none",
+            }}
+          >
+            <Readout color={loading! > 100 ? "#dc2626" : "#0ea5e9"}>
+              <div>{fixed(loading!, 1)}%</div>
+              {resI !== undefined && <div>{fixed(resI * 1000, 1)} A</div>}
+            </Readout>
           </div>
         )}
         {selected && (

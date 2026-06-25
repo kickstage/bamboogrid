@@ -1,5 +1,7 @@
 import { Handle, NodeResizer, Position, type NodeProps } from "@xyflow/react";
 import type { BusData } from "../types";
+import { Readout, Value } from "./Readout";
+import { fixed } from "../format";
 import { useEditor } from "../store";
 
 export const BUS_MIN_WIDTH = 140;
@@ -89,11 +91,11 @@ export function BusNode({ data, selected, width }: NodeProps) {
         />
       </svg>
       <div style={{ fontSize: 11, fontWeight: 600 }}>{d.name}</div>
-      <div style={{ fontSize: 10, opacity: 0.65 }}>{d.vn_kv} kV</div>
+      <Value>{d.vn_kv} kV</Value>
       {hasResult && (
-        <div style={{ fontSize: 10, fontWeight: 600, color: "#0ea5e9" }}>
-          {d.vm_pu!.toFixed(3)} p.u. · {(d.va_degree ?? 0).toFixed(1)}°
-        </div>
+        <Readout>
+          {fixed(d.vm_pu!, 3)} p.u. · {fixed(d.va_degree ?? 0, 1)}°
+        </Readout>
       )}
     </div>
   );

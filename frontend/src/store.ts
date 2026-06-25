@@ -340,6 +340,7 @@ export const useEditor = create<EditorState>((set, get) => ({
               ...(e.data as LineData),
               res_loading_percent: r?.loading_percent ?? undefined,
               res_p_mw: r?.p_mw ?? undefined,
+              res_i_ka: r?.i_ka ?? undefined,
             },
           };
         }),
@@ -405,6 +406,7 @@ export const useEditor = create<EditorState>((set, get) => ({
                 ...(e.data as LineData),
                 res_loading_percent: undefined,
                 res_p_mw: undefined,
+                res_i_ka: undefined,
               },
             }
           : e,

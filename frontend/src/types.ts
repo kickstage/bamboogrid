@@ -126,6 +126,7 @@ export type LineData = {
   // Filled in after a load flow.
   res_loading_percent?: number;
   res_p_mw?: number;
+  res_i_ka?: number;
 };
 
 export type ElementData =
@@ -298,5 +299,10 @@ export interface LoadFlowResult {
   res_load: { id: string; p_mw: number | null; q_mvar: number | null }[];
   res_trafo: { id: string; loading_percent: number | null; p_mw: number | null }[];
   res_trafo3w: { id: string; loading_percent: number | null; p_mw: number | null }[];
-  res_line: { id: string; loading_percent: number | null; p_mw: number | null }[];
+  res_line: {
+    id: string;
+    loading_percent: number | null;
+    p_mw: number | null;
+    i_ka: number | null;
+  }[];
 }

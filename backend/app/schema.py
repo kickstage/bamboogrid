@@ -318,6 +318,7 @@ class LineResult(BaseModel):
     id: str
     loading_percent: float | None = None
     p_mw: float | None = None  # active power entering the from-bus side
+    i_ka: float | None = None  # line current [kA] (max of the two ends)
 
 
 class LoadFlowResult(BaseModel):

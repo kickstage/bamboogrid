@@ -10,6 +10,7 @@ import {
   TextInput,
 } from "@mantine/core";
 import { useEditor } from "../store";
+import { fixed } from "../format";
 import type {
   BusData,
   ExtGridData,
@@ -80,6 +81,62 @@ const HEADERS: Record<string, string> = {
   trafo3w: "3W TRANSFORMER",
 };
 
+// A quantity row in the load-flow result block: its symbol (the "sign", e.g. P,
+// Q, Vm) and its formatted value+unit. Unlike the compact on-canvas readouts,
+// the inspector shows every result with its label so it's unambiguous.
+type ResultRow = [label: string, value: string];
+
+// The labeled load-flow result block, rendered consistently for every element.
+function ResultList({ rows }: { rows: ResultRow[] }) {
+  if (rows.length === 0) return null;
+  return (
+    <>
+      <Divider my="xs" label="Load flow result" labelPosition="left" />
+      <Stack gap={2}>
+        {rows.map(([label, value]) => (
+          <Group key={label} justify="space-between" gap="xs" wrap="nowrap">
+            <Text size="xs" c="dimmed">
+              {label}
+            </Text>
+            <Text size="xs" ff="monospace" style={{ whiteSpace: "nowrap" }}>
+              {value}
+            </Text>
+          </Group>
+        ))}
+      </Stack>
+    </>
+  );
+}
+
+// Build the labeled result rows for a node, or [] if it has no solved result.
+function nodeResultRows(type: string | undefined, data: unknown): ResultRow[] {
+  if (type === "bus") {
+    const b = data as BusData;
+    if (b.vm_pu === undefined) return [];
+    return [
+      ["Vm", `${fixed(b.vm_pu, 4)} p.u.`],
+      ["Va", `${fixed(b.va_degree ?? 0, 2)}°`],
+    ];
+  }
+  if (type === "generator" || type === "sgen" || type === "extgrid") {
+    const g = data as GeneratorData;
+    if (g.res_p_mw === undefined) return [];
+    return [
+      ["P", `${fixed(g.res_p_mw, 4)} MW`],
+      ["Q", `${fixed(g.res_q_mvar ?? 0, 4)} Mvar`],
+    ];
+  }
+  if (type === "trafo2w" || type === "trafo3w") {
+    const t = data as Trafo2WData;
+    if (t.res_loading_percent === undefined) return [];
+    return [
+      ["Loading", `${fixed(t.res_loading_percent, 1)} %`],
+      ["P", `${fixed(t.res_p_mw ?? 0, 4)} MW`],
+    ];
+  }
+  return [];
+}
+
 export function Inspector() {
   const {
     nodes,
@@ -126,10 +183,15 @@ export function Inspector() {
         {num("Capacitance (nF/km)", "c_nf_per_km", 1, 2)}
         {num("Max current (kA)", "max_i_ka", 0.01, 4)}
         {d.res_loading_percent !== undefined && (
-          <Text size="xs" c="dimmed">
-            Result: {d.res_loading_percent.toFixed(1)}% loading, P{" "}
-            {(d.res_p_mw ?? 0).toFixed(4)} MW
-          </Text>
+          <ResultList
+            rows={[
+              ["Loading", `${fixed(d.res_loading_percent, 1)} %`],
+              ["P", `${fixed(d.res_p_mw ?? 0, 4)} MW`],
+              ...(d.res_i_ka !== undefined
+                ? ([["Current", `${fixed(d.res_i_ka * 1000, 1)} A`]] as ResultRow[])
+                : []),
+            ]}
+          />
         )}
         <Divider my="xs" />
         <Button color="red" variant="light" size="xs" onClick={() => removeEdge(lineEdge.id)}>
@@ -341,36 +403,8 @@ export function Inspector() {
         </>
       )}
 
-      {node.type === "bus" && (node.data as BusData).vm_pu !== undefined && (
-        <Text size="xs" c="dimmed">
-          Result: {(node.data as BusData).vm_pu!.toFixed(4)} p.u. ·{" "}
-          {((node.data as BusData).va_degree ?? 0).toFixed(2)}°
-        </Text>
-      )}
+      <ResultList rows={nodeResultRows(node.type, node.data)} />
 
-      {node.type === "generator" &&
-        (node.data as GeneratorData).res_p_mw !== undefined && (
-          <Text size="xs" c="dimmed">
-            Result: P {(node.data as GeneratorData).res_p_mw!.toFixed(4)} MW,
-            Q {((node.data as GeneratorData).res_q_mvar ?? 0).toFixed(4)} Mvar
-          </Text>
-        )}
-
-      {(node.type === "sgen" || node.type === "extgrid") &&
-        (node.data as SgenData | ExtGridData).res_p_mw !== undefined && (
-          <Text size="xs" c="dimmed">
-            Result: P {(node.data as SgenData | ExtGridData).res_p_mw!.toFixed(4)} MW,
-            Q {((node.data as SgenData | ExtGridData).res_q_mvar ?? 0).toFixed(4)} Mvar
-          </Text>
-        )}
-
-      {(node.type === "trafo2w" || node.type === "trafo3w") &&
-        (node.data as Trafo2WData).res_loading_percent !== undefined && (
-          <Text size="xs" c="dimmed">
-            Result: {(node.data as Trafo2WData).res_loading_percent!.toFixed(1)}% loading,
-            P {((node.data as Trafo2WData).res_p_mw ?? 0).toFixed(4)} MW
-          </Text>
-        )}
 
       <Divider my="xs" />
       <Button color="red" variant="light" size="xs" onClick={() => removeNode(node.id)}>

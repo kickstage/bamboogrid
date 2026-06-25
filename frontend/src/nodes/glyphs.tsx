@@ -32,30 +32,28 @@ export function GeneratorGlyph({ size = 52, stroke = "currentColor" }: GlyphProp
   );
 }
 
-// pandapower/sgen.svg — a box with an AC sine wave and a "DC/AC" label (the
-// inverter / static-source mark).
+// Static generator — circle with "S", matching the generator's circle-with-"G"
+// (it's a generator-type source, just a static/inverter-fed one).
 export function SgenGlyph({ size = 52, stroke = "currentColor" }: GlyphProps) {
   return (
     <svg
       width={size}
       height={size}
-      viewBox="30 8 60 60"
+      viewBox="30 12 60 60"
       aria-hidden
       style={{ display: "block", margin: "0 auto" }}
     >
-      <rect x={36} y={24} width={48} height={36} fill="none" stroke={stroke} strokeWidth={3} />
-      {/* Symmetric AC sine, kept fully inside the box (the library's original
-          dips below the bottom edge). */}
-      <path d="M42 42 Q51 30 60 42 T78 42" fill="none" stroke={stroke} strokeWidth={2} />
+      <circle cx={60} cy={42} r={24} fill="none" stroke={stroke} strokeWidth={3} />
       <text
         x={60}
-        y={20}
+        y={50}
         textAnchor="middle"
+        fontSize={24}
         fontFamily="Arial, sans-serif"
-        fontSize={12}
+        fontWeight={600}
         fill={stroke}
       >
-        DC/AC
+        S
       </text>
     </svg>
   );

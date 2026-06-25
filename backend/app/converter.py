@@ -437,6 +437,7 @@ def run_load_flow(network: Network) -> LoadFlowResult:
             id=lid,
             loading_percent=_f(net.res_line.at[idx, "loading_percent"]),
             p_mw=_f(net.res_line.at[idx, "p_from_mw"]),
+            i_ka=_f(net.res_line.at[idx, "i_ka"]),
         )
         for lid, idx in id_maps["line"].items()
     ]
