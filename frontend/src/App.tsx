@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ActionIcon,
   Alert,
@@ -18,6 +18,15 @@ import { Inspector } from "./inspector/Inspector";
 import { Palette } from "./palette/Palette";
 import { useEditor } from "./store";
 import { exportPandapower, importPandapower, runLoadFlow } from "./api";
+import { buildShareUrl, clearShareHash, readSharedNetwork } from "./share";
+import {
+  clearSavedNetwork,
+  loadSavedNetwork,
+  startAutosave,
+} from "./persistence";
+
+// Whether a restored/shared network is worth loading (skip an empty canvas).
+const hasContent = (n: { buses: unknown[] }) => n.buses.length > 0;
 
 export default function App() {
   const {
@@ -37,6 +46,34 @@ export default function App() {
   const { setColorScheme } = useMantineColorScheme();
   const scheme = useComputedColorScheme("light");
   const toggleScheme = () => setColorScheme(scheme === "dark" ? "light" : "dark");
+
+  // On first load: a shared link wins (and is then cleared from the URL),
+  // otherwise restore the autosaved session. Then keep autosaving edits.
+  useEffect(() => {
+    const shared = readSharedNetwork();
+    if (shared && hasContent(shared)) {
+      loadNetwork(shared);
+      clearShareHash();
+      setMessage("Loaded a shared scenario.");
+    } else {
+      const saved = loadSavedNetwork();
+      if (saved && hasContent(saved)) loadNetwork(saved);
+    }
+    return startAutosave();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Copy a self-contained share link (the whole scenario lives in the URL).
+  const onShare = async () => {
+    const url = buildShareUrl(toNetwork());
+    try {
+      await navigator.clipboard.writeText(url);
+      setMessage("Share link copied to clipboard.");
+    } catch {
+      // Clipboard needs a secure context; fall back to a manual copy prompt.
+      window.prompt("Copy this share link:", url);
+    }
+  };
 
   // Export the current network as a single pandapower JSON (valid net +
   // diagram_* layout tables) and download it.
@@ -82,6 +119,7 @@ export default function App() {
     const empty = nodes.length === 0 && edges.length === 0;
     if (empty || window.confirm("Clear the editor and remove everything?")) {
       resetNetwork();
+      clearSavedNetwork();
     }
   };
 
@@ -137,6 +175,9 @@ export default function App() {
             </Button>
             <Button variant="default" size="xs" loading={busy} onClick={onExport}>
               Export
+            </Button>
+            <Button variant="default" size="xs" onClick={onShare}>
+              Share
             </Button>
             <Button size="xs" onClick={onRun} loading={busy}>
               Run load flow

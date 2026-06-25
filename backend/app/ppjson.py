@@ -242,6 +242,15 @@ def network_to_pp_json(network: Network) -> str:
     return pp.to_json(net)
 
 
+# Cap imported networks for now: beyond this, both the solver round-trip and
+# the React Flow canvas start to crawl. Lifted once rendering/perf is addressed.
+MAX_IMPORT_BUSES = 100
+
+
+class NetworkTooLargeError(ValueError):
+    """An imported net exceeds the bus limit we currently support."""
+
+
 def pp_json_to_network(raw: str) -> Network:
     """Reconstruct the editor Network from a pandapower JSON.
 
@@ -252,6 +261,15 @@ def pp_json_to_network(raw: str) -> Network:
     supported.
     """
     net = pp.from_json_string(raw)
+
+    # Reject oversized nets early, before the full conversion work.
+    n_buses = len(net.bus)
+    if n_buses > MAX_IMPORT_BUSES:
+        raise NetworkTooLargeError(
+            f"This network has {n_buses} buses, but the import limit is "
+            f"{MAX_IMPORT_BUSES}. Larger networks are disabled for now to keep "
+            "the editor responsive."
+        )
 
     d_bus = net.get("diagram_bus")
     d_gen = net.get("diagram_gen")

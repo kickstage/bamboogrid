@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from .converter import run_load_flow
-from .ppjson import network_to_pp_json, pp_json_to_network
+from .ppjson import NetworkTooLargeError, network_to_pp_json, pp_json_to_network
 from .schema import LoadFlowResult, Network
 
 app = FastAPI(title="BambooGrid API", version="0.1.0")
@@ -56,6 +56,9 @@ async def import_pandapower(request: Request) -> Network:
     raw = (await request.body()).decode("utf-8")
     try:
         return pp_json_to_network(raw)
+    except NetworkTooLargeError as exc:
+        # 413: the file parsed fine, it's just over the supported size.
+        raise HTTPException(status_code=413, detail=str(exc))
     except Exception as exc:  # noqa: BLE001 - report parse/convert failures
         raise HTTPException(
             status_code=400, detail=f"Could not import pandapower JSON: {exc}"

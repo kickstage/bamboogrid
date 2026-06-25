@@ -89,3 +89,27 @@ def test_import_plain_pandapower_net_brings_in_gen_sgen_ext_grid():
     assert restored.generators[0].bus_id == bus_id
     assert restored.ext_grids[0].bus_id == bus_id
     assert restored.sgens[0].bus_id == bus_id
+
+
+def test_import_rejects_networks_over_the_bus_cap():
+    import pytest
+
+    from app.ppjson import MAX_IMPORT_BUSES, NetworkTooLargeError
+
+    net = pp.create_empty_network()
+    for _ in range(MAX_IMPORT_BUSES + 1):
+        pp.create_bus(net, vn_kv=0.4)
+
+    with pytest.raises(NetworkTooLargeError, match=str(MAX_IMPORT_BUSES)):
+        pp_json_to_network(pp.to_json(net))
+
+
+def test_import_allows_networks_at_the_bus_cap():
+    net = pp.create_empty_network()
+    from app.ppjson import MAX_IMPORT_BUSES
+
+    for _ in range(MAX_IMPORT_BUSES):
+        pp.create_bus(net, vn_kv=0.4)
+
+    restored = pp_json_to_network(pp.to_json(net))
+    assert len(restored.buses) == MAX_IMPORT_BUSES

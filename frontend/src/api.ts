@@ -2,11 +2,21 @@ import type { LoadFlowResult, Network } from "./types";
 
 const BASE = "";
 
-async function json<T>(res: Response): Promise<T> {
-  if (!res.ok) {
-    const detail = await res.text();
-    throw new Error(`${res.status} ${res.statusText}: ${detail}`);
+// FastAPI error bodies are `{"detail": "..."}`; surface that human-readable
+// message rather than the raw JSON wrapper. Falls back to the status text.
+async function errorMessage(res: Response): Promise<string> {
+  const body = await res.text();
+  try {
+    const parsed = JSON.parse(body);
+    if (typeof parsed?.detail === "string") return parsed.detail;
+  } catch {
+    // not JSON; use the raw body
   }
+  return body || `${res.status} ${res.statusText}`;
+}
+
+async function json<T>(res: Response): Promise<T> {
+  if (!res.ok) throw new Error(await errorMessage(res));
   return res.json() as Promise<T>;
 }
 
@@ -29,7 +39,7 @@ export async function exportPandapower(network: Network): Promise<string> {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(network),
   });
-  if (!res.ok) throw new Error(`${res.status} ${res.statusText}: ${await res.text()}`);
+  if (!res.ok) throw new Error(await errorMessage(res));
   return res.text();
 }
 
