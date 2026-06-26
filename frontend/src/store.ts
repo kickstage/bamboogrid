@@ -45,6 +45,13 @@ function initialVoltageUnit(): VoltageUnit {
 import { getView } from "./api";
 import { toast } from "./toast";
 import {
+  connectedTrafoVoltages,
+  defaultTrafo2wParams,
+  defaultTrafo3wParams,
+  matchingTrafo2wTypes,
+  matchingTrafo3wTypes,
+} from "./trafo";
+import {
   configureSync,
   enqueue,
   flushPending,
@@ -87,11 +94,14 @@ export const DEFAULT_LINE = (): LineData => ({
 export type ElementNode = Node<ElementData>;
 
 // A detached snapshot of a node used for copy/paste and duplicate: its kind and
-// attributes, never its wires.
+// attributes, never its wires. `dx`/`dy` are the node's offset from the copied
+// group's anchor, so pasting a multi-element selection preserves its layout.
 export interface ClonePayload {
   type: ElementKind;
   data: ElementData;
   width?: number;
+  dx: number;
+  dy: number;
 }
 
 const newId = () => crypto.randomUUID();
@@ -121,6 +131,12 @@ function makeCloneNode(payload: ClonePayload, position: XYPosition): ElementNode
     data: withoutResults(payload.type, payload.data),
     ...(payload.width !== undefined ? { width: payload.width } : {}),
   };
+}
+
+// The selected nodes that can be cloned: foreign (read-only) elements are
+// skipped since they aren't modeled and can't be recreated.
+function clonableSelection(nodes: ElementNode[]): ElementNode[] {
+  return nodes.filter((n) => n.selected && n.type && n.type !== "foreign");
 }
 
 function defaultData(kind: ElementKind): ElementData {
@@ -200,11 +216,15 @@ interface EditorState {
   addLineBetween: (c: Connection) => void;
   addTransformerBetween: (c: Connection) => void;
   addNode: (kind: ElementKind, position: XYPosition) => void;
-  // Clone a node's attributes (results stripped) with none of its wires.
-  clipboard: ClonePayload | null;
-  copyNode: (id: string) => void;
-  // Returns the new node's id (or null if the source is gone).
-  duplicateNode: (id: string, delta: XYPosition) => string | null;
+  // Clones of the selected nodes' attributes (results stripped), no wires.
+  clipboard: ClonePayload[] | null;
+  // Copy every currently selected (non-foreign) node to the clipboard.
+  copySelection: () => void;
+  // Duplicate every selected node by `delta`; returns the new node ids.
+  duplicateSelection: (delta: XYPosition) => string[];
+  // Clone every selected node in place for a modifier-drag, returning the
+  // original→clone id pairs so the canvas can redirect the drag onto the clones.
+  duplicateForDrag: () => { originalId: string; cloneId: string }[];
   pasteAt: (position: XYPosition) => void;
   updateNodeData: (id: string, patch: Partial<ElementData>) => void;
   updateEdgeData: (id: string, patch: Partial<LineData>) => void;
@@ -215,6 +235,12 @@ interface EditorState {
   setEdgeWaypoint: (id: string, point: { x: number; y: number } | null) => void;
   select: (id: string | null) => void;
   selectEdge: (id: string | null) => void;
+  // Make `id` the sole selection (clearing any multi-selection). Used when
+  // right-clicking a node that isn't part of the current selection.
+  selectOnly: (id: string) => void;
+  // Clear the inspector selection and every node/edge highlight on the canvas.
+  // Used when clicking outside the canvas (e.g. the palette).
+  deselectAll: () => void;
   setShowResults: (show: boolean) => void;
   setVoltageUnit: (unit: VoltageUnit) => void;
   setReadOnly: (readOnly: boolean) => void;
@@ -265,7 +291,8 @@ function syncAttachment(
   port: string,
   handle: string | null,
   edges: Edge[],
-): void {
+  nodes: ElementNode[],
+): ElementData | undefined {
   const kind = node.type as ElementKind;
   const known = serverIds.has(node.id);
 
@@ -332,38 +359,93 @@ function syncAttachment(
     const hv = wire("hv");
     const lv = wire("lv");
     if (hv?.target && lv?.target) {
-      if (known)
+      if (known) {
         enqueue({
           op: "connect",
           payload: { id: node.id, kind, end: handleToEnd(handle), bus_id: busId, port },
         });
-      else {
-        enqueue({
-          op: "add_transformer",
-          payload: {
-            id: node.id,
-            hv_bus: hv.target,
-            lv_bus: lv.target,
-            std_type: d.std_type ?? DEFAULT_TRAFO_STD,
-            port_hv: hv.targetHandle ?? "",
-            port_lv: lv.targetHandle ?? "",
-            x: node.position.x,
-            y: node.position.y,
-            name: d.name,
-          },
-        });
-        serverIds.add(node.id);
+        return;
       }
+      // Materialize with a voltage-matching std type, or custom parameters when
+      // none fits the bus voltages.
+      const v = connectedTrafoVoltages(node.id, nodes, edges);
+      const matches =
+        v.hv != null && v.lv != null ? matchingTrafo2wTypes(v.hv, v.lv) : [];
+      const data: Trafo2WData = matches.length
+        ? { name: d.name ?? "Transformer", std_type: matches[0] }
+        : {
+            name: d.name ?? "Transformer",
+            std_type: "",
+            params: defaultTrafo2wParams(v.hv ?? 0, v.lv ?? 0),
+          };
+      enqueue({
+        op: "add_transformer",
+        payload: {
+          id: node.id,
+          hv_bus: hv.target,
+          lv_bus: lv.target,
+          std_type: data.std_type,
+          ...(data.params ? { params: data.params } : {}),
+          port_hv: hv.targetHandle ?? "",
+          port_lv: lv.targetHandle ?? "",
+          x: node.position.x,
+          y: node.position.y,
+          name: data.name,
+        },
+      });
+      serverIds.add(node.id);
+      return data;
     }
     return;
   }
 
-  // trafo3w only ever exists via import (already on the server): re-point only.
-  if (kind === "trafo3w" && known)
-    enqueue({
-      op: "connect",
-      payload: { id: node.id, kind, end: handleToEnd(handle), bus_id: busId, port },
-    });
+  if (kind === "trafo3w") {
+    if (known) {
+      enqueue({
+        op: "connect",
+        payload: { id: node.id, kind, end: handleToEnd(handle), bus_id: busId, port },
+      });
+      return;
+    }
+    const hv = wire("hv");
+    const mv = wire("mv");
+    const lv = wire("lv");
+    if (hv?.target && mv?.target && lv?.target) {
+      // All three windings wired: materialize with a voltage-matching std type,
+      // or custom parameters when none fits the bus voltages.
+      const v = connectedTrafoVoltages(node.id, nodes, edges);
+      const matches =
+        v.hv != null && v.mv != null && v.lv != null
+          ? matchingTrafo3wTypes(v.hv, v.mv, v.lv)
+          : [];
+      const data: Trafo3WData = matches.length
+        ? { name: d.name ?? "3W Transformer", std_type: matches[0] }
+        : {
+            name: d.name ?? "3W Transformer",
+            std_type: "",
+            params: defaultTrafo3wParams(v.hv ?? 0, v.mv ?? 0, v.lv ?? 0),
+          };
+      enqueue({
+        op: "add_transformer3w",
+        payload: {
+          id: node.id,
+          hv_bus: hv.target,
+          mv_bus: mv.target,
+          lv_bus: lv.target,
+          std_type: data.std_type,
+          ...(data.params ? { params: data.params } : {}),
+          port_hv: hv.targetHandle ?? "",
+          port_mv: mv.targetHandle ?? "",
+          port_lv: lv.targetHandle ?? "",
+          x: node.position.x,
+          y: node.position.y,
+          name: data.name,
+        },
+      });
+      serverIds.add(node.id);
+      return data;
+    }
+  }
 }
 
 // A clone/paste produces a wireless node. A bus stands alone, so it's created
@@ -461,8 +543,24 @@ export const useEditor = create<EditorState>((set, get) => ({
     const edges = addEdge({ ...connection, type: "wire" }, filtered);
     set({ edges });
     const node = s.nodes.find((n) => n.id === connection.source);
-    if (node?.type && connection.target)
-      syncAttachment(node, connection.target, connection.targetHandle ?? "", handle, edges);
+    if (node?.type && connection.target) {
+      const newData = syncAttachment(
+        node,
+        connection.target,
+        connection.targetHandle ?? "",
+        handle,
+        edges,
+        s.nodes,
+      );
+      // A transformer materializes with a voltage-matched type/params on its
+      // final wire; reflect that on the node so the inspector stays accurate.
+      if (newData)
+        set((st) => ({
+          nodes: st.nodes.map((n) =>
+            n.id === node.id ? { ...n, data: newData } : n,
+          ),
+        }));
+    }
   },
 
   addLineBetween: (c) => {
@@ -516,16 +614,21 @@ export const useEditor = create<EditorState>((set, get) => ({
         vA >= vB
           ? [c.source, c.target, c.sourceHandle, c.targetHandle]
           : [c.target, c.source, c.targetHandle, c.sourceHandle];
+      // Pick a standard type whose rated voltages match the two buses; if none
+      // fits, fall back to a custom-parameter transformer matched to them.
+      const hvVn = Math.max(vA, vB);
+      const lvVn = Math.min(vA, vB);
+      const matches = matchingTrafo2wTypes(hvVn, lvVn);
+      const data: Trafo2WData = matches.length
+        ? { name: "Transformer", std_type: matches[0] }
+        : { name: "Transformer", std_type: "", params: defaultTrafo2wParams(hvVn, lvVn) };
       const id = newId();
       const node: ElementNode = {
         id,
         type: "trafo2w",
         position: midpoint(a, b),
         selected: true,
-        data: {
-          name: "Transformer",
-          std_type: DEFAULT_TRAFO_STD,
-        } satisfies Trafo2WData,
+        data,
       };
       enqueue({
         op: "add_transformer",
@@ -533,7 +636,8 @@ export const useEditor = create<EditorState>((set, get) => ({
           id,
           hv_bus: hvBus,
           lv_bus: lvBus,
-          std_type: DEFAULT_TRAFO_STD,
+          std_type: data.std_type,
+          ...(data.params ? { params: data.params } : {}),
           port_hv: hvPort ?? "",
           port_lv: lvPort ?? "",
           x: node.position.x,
@@ -597,48 +701,79 @@ export const useEditor = create<EditorState>((set, get) => ({
     }
   },
 
-  copyNode: (id) =>
-    set((s) => {
-      const n = s.nodes.find((x) => x.id === id);
-      if (!n) return {};
-      const name = (n.data as { name?: string }).name ?? n.type;
-      toast.info(`Copied ${name}.`);
-      return {
-        clipboard: {
-          type: n.type as ElementKind,
-          data: structuredClone(n.data),
-          width: n.width,
-        },
-      };
-    }),
+  copySelection: () => {
+    const sel = clonableSelection(get().nodes);
+    if (sel.length === 0) return;
+    const anchorX = Math.min(...sel.map((n) => n.position.x));
+    const anchorY = Math.min(...sel.map((n) => n.position.y));
+    set({
+      clipboard: sel.map((n) => ({
+        type: n.type as ElementKind,
+        data: structuredClone(n.data),
+        width: n.width,
+        dx: n.position.x - anchorX,
+        dy: n.position.y - anchorY,
+      })),
+    });
+    toast.info(`Copied ${sel.length} element${sel.length === 1 ? "" : "s"}.`);
+  },
 
-  duplicateNode: (id, delta) => {
-    if (get().readOnly) return null;
-    const n = get().nodes.find((x) => x.id === id);
-    if (!n) return null;
-    const node = makeCloneNode(
-      { type: n.type as ElementKind, data: n.data, width: n.width },
-      { x: n.position.x + delta.x, y: n.position.y + delta.y },
+  duplicateSelection: (delta) => {
+    if (get().readOnly) return [];
+    const sel = clonableSelection(get().nodes);
+    if (sel.length === 0) return [];
+    const created = sel.map((n) =>
+      makeCloneNode(
+        { type: n.type as ElementKind, data: n.data, width: n.width, dx: 0, dy: 0 },
+        { x: n.position.x + delta.x, y: n.position.y + delta.y },
+      ),
     );
     set((s) => ({
-      nodes: [...s.nodes, node],
-      selectedId: node.id,
+      nodes: [
+        ...s.nodes.map((n) => (n.selected ? { ...n, selected: false } : n)),
+        ...created.map((n) => ({ ...n, selected: true })),
+      ],
+      selectedId: created.length === 1 ? created[0].id : null,
       selectedEdgeId: null,
     }));
-    syncClonedNode(node);
-    return node.id;
+    created.forEach(syncClonedNode);
+    return created.map((n) => n.id);
+  },
+
+  duplicateForDrag: () => {
+    if (get().readOnly) return [];
+    const sel = clonableSelection(get().nodes);
+    if (sel.length === 0) return [];
+    // Clones sit on top of their originals (no offset) and selection is left
+    // untouched, so the in-progress drag keeps moving the grabbed nodes while
+    // the canvas redirects their position changes onto these clones.
+    const pairs = sel.map((n) => ({
+      original: n,
+      clone: makeCloneNode(
+        { type: n.type as ElementKind, data: n.data, width: n.width, dx: 0, dy: 0 },
+        { x: n.position.x, y: n.position.y },
+      ),
+    }));
+    set((s) => ({ nodes: [...s.nodes, ...pairs.map((p) => p.clone)] }));
+    pairs.forEach((p) => syncClonedNode(p.clone));
+    return pairs.map((p) => ({ originalId: p.original.id, cloneId: p.clone.id }));
   },
 
   pasteAt: (position) => {
     const { clipboard, readOnly } = get();
-    if (readOnly || !clipboard) return;
-    const node = makeCloneNode(clipboard, position);
+    if (readOnly || !clipboard || clipboard.length === 0) return;
+    const created = clipboard.map((p) =>
+      makeCloneNode(p, { x: position.x + p.dx, y: position.y + p.dy }),
+    );
     set((s) => ({
-      nodes: [...s.nodes, node],
-      selectedId: node.id,
+      nodes: [
+        ...s.nodes.map((n) => (n.selected ? { ...n, selected: false } : n)),
+        ...created.map((n) => ({ ...n, selected: true })),
+      ],
+      selectedId: created.length === 1 ? created[0].id : null,
       selectedEdgeId: null,
     }));
-    syncClonedNode(node);
+    created.forEach(syncClonedNode);
   },
 
   updateNodeData: (id, patch) => {
@@ -725,6 +860,25 @@ export const useEditor = create<EditorState>((set, get) => ({
 
   select: (id) => set({ selectedId: id, selectedEdgeId: null }),
   selectEdge: (id) => set({ selectedEdgeId: id, selectedId: null }),
+
+  selectOnly: (id) =>
+    set((s) => ({
+      selectedId: id,
+      selectedEdgeId: null,
+      nodes: s.nodes.map((n) =>
+        n.selected !== (n.id === id) ? { ...n, selected: n.id === id } : n,
+      ),
+      edges: s.edges.map((e) => (e.selected ? { ...e, selected: false } : e)),
+    })),
+
+  deselectAll: () =>
+    set((s) => ({
+      selectedId: null,
+      selectedEdgeId: null,
+      nodes: s.nodes.map((n) => (n.selected ? { ...n, selected: false } : n)),
+      edges: s.edges.map((e) => (e.selected ? { ...e, selected: false } : e)),
+    })),
+
   setShowResults: (show) => set({ showResults: show }),
   setReadOnly: (readOnly) => set({ readOnly }),
 

@@ -78,11 +78,12 @@ export function Canvas() {
     addNode,
     select,
     selectEdge,
+    selectOnly,
     fitSignal,
-    selectedId,
     clipboard,
-    copyNode,
-    duplicateNode,
+    copySelection,
+    duplicateSelection,
+    duplicateForDrag,
     pasteAt,
     readOnly,
   } = useEditor();
@@ -114,10 +115,10 @@ export function Canvas() {
   const nodeMenuInj = busSolved ? busInjection(nodeMenu!.nodeId, nodes, edges) : null;
   // Last cursor position over the pane (screen coords) — where Cmd/Ctrl+V drops.
   const pointer = useRef<{ x: number; y: number } | null>(null);
-  // An in-progress modifier-drag: the grabbed node spawned a detached clone, and
-  // its drag is redirected onto that clone so the original stays put with its
-  // wires.
-  const cloneDrag = useRef<{ originalId: string; cloneId: string } | null>(null);
+  // An in-progress modifier-drag: each grabbed (selected) node spawned a detached
+  // clone, and the drag is redirected onto those clones (originalId → cloneId) so
+  // the originals stay put with their wires.
+  const cloneDrag = useRef<Map<string, string> | null>(null);
 
   // After a network is loaded (import / open), bring it into view.
   useEffect(() => {
@@ -154,9 +155,13 @@ export function Canvas() {
           el.isContentEditable);
       if (inField) return;
       const key = e.key.toLowerCase();
-      if (key === "c" && selectedId) {
+      if (key === "c") {
+        // Don't hijack a real text selection elsewhere on the page — let the
+        // browser copy that text rather than the selected canvas element.
+        const sel = window.getSelection();
+        if (sel && !sel.isCollapsed) return;
         e.preventDefault();
-        copyNode(selectedId);
+        copySelection();
       } else if (key === "v" && clipboard) {
         e.preventDefault();
         const at = pointer.current
@@ -167,7 +172,7 @@ export function Canvas() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [selectedId, clipboard, copyNode, pasteAt, screenToFlowPosition]);
+  }, [clipboard, copySelection, pasteAt, screenToFlowPosition]);
 
   // Backspace/Delete removal goes through the store (which enqueues the server
   // command) rather than React Flow's built-in delete, which only mutates local
@@ -211,14 +216,14 @@ export function Canvas() {
       if (cd) {
         let ended = false;
         changes = changes.map((ch) => {
-          if (ch.type === "position" && ch.id === cd.originalId) {
+          if (ch.type === "position" && cd.has(ch.id)) {
             if (ch.dragging === false) ended = true;
-            return { ...ch, id: cd.cloneId };
+            return { ...ch, id: cd.get(ch.id)! };
           }
           return ch;
         });
         // Clear only after redirecting the final (dragging:false) change, so the
-        // drop never leaks through to the original.
+        // drop never leaks through to the originals.
         if (ended) cloneDrag.current = null;
       }
       onNodesChange(changes);
@@ -373,8 +378,14 @@ export function Canvas() {
         // original; handleNodesChange redirects the drag onto it.
         onNodeDragStart={(e, node: Node) => {
           if (readOnly || !(e.altKey || e.metaKey)) return;
-          const cloneId = duplicateNode(node.id, { x: 0, y: 0 });
-          if (cloneId) cloneDrag.current = { originalId: node.id, cloneId };
+          // Alt/Cmd-dragging a node outside the current selection grabs just it;
+          // dragging one within a multi-selection clones the whole selection.
+          if (!node.selected) selectOnly(node.id);
+          const pairs = duplicateForDrag();
+          if (pairs.length > 0)
+            cloneDrag.current = new Map(
+              pairs.map((p) => [p.originalId, p.cloneId]),
+            );
         }}
         onNodeDragStop={() => {
           // Defer: the final position change may arrive right after this, and it
@@ -385,7 +396,10 @@ export function Canvas() {
         }}
         onNodeContextMenu={(e, node: Node) => {
           e.preventDefault();
-          select(node.id);
+          // Keep an existing multi-selection if right-clicking inside it;
+          // otherwise the clicked node becomes the sole selection.
+          if (node.selected) select(node.id);
+          else selectOnly(node.id);
           if (readOnly) return;
           setMenu(null);
           setPasteMenu(null);
@@ -467,11 +481,11 @@ export function Canvas() {
           isBus={nodeMenu.isBus}
           hasInjection={nodeMenuInj !== null}
           onDuplicate={() => {
-            duplicateNode(nodeMenu.nodeId, { x: 24, y: 24 });
+            duplicateSelection({ x: 24, y: 24 });
             setNodeMenu(null);
           }}
           onCopy={() => {
-            copyNode(nodeMenu.nodeId);
+            copySelection();
             setNodeMenu(null);
           }}
           onGraph={(kind) => {

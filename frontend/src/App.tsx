@@ -124,6 +124,7 @@ export default function App() {
     setVoltageUnit,
     attachSession,
     sessionId,
+    deselectAll,
   } = useEditor();
   const [busy, setBusy] = useState(false);
   // React Flow's d3-zoom handlers stop pointer events from reaching the
@@ -295,7 +296,7 @@ export default function App() {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100vh" }}>
-      <Paper shadow="xs" p="sm" radius={0}>
+      <Paper shadow="xs" p="sm" radius={0} onPointerDown={deselectAll}>
         <Group justify="space-between">
           <Group gap="xs">
             <Title order={4} mr="xs">
@@ -407,6 +408,7 @@ export default function App() {
         <Paper
           withBorder
           radius={0}
+          onPointerDown={deselectAll}
           style={{
             width: leftW,
             flex: `0 0 ${leftW}px`,
@@ -453,6 +455,7 @@ export default function App() {
         c="dimmed"
         ta="center"
         py={6}
+        onPointerDown={deselectAll}
         style={{ borderTop: "1px solid var(--mantine-color-default-border)" }}
       >
         Made with ⚡ by{" "}

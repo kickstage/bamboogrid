@@ -12,6 +12,14 @@ import { useEditor } from "../store";
 import { fixed } from "../format";
 import { busInjection } from "../power";
 import {
+  connectedTrafoVoltages,
+  kvEqual,
+  matchingTrafo2wTypes,
+  matchingTrafo3wTypes,
+  trafo2wNames,
+  trafo3wNames,
+} from "../trafo";
+import {
   HEADERS,
   ResultList,
   VoltageLegend,
@@ -32,28 +40,6 @@ import type {
   Trafo2WData,
   Trafo3WData,
 } from "../types";
-
-const TRAFO_STD_TYPES = [
-  "160 MVA 380/110 kV",
-  "100 MVA 220/110 kV",
-  "63 MVA 110/20 kV",
-  "40 MVA 110/20 kV",
-  "25 MVA 110/20 kV",
-  "63 MVA 110/10 kV",
-  "40 MVA 110/10 kV",
-  "25 MVA 110/10 kV",
-  "0.25 MVA 20/0.4 kV",
-  "0.4 MVA 20/0.4 kV",
-  "0.63 MVA 20/0.4 kV",
-  "0.25 MVA 10/0.4 kV",
-  "0.4 MVA 10/0.4 kV",
-  "0.63 MVA 10/0.4 kV",
-];
-
-const TRAFO3W_STD_TYPES = [
-  "63/25/38 MVA 110/20/10 kV",
-  "63/25/38 MVA 110/10/10 kV",
-];
 
 export function Inspector() {
   const {
@@ -316,64 +302,114 @@ export function Inspector() {
         />
       )}
 
-      {node.type === "trafo2w" && (
-        <>
-          {(node.data as Trafo2WData).params && (
-            <Text size="xs" c="dimmed">
-              Imported with custom parameters (
-              {(node.data as Trafo2WData).params!.sn_mva} MVA,{" "}
-              {(node.data as Trafo2WData).params!.vn_hv_kv}/
-              {(node.data as Trafo2WData).params!.vn_lv_kv} kV). Choosing a standard
-              type replaces them.
-            </Text>
-          )}
-          <Select
-            label="Standard type"
-            data={TRAFO_STD_TYPES}
-            value={
-              TRAFO_STD_TYPES.includes((node.data as Trafo2WData).std_type)
-                ? (node.data as Trafo2WData).std_type
-                : null
-            }
-            placeholder={
-              (node.data as Trafo2WData).params ? "Custom (imported)" : undefined
-            }
-            // Picking a standard type discards any imported explicit params so
-            // the chosen type drives the solve.
-            onChange={(v) => v && update({ std_type: v, params: null })}
-            allowDeselect={false}
-            searchable
-          />
-        </>
-      )}
+      {node.type === "trafo2w" &&
+        (() => {
+          const d = node.data as Trafo2WData;
+          const volts = connectedTrafoVoltages(node.id, nodes, edges);
+          const haveBoth = volts.hv != null && volts.lv != null;
+          const matching = haveBoth
+            ? matchingTrafo2wTypes(volts.hv!, volts.lv!)
+            : trafo2wNames();
+          const mismatch =
+            haveBoth &&
+            (d.params
+              ? !(
+                  kvEqual(d.params.vn_hv_kv, volts.hv!) &&
+                  kvEqual(d.params.vn_lv_kv, volts.lv!)
+                )
+              : !!d.std_type && !matching.includes(d.std_type));
+          return (
+            <>
+              <Text size="xs" c="dimmed">
+                Connected buses: HV {volts.hv ?? "?"} kV / LV {volts.lv ?? "?"} kV
+              </Text>
+              {d.params && (
+                <Text size="xs" c="dimmed">
+                  Custom parameters ({d.params.sn_mva} MVA, {d.params.vn_hv_kv}/
+                  {d.params.vn_lv_kv} kV). Choosing a standard type replaces them.
+                </Text>
+              )}
+              {mismatch && (
+                <Text size="xs" c="orange">
+                  Rated voltages don't match the connected buses (HV {volts.hv} kV
+                  / LV {volts.lv} kV).
+                </Text>
+              )}
+              <Select
+                label="Standard type"
+                data={matching}
+                value={matching.includes(d.std_type) ? d.std_type : null}
+                placeholder={
+                  matching.length === 0
+                    ? "No standard type for these voltages"
+                    : d.params
+                      ? "Custom"
+                      : undefined
+                }
+                // Picking a standard type discards any explicit params so the
+                // chosen type drives the solve.
+                onChange={(v) => v && update({ std_type: v, params: null })}
+                allowDeselect={false}
+                searchable
+              />
+            </>
+          );
+        })()}
 
-      {node.type === "trafo3w" && (
-        <>
-          {(node.data as Trafo3WData).params && (
-            <Text size="xs" c="dimmed">
-              Imported with custom parameters (
-              {(node.data as Trafo3WData).params!.sn_hv_mva}/
-              {(node.data as Trafo3WData).params!.sn_mv_mva}/
-              {(node.data as Trafo3WData).params!.sn_lv_mva} MVA). Choosing a
-              standard type replaces them.
-            </Text>
-          )}
-          <Select
-            label="Standard type"
-            data={TRAFO3W_STD_TYPES}
-            value={
-              TRAFO3W_STD_TYPES.includes((node.data as Trafo3WData).std_type)
-                ? (node.data as Trafo3WData).std_type
-                : null
-            }
-            placeholder={
-              (node.data as Trafo3WData).params ? "Custom (imported)" : undefined
-            }
-            onChange={(v) => v && update({ std_type: v, params: null })}
-            allowDeselect={false}
-          />
-        </>
-      )}
+      {node.type === "trafo3w" &&
+        (() => {
+          const d = node.data as Trafo3WData;
+          const volts = connectedTrafoVoltages(node.id, nodes, edges);
+          const haveAll =
+            volts.hv != null && volts.mv != null && volts.lv != null;
+          const matching = haveAll
+            ? matchingTrafo3wTypes(volts.hv!, volts.mv!, volts.lv!)
+            : trafo3wNames();
+          const mismatch =
+            haveAll &&
+            (d.params
+              ? !(
+                  kvEqual(d.params.vn_hv_kv, volts.hv!) &&
+                  kvEqual(d.params.vn_mv_kv, volts.mv!) &&
+                  kvEqual(d.params.vn_lv_kv, volts.lv!)
+                )
+              : !!d.std_type && !matching.includes(d.std_type));
+          return (
+            <>
+              <Text size="xs" c="dimmed">
+                Connected buses: HV {volts.hv ?? "?"} kV / MV {volts.mv ?? "?"} kV
+                / LV {volts.lv ?? "?"} kV
+              </Text>
+              {d.params && (
+                <Text size="xs" c="dimmed">
+                  Custom parameters ({d.params.sn_hv_mva}/{d.params.sn_mv_mva}/
+                  {d.params.sn_lv_mva} MVA). Choosing a standard type replaces
+                  them.
+                </Text>
+              )}
+              {mismatch && (
+                <Text size="xs" c="orange">
+                  Rated voltages don't match the connected buses (HV {volts.hv} kV
+                  / MV {volts.mv} kV / LV {volts.lv} kV).
+                </Text>
+              )}
+              <Select
+                label="Standard type"
+                data={matching}
+                value={matching.includes(d.std_type) ? d.std_type : null}
+                placeholder={
+                  matching.length === 0
+                    ? "No standard type for these voltages"
+                    : d.params
+                      ? "Custom"
+                      : undefined
+                }
+                onChange={(v) => v && update({ std_type: v, params: null })}
+                allowDeselect={false}
+              />
+            </>
+          );
+        })()}
 
       <ResultList
         rows={[

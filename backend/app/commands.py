@@ -20,6 +20,7 @@ import pandas as pd
 from .schema import Command
 
 DEFAULT_TRAFO_STD = "0.25 MVA 20/0.4 kV"
+DEFAULT_TRAFO3W_STD = "63/25/38 MVA 110/20/10 kV"
 
 # Editor element kind -> pandapower table name.
 _KIND_TABLE = {
@@ -92,7 +93,9 @@ def _prune_diagrams(net) -> None:
 
 def _trafo_std(net, table: str, requested: str) -> str:
     available = set(pp.available_std_types(net, table).index)
-    return requested if requested in available else DEFAULT_TRAFO_STD
+    if requested in available:
+        return requested
+    return DEFAULT_TRAFO3W_STD if table == "trafo3w" else DEFAULT_TRAFO_STD
 
 
 # --- handlers --------------------------------------------------------------
@@ -180,13 +183,25 @@ def _add_line(net, p: dict) -> None:
 
 
 def _add_transformer(net, p: dict) -> None:
-    idx = pp.create_transformer(
-        net,
-        hv_bus=_index_of(net, "bus", p["hv_bus"]),
-        lv_bus=_index_of(net, "bus", p["lv_bus"]),
-        std_type=_trafo_std(net, "trafo", p.get("std_type", DEFAULT_TRAFO_STD)),
-        name=p.get("name", "Transformer"),
-    )
+    hv_bus = _index_of(net, "bus", p["hv_bus"])
+    lv_bus = _index_of(net, "bus", p["lv_bus"])
+    name = p.get("name", "Transformer")
+    params = p.get("params")
+    if params:
+        # Buses whose voltages match no standard type: build from explicit
+        # parameters (rated voltages follow the buses).
+        kwargs = {k: v for k, v in params.items() if v is not None}
+        idx = pp.create_transformer_from_parameters(
+            net, hv_bus=hv_bus, lv_bus=lv_bus, name=name, **kwargs
+        )
+    else:
+        idx = pp.create_transformer(
+            net,
+            hv_bus=hv_bus,
+            lv_bus=lv_bus,
+            std_type=_trafo_std(net, "trafo", p.get("std_type", DEFAULT_TRAFO_STD)),
+            name=name,
+        )
     _set_diagram(
         net,
         "trafo",
@@ -196,6 +211,41 @@ def _add_transformer(net, p: dict) -> None:
             "x": p.get("x", 0.0),
             "y": p.get("y", 0.0),
             "port_hv": p.get("port_hv", ""),
+            "port_lv": p.get("port_lv", ""),
+        },
+    )
+
+
+def _add_transformer3w(net, p: dict) -> None:
+    hv_bus = _index_of(net, "bus", p["hv_bus"])
+    mv_bus = _index_of(net, "bus", p["mv_bus"])
+    lv_bus = _index_of(net, "bus", p["lv_bus"])
+    name = p.get("name", "3W Transformer")
+    params = p.get("params")
+    if params:
+        kwargs = {k: v for k, v in params.items() if v is not None}
+        idx = pp.create_transformer3w_from_parameters(
+            net, hv_bus=hv_bus, mv_bus=mv_bus, lv_bus=lv_bus, name=name, **kwargs
+        )
+    else:
+        idx = pp.create_transformer3w(
+            net,
+            hv_bus=hv_bus,
+            mv_bus=mv_bus,
+            lv_bus=lv_bus,
+            std_type=_trafo_std(net, "trafo3w", p.get("std_type", DEFAULT_TRAFO3W_STD)),
+            name=name,
+        )
+    _set_diagram(
+        net,
+        "trafo3w",
+        idx,
+        {
+            "uuid": p["id"],
+            "x": p.get("x", 0.0),
+            "y": p.get("y", 0.0),
+            "port_hv": p.get("port_hv", ""),
+            "port_mv": p.get("port_mv", ""),
             "port_lv": p.get("port_lv", ""),
         },
     )
@@ -285,6 +335,7 @@ _HANDLERS = {
     "add_element": _add_element,
     "add_line": _add_line,
     "add_transformer": _add_transformer,
+    "add_transformer3w": _add_transformer3w,
     "add_switch": _add_switch,
     "connect": _connect,
     "update": _update,
