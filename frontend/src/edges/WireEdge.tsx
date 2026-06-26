@@ -46,8 +46,8 @@ function roundedPath(points: Point[], r = 5): string {
 
 // A wire between elements. By default it routes orthogonally from source to
 // target. When selected it shows a draggable "dot" the line is computed
-// through: drag it to reshape the route, double-click it to reset. The × button
-// deletes the connection (Backspace/Delete also works).
+// through: drag it to reshape the route, double-click it to reset. Right-click
+// it to delete the connection (Backspace/Delete also works).
 export function WireEdge({
   id,
   data,
@@ -59,7 +59,6 @@ export function WireEdge({
   targetPosition,
   selected,
 }: EdgeProps) {
-  const removeEdge = useEditor((s) => s.removeEdge);
   const setEdgeWaypoint = useEditor((s) => s.setEdgeWaypoint);
   const { screenToFlowPosition } = useReactFlow();
 
@@ -139,33 +138,6 @@ export function WireEdge({
               cursor: "grab",
             }}
           />
-        )}
-        {selected && (
-          <button
-            className="nodrag nopan"
-            onClick={(e) => {
-              e.stopPropagation();
-              removeEdge(id);
-            }}
-            title="Delete connection"
-            style={{
-              position: "absolute",
-              transform: `translate(-50%, -50%) translate(${dotX + 18}px, ${dotY - 18}px)`,
-              pointerEvents: "all",
-              width: 18,
-              height: 18,
-              lineHeight: "16px",
-              borderRadius: "50%",
-              border: "1px solid #dc2626",
-              background: "#fff",
-              color: "#dc2626",
-              cursor: "pointer",
-              fontSize: 12,
-              padding: 0,
-            }}
-          >
-            ×
-          </button>
         )}
       </EdgeLabelRenderer>
     </>

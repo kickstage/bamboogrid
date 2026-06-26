@@ -357,10 +357,15 @@ class ForeignElement(BaseModel):
 
 class ViewModel(BaseModel):
     """What a browser receives for a session: the editable modeled network plus
-    read-only foreign elements. The full pandapower net stays on the server."""
+    read-only foreign elements. The full pandapower net stays on the server.
+
+    ``can_undo``/``can_redo`` reflect the session's in-memory edit history so the
+    editor can enable its undo/redo controls."""
 
     network: Network
     foreign: list[ForeignElement] = Field(default_factory=list)
+    can_undo: bool = False
+    can_redo: bool = False
 
 
 class SessionInfo(BaseModel):

@@ -44,14 +44,45 @@ export async function getView(id: string): Promise<ViewModel> {
   return json(await fetch(`${BASE}/session`, { headers: { [SESSION_HEADER]: id } }));
 }
 
-// Apply a batch of edits to the session's authoritative net.
-export async function sendCommands(id: string, cmds: Command[]): Promise<void> {
+// The undo/redo availability a mutating call reports back.
+export interface HistoryState {
+  can_undo: boolean;
+  can_redo: boolean;
+}
+
+// Apply a batch of edits to the session's authoritative net; returns the
+// resulting undo/redo availability.
+export async function sendCommands(
+  id: string,
+  cmds: Command[],
+): Promise<HistoryState> {
   const res = await fetch(`${BASE}/session/commands`, {
     method: "POST",
     headers: { ...JSON_HEADERS, [SESSION_HEADER]: id },
     body: JSON.stringify(cmds),
   });
   if (!res.ok) throw new Error(await errorMessage(res));
+  return res.json() as Promise<HistoryState>;
+}
+
+// Restore the previous net state; returns the new projection to re-hydrate from.
+export async function undo(id: string): Promise<ViewModel> {
+  return json(
+    await fetch(`${BASE}/session/undo`, {
+      method: "POST",
+      headers: { [SESSION_HEADER]: id },
+    }),
+  );
+}
+
+// Re-apply the next net state after an undo.
+export async function redo(id: string): Promise<ViewModel> {
+  return json(
+    await fetch(`${BASE}/session/redo`, {
+      method: "POST",
+      headers: { [SESSION_HEADER]: id },
+    }),
+  );
 }
 
 // Mint a short share token for a session. Opening it clones the session.

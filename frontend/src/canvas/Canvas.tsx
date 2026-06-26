@@ -25,7 +25,7 @@ import { edgeTypes } from "../edges";
 import { nodeTypes } from "../nodes";
 import { useEditor } from "../store";
 import { toast } from "../toast";
-import { busInjection, type BusInjection } from "../power";
+import { elementInjection, type BusInjection } from "../power";
 import { PowerTriangle } from "../diagrams/PowerTriangle";
 import { Waveforms } from "../diagrams/Waveforms";
 import { NodeContextMenu, type BusGraphKind } from "./NodeContextMenu";
@@ -40,6 +40,11 @@ type BranchMenu = { conn: Connection; x: number; y: number; sameVoltage: boolean
 // (source = element, target = bus port), but the user may draw it from either
 // end, so attachments are normalized to that orientation before use.
 const ATTACHABLE = ["generator", "sgen", "extgrid", "load", "shunt", "switch", "trafo2w", "trafo3w"];
+
+// Elements whose own injected/absorbed power is meaningful on its own, so the
+// power-triangle / waveform graphs hang off their context menu (a transit bus
+// has no net injection of its own).
+const GRAPHABLE = new Set(["generator", "sgen", "extgrid", "load"]);
 
 // Given a connection and the node lookup, return it oriented element→bus, or
 // null if it isn't a valid element↔bus attachment. Handles both drag directions.
@@ -86,6 +91,8 @@ export function Canvas() {
     duplicateForDrag,
     pasteAt,
     readOnly,
+    undo,
+    redo,
   } = useEditor();
   const { screenToFlowPosition, fitView } = useReactFlow();
   const colorScheme = useComputedColorScheme("light");
@@ -100,19 +107,27 @@ export function Canvas() {
     x: number;
     y: number;
     nodeId: string;
-    isBus: boolean;
   } | null>(null);
   const [pasteMenu, setPasteMenu] = useState<{ x: number; y: number } | null>(null);
+  // Right-click-an-edge menu (delete a line or wire).
+  const [edgeMenu, setEdgeMenu] = useState<{
+    x: number;
+    y: number;
+    edgeId: string;
+  } | null>(null);
   const [graph, setGraph] = useState<{ kind: BusGraphKind; inj: BusInjection } | null>(
     null,
   );
-  // Only graph a bus once a load flow has solved it (vm_pu set); before that the
-  // injection would be built from inputs alone and the diagrams would mislead.
-  const busSolved =
-    nodeMenu?.isBus === true &&
-    (nodes.find((n) => n.id === nodeMenu.nodeId)?.data as BusData | undefined)
-      ?.vm_pu !== undefined;
-  const nodeMenuInj = busSolved ? busInjection(nodeMenu!.nodeId, nodes, edges) : null;
+  // The graphs hang off an injecting element's menu. `nodeMenuGraphable` decides
+  // whether to offer them at all; `nodeMenuInj` is null until a load flow has
+  // produced the element's power (loads use their input, so are always ready).
+  const nodeMenuNode = nodeMenu
+    ? nodes.find((n) => n.id === nodeMenu.nodeId)
+    : undefined;
+  const nodeMenuGraphable = nodeMenuNode
+    ? GRAPHABLE.has(nodeMenuNode.type as string)
+    : false;
+  const nodeMenuInj = nodeMenuNode ? elementInjection(nodeMenuNode) : null;
   // Last cursor position over the pane (screen coords) — where Cmd/Ctrl+V drops.
   const pointer = useRef<{ x: number; y: number } | null>(null);
   // An in-progress modifier-drag: each grabbed (selected) node spawned a detached
@@ -129,16 +144,17 @@ export function Canvas() {
 
   // Close the open floating menus on Escape.
   useEffect(() => {
-    if (!menu && !nodeMenu && !pasteMenu) return;
+    if (!menu && !nodeMenu && !pasteMenu && !edgeMenu) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
       setMenu(null);
       setNodeMenu(null);
       setPasteMenu(null);
+      setEdgeMenu(null);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [menu, nodeMenu, pasteMenu]);
+  }, [menu, nodeMenu, pasteMenu, edgeMenu]);
 
   // Cmd/Ctrl+C copies the selected element; Cmd/Ctrl+V pastes a clone at the
   // cursor (or offset, if the pointer hasn't been over the pane). Skipped while a
@@ -155,7 +171,16 @@ export function Canvas() {
           el.isContentEditable);
       if (inField) return;
       const key = e.key.toLowerCase();
-      if (key === "c") {
+      if (key === "z") {
+        // Cmd/Ctrl+Z undoes; adding Shift redoes (the platform-standard pairing,
+        // alongside Ctrl+Y below).
+        e.preventDefault();
+        if (e.shiftKey) void redo();
+        else void undo();
+      } else if (key === "y") {
+        e.preventDefault();
+        void redo();
+      } else if (key === "c") {
         // Don't hijack a real text selection elsewhere on the page — let the
         // browser copy that text rather than the selected canvas element.
         const sel = window.getSelection();
@@ -172,7 +197,7 @@ export function Canvas() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [clipboard, copySelection, pasteAt, screenToFlowPosition]);
+  }, [clipboard, copySelection, pasteAt, screenToFlowPosition, undo, redo]);
 
   // Backspace/Delete removal goes through the store (which enqueues the server
   // command) rather than React Flow's built-in delete, which only mutates local
@@ -403,12 +428,7 @@ export function Canvas() {
           if (readOnly) return;
           setMenu(null);
           setPasteMenu(null);
-          setNodeMenu({
-            x: e.clientX,
-            y: e.clientY,
-            nodeId: node.id,
-            isBus: node.type === "bus",
-          });
+          setNodeMenu({ x: e.clientX, y: e.clientY, nodeId: node.id });
         }}
         onPaneContextMenu={(e) => {
           e.preventDefault();
@@ -421,6 +441,15 @@ export function Canvas() {
         onEdgeClick={(_, edge: Edge) =>
           edge.type === "line" ? selectEdge(edge.id) : select(null)
         }
+        onEdgeContextMenu={(e, edge: Edge) => {
+          e.preventDefault();
+          if (readOnly) return;
+          if (edge.type === "line") selectEdge(edge.id);
+          setMenu(null);
+          setNodeMenu(null);
+          setPasteMenu(null);
+          setEdgeMenu({ x: e.clientX, y: e.clientY, edgeId: edge.id });
+        }}
         onPaneClick={() => select(null)}
         colorMode={colorScheme}
         defaultEdgeOptions={{ type: "wire" }}
@@ -478,14 +507,22 @@ export function Canvas() {
         <NodeContextMenu
           x={nodeMenu.x}
           y={nodeMenu.y}
-          isBus={nodeMenu.isBus}
-          hasInjection={nodeMenuInj !== null}
+          canGraph={nodeMenuGraphable}
+          solved={nodeMenuInj !== null}
           onDuplicate={() => {
             duplicateSelection({ x: 24, y: 24 });
             setNodeMenu(null);
           }}
           onCopy={() => {
             copySelection();
+            setNodeMenu(null);
+          }}
+          onDelete={() => {
+            const s = useEditor.getState();
+            const selEdges = s.edges.filter((ed) => ed.selected).map((ed) => ed.id);
+            const selNodes = s.nodes.filter((n) => n.selected).map((n) => n.id);
+            for (const id of selEdges) s.removeEdge(id);
+            for (const id of selNodes) s.removeNode(id);
             setNodeMenu(null);
           }}
           onGraph={(kind) => {
@@ -534,6 +571,47 @@ export function Canvas() {
                 Nothing copied yet
               </Text>
             )}
+          </Paper>
+        </>
+      )}
+
+      {edgeMenu && (
+        <>
+          {/* Click-away backdrop. */}
+          <div
+            onClick={() => setEdgeMenu(null)}
+            style={{ position: "fixed", inset: 0, zIndex: 10 }}
+          />
+          <Paper
+            shadow="md"
+            withBorder
+            p={4}
+            style={{
+              position: "fixed",
+              left: edgeMenu.x,
+              top: edgeMenu.y,
+              zIndex: 11,
+              minWidth: 140,
+            }}
+          >
+            <Button
+              variant="subtle"
+              size="xs"
+              fullWidth
+              justify="space-between"
+              c="red"
+              rightSection={
+                <Text component="span" size="xs" c="dimmed">
+                  ⌫
+                </Text>
+              }
+              onClick={() => {
+                useEditor.getState().removeEdge(edgeMenu.edgeId);
+                setEdgeMenu(null);
+              }}
+            >
+              Delete
+            </Button>
           </Paper>
         </>
       )}

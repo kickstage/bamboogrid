@@ -77,6 +77,29 @@ export function busInjection(
   return seen ? { p_mw: p, q_mvar: q } : null;
 }
 
+// P/Q of a single injecting element, in its natural direction (sources deliver,
+// loads absorb — both reported with positive P), from the solved result. The
+// quantity is unambiguous per element, unlike a transit bus whose net injection
+// is zero. Returns null for element kinds without a single-element power, or for
+// a source before a load flow has written results.
+export function elementInjection(node: ElementNode): BusInjection | null {
+  switch (node.type) {
+    case "generator":
+    case "sgen":
+    case "extgrid": {
+      const d = node.data as GeneratorData | SgenData | ExtGridData;
+      if (d.res_p_mw === undefined) return null;
+      return { p_mw: d.res_p_mw, q_mvar: d.res_q_mvar ?? 0 };
+    }
+    case "load": {
+      const d = node.data as LoadData;
+      return { p_mw: d.p_mw, q_mvar: d.q_mvar };
+    }
+    default:
+      return null;
+  }
+}
+
 // Apparent power |S| = √(P² + Q²) [MVA].
 export function apparentPower(p: number, q: number): number {
   return Math.hypot(p, q);

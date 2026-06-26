@@ -45,8 +45,9 @@ function roundedPath(points: Point[], r = 5): string {
 // A transmission/distribution line: a bus-to-bus branch with impedance. It's
 // routed like the regular wires but drawn a touch thicker (it carries real
 // power, not just a logical attachment) and carries a small name label, plus
-// loading % once solved. Like WireEdge it supports a draggable routing dot and a
-// delete button; clicking it opens its parameters in the inspector.
+// loading % once solved. Like WireEdge it supports a draggable routing dot;
+// clicking it opens its parameters in the inspector and right-clicking it offers
+// deletion.
 export function LineEdge({
   id,
   data,
@@ -58,7 +59,6 @@ export function LineEdge({
   targetPosition,
   selected,
 }: EdgeProps) {
-  const removeEdge = useEditor((s) => s.removeEdge);
   const setEdgeWaypoint = useEditor((s) => s.setEdgeWaypoint);
   const showResults = useEditor((s) => s.showResults);
   const { screenToFlowPosition } = useReactFlow();
@@ -177,33 +177,6 @@ export function LineEdge({
               cursor: "grab",
             }}
           />
-        )}
-        {selected && (
-          <button
-            className="nodrag nopan"
-            onClick={(e) => {
-              e.stopPropagation();
-              removeEdge(id);
-            }}
-            title="Delete line"
-            style={{
-              position: "absolute",
-              transform: `translate(-50%, -50%) translate(${dotX + 18}px, ${dotY - 18}px)`,
-              pointerEvents: "all",
-              width: 18,
-              height: 18,
-              lineHeight: "16px",
-              borderRadius: "50%",
-              border: "1px solid #dc2626",
-              background: "#fff",
-              color: "#dc2626",
-              cursor: "pointer",
-              fontSize: 12,
-              padding: 0,
-            }}
-          >
-            ×
-          </button>
         )}
       </EdgeLabelRenderer>
     </>

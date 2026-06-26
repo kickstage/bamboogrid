@@ -39,6 +39,8 @@ _MAX_LIVE = int(os.getenv("BG_MAX_LIVE_SESSIONS", "64"))
 _IDLE_TIMEOUT_S = float(os.getenv("BG_SESSION_IDLE_S", "3600"))
 # How long a session is kept on disk after its last edit before being purged.
 _TTL_S = float(os.getenv("BG_SESSION_TTL_S", str(30 * 24 * 3600)))
+# How many net snapshots an in-memory undo/redo stack keeps per live session.
+_HISTORY_LIMIT = int(os.getenv("BG_HISTORY_LIMIT", "50"))
 
 
 def _set_meta(net, session_id: str, name: str) -> None:
@@ -56,11 +58,56 @@ def _set_meta(net, session_id: str, name: str) -> None:
 
 
 @dataclass
+class History:
+    """An in-memory undo/redo stack of net JSON snapshots for one live session.
+
+    ``cursor`` indexes the snapshot matching the session's current net. Recording
+    an edit drops any redo tail past the cursor; undo/redo only move the cursor.
+    Bounded to keep memory in check; lost on eviction/restart (the net itself is
+    durable in SQLite)."""
+
+    entries: list[str] = field(default_factory=list)
+    cursor: int = -1
+
+    def reset(self, snapshot: str) -> None:
+        self.entries = [snapshot]
+        self.cursor = 0
+
+    def record(self, snapshot: str, cap: int) -> None:
+        del self.entries[self.cursor + 1 :]
+        self.entries.append(snapshot)
+        if len(self.entries) > cap:
+            self.entries = self.entries[-cap:]
+        self.cursor = len(self.entries) - 1
+
+    @property
+    def can_undo(self) -> bool:
+        return self.cursor > 0
+
+    @property
+    def can_redo(self) -> bool:
+        return self.cursor < len(self.entries) - 1
+
+    def undo(self) -> str | None:
+        if not self.can_undo:
+            return None
+        self.cursor -= 1
+        return self.entries[self.cursor]
+
+    def redo(self) -> str | None:
+        if not self.can_redo:
+            return None
+        self.cursor += 1
+        return self.entries[self.cursor]
+
+
+@dataclass
 class Session:
     id: str
     net: object
     lock: threading.RLock = field(default_factory=threading.RLock)
     last_access: float = field(default_factory=time.monotonic)
+    history: History = field(default_factory=History)
 
 
 class SessionStore:
@@ -98,9 +145,10 @@ class SessionStore:
             )
             self._db.commit()
 
-    def _persist(self, session: Session) -> None:
+    def _persist(self, session: Session, net_json: str | None = None) -> str:
         now = time.time()
-        net_json = pp.to_json(session.net)
+        if net_json is None:
+            net_json = pp.to_json(session.net)
         name = session.net.get("name") or "Untitled network"
         with self._db_lock:
             self._db.execute(
@@ -112,6 +160,7 @@ class SessionStore:
                 (session.id, name, net_json, now, now),
             )
             self._db.commit()
+        return net_json
 
     def _delete(self, session_id: str) -> None:
         with self._db_lock:
@@ -154,7 +203,7 @@ class SessionStore:
         with self._guard:
             self._live[session_id] = session
             self._evict_locked()
-        self._persist(session)
+        session.history.reset(self._persist(session))
         return session
 
     def get(self, session_id: str) -> Session:
@@ -177,6 +226,7 @@ class SessionStore:
             raise KeyError(session_id)
         net = pp.from_json_string(net_json)
         session = Session(id=session_id, net=net)
+        session.history.reset(net_json)
         with self._guard:
             existing = self._live.get(session_id)
             if existing is not None:
@@ -187,14 +237,36 @@ class SessionStore:
         return session
 
     def replace_net(self, session: Session, net, name: str) -> None:
-        """Swap in a freshly imported net as the session's authoritative state."""
+        """Swap in a freshly imported net as the session's authoritative state.
+
+        An import is a new baseline: it resets the undo history (the prior network
+        is not reachable via undo), which also bounds memory."""
         ensure_diagram_tables(net)
         _set_meta(net, session.id, name)
         session.net = net
-        self._persist(session)
+        session.history.reset(self._persist(session))
 
-    def snapshot(self, session: Session) -> None:
-        self._persist(session)
+    def record(self, session: Session) -> None:
+        """Persist the session and push the new state onto its undo history."""
+        session.history.record(self._persist(session), _HISTORY_LIMIT)
+
+    def undo(self, session: Session) -> bool:
+        """Restore the previous snapshot as the current net. No-op if at the
+        oldest entry."""
+        snap = session.history.undo()
+        if snap is None:
+            return False
+        session.net = pp.from_json_string(snap)
+        self._persist(session, snap)
+        return True
+
+    def redo(self, session: Session) -> bool:
+        snap = session.history.redo()
+        if snap is None:
+            return False
+        session.net = pp.from_json_string(snap)
+        self._persist(session, snap)
+        return True
 
     # --- sharing -----------------------------------------------------------
 

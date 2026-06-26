@@ -164,6 +164,73 @@ def test_share_opens_independent_copy(client):
     )
 
 
+def _add_bus(client, sid: str, bus_id: str) -> dict:
+    cmds = [
+        {
+            "op": "add_bus",
+            "payload": {"id": bus_id, "name": bus_id, "vn_kv": 0.4, "x": 0, "y": 0, "width": 220},
+        }
+    ]
+    res = client.post("/session/commands", json=cmds, headers=auth(sid))
+    assert res.status_code == 200
+    return res.json()
+
+
+def _bus_ids(client, sid: str) -> set[str]:
+    view = client.get("/session", headers=auth(sid)).json()
+    return {b["id"] for b in view["network"]["buses"]}
+
+
+def test_undo_redo_reverts_and_replays_commands(client):
+    sid = new_session(client)
+
+    first = _add_bus(client, sid, "b1")
+    assert first["can_undo"] is True
+    assert first["can_redo"] is False
+    _add_bus(client, sid, "b2")
+    assert _bus_ids(client, sid) == {"b1", "b2"}
+
+    undone = client.post("/session/undo", headers=auth(sid)).json()
+    assert {b["id"] for b in undone["network"]["buses"]} == {"b1"}
+    assert undone["can_undo"] is True
+    assert undone["can_redo"] is True
+
+    redone = client.post("/session/redo", headers=auth(sid)).json()
+    assert {b["id"] for b in redone["network"]["buses"]} == {"b1", "b2"}
+    assert redone["can_undo"] is True
+    assert redone["can_redo"] is False
+
+
+def test_undo_with_empty_history_is_noop(client):
+    sid = new_session(client)
+    view = client.post("/session/undo", headers=auth(sid)).json()
+    assert view["network"]["buses"] == []
+    assert view["can_undo"] is False
+    assert view["can_redo"] is False
+
+
+def test_edit_after_undo_truncates_redo_tail(client):
+    sid = new_session(client)
+    _add_bus(client, sid, "b1")
+    _add_bus(client, sid, "b2")
+
+    client.post("/session/undo", headers=auth(sid))  # back to {b1}
+    after = _add_bus(client, sid, "b3")  # diverge: drops the redo of b2
+    assert after["can_redo"] is False
+    assert _bus_ids(client, sid) == {"b1", "b3"}
+
+
+def test_import_resets_history(client):
+    sid = new_session(client)
+    build_one_bus(client, sid)
+    pp_json = client.get("/session/export", headers=auth(sid)).text
+
+    imported = client.post("/session/import", content=pp_json, headers=auth(sid))
+    assert imported.status_code == 200
+    # A fresh baseline: the pre-import state is not reachable via undo.
+    assert imported.json()["can_undo"] is False
+
+
 def test_open_unknown_share_is_404(client):
     assert client.post("/share/does-not-exist").status_code == 404
 

@@ -7,9 +7,21 @@ const item = {
   variant: "subtle",
   size: "xs",
   fullWidth: true,
-  justify: "flex-start",
+  justify: "space-between",
   c: "white",
 } as const;
+
+const isMac =
+  typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
+const MOD = isMac ? "⌘" : "Ctrl+";
+
+function Hotkey({ children }: { children: React.ReactNode }) {
+  return (
+    <Text component="span" size="xs" c="dimmed" style={{ fontWeight: 400 }}>
+      {children}
+    </Text>
+  );
+}
 
 // A right-click context menu for a canvas element: duplicate/copy actions and,
 // for a bus, a nested "Graph" submenu. Hand-rolled (Mantine 7.17 has no public
@@ -17,19 +29,21 @@ const item = {
 export function NodeContextMenu({
   x,
   y,
-  isBus,
-  hasInjection,
+  canGraph,
+  solved,
   onDuplicate,
   onCopy,
+  onDelete,
   onGraph,
   onClose,
 }: {
   x: number;
   y: number;
-  isBus: boolean;
-  hasInjection: boolean;
+  canGraph: boolean;
+  solved: boolean;
   onDuplicate: () => void;
   onCopy: () => void;
+  onDelete: () => void;
   onGraph: (kind: BusGraphKind) => void;
   onClose: () => void;
 }) {
@@ -69,12 +83,20 @@ export function NodeContextMenu({
           <Button {...item} onClick={onDuplicate}>
             Duplicate
           </Button>
-          <Button {...item} onClick={onCopy}>
+          <Button {...item} rightSection={<Hotkey>{MOD}C</Hotkey>} onClick={onCopy}>
             Copy
+          </Button>
+          <Button
+            {...item}
+            c="red"
+            rightSection={<Hotkey>⌫</Hotkey>}
+            onClick={onDelete}
+          >
+            Delete
           </Button>
         </Stack>
 
-        {isBus && (
+        {canGraph && (
           <>
             <Divider my={4} />
             <div
@@ -85,17 +107,17 @@ export function NodeContextMenu({
               <Button
                 {...item}
                 justify="space-between"
-                disabled={!hasInjection}
+                disabled={!solved}
                 rightSection={<span aria-hidden>▸</span>}
               >
                 Graph
               </Button>
-              {!hasInjection && (
+              {!solved && (
                 <Text size="xs" c="dimmed" px="xs" py={2}>
                   Run a load flow first
                 </Text>
               )}
-              {sub && hasInjection && (
+              {sub && solved && (
                 <Paper
                   shadow="md"
                   withBorder

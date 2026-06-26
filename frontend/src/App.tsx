@@ -35,6 +35,13 @@ import {
 // reload (also mirrored into the URL so the link can be shared).
 const SESSION_KEY = "bamboogrid:session";
 
+const isMac =
+  typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
+// Shortcut labels shown in the Edit menu (the canvas listens for both ⌘/Ctrl+Z
+// + Shift to redo and Ctrl/⌘+Y).
+const UNDO_HINT = isMac ? "⌘Z" : "Ctrl+Z";
+const REDO_HINT = isMac ? "⇧⌘Z" : "Ctrl+Y";
+
 const PANELS = {
   left: { key: "bamboogrid:leftW", default: 220, min: 160, max: 460 },
   right: { key: "bamboogrid:rightW", default: 260, min: 200, max: 560 },
@@ -125,12 +132,18 @@ export default function App() {
     attachSession,
     sessionId,
     deselectAll,
+    canUndo,
+    canRedo,
+    undo,
+    redo,
   } = useEditor();
   const [busy, setBusy] = useState(false);
   // React Flow's d3-zoom handlers stop pointer events from reaching the
   // document, so Mantine's outside-click never closes these menus over the
   // canvas. We control them and close on a capture-phase press of the canvas.
-  const [openMenu, setOpenMenu] = useState<"file" | "view" | null>(null);
+  const [openMenu, setOpenMenu] = useState<"file" | "edit" | "view" | null>(
+    null,
+  );
   const [leftW, setLeftW] = useState(() => readWidth(PANELS.left));
   const [rightW, setRightW] = useState(() => readWidth(PANELS.right));
   const ppInputRef = useRef<HTMLInputElement>(null);
@@ -141,6 +154,13 @@ export default function App() {
   // Fixed-width checkmark gutter so menu items align whether ticked or not.
   const check = (on: boolean) => (
     <span style={{ display: "inline-block", width: 14 }}>{on ? "✓" : ""}</span>
+  );
+
+  // A dimmed, right-aligned shortcut hint for a menu item.
+  const hotkey = (keys: string) => (
+    <Text component="span" size="xs" c="dimmed">
+      {keys}
+    </Text>
   );
 
   // On first load, reattach to a session (URL ?session wins, then the last one
@@ -333,6 +353,37 @@ export default function App() {
                 <Menu.Divider />
                 <Menu.Item onClick={onShare} disabled={busy}>
                   Share…
+                </Menu.Item>
+              </Menu.Dropdown>
+            </Menu>
+
+            <Menu
+              shadow="md"
+              width={200}
+              position="bottom-start"
+              trigger="click"
+              opened={openMenu === "edit"}
+              onChange={(o) => setOpenMenu(o ? "edit" : null)}
+            >
+              <Menu.Target>
+                <Button variant="subtle" color="gray" size="xs">
+                  Edit
+                </Button>
+              </Menu.Target>
+              <Menu.Dropdown>
+                <Menu.Item
+                  onClick={() => void undo()}
+                  disabled={!canUndo}
+                  rightSection={hotkey(UNDO_HINT)}
+                >
+                  Undo
+                </Menu.Item>
+                <Menu.Item
+                  onClick={() => void redo()}
+                  disabled={!canRedo}
+                  rightSection={hotkey(REDO_HINT)}
+                >
+                  Redo
                 </Menu.Item>
               </Menu.Dropdown>
             </Menu>

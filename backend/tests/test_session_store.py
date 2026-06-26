@@ -15,7 +15,7 @@ def test_session_rehydrates_from_database():
             )
         ],
     )
-    store.snapshot(session)
+    store.record(session)
 
     # Drop the in-memory cache: the session must come back from SQLite.
     store._live.clear()
@@ -35,7 +35,7 @@ def test_clone_preserves_element_ids_but_new_identity():
             )
         ],
     )
-    store.snapshot(session)
+    store.record(session)
 
     clone = store.clone(session.id)
     assert clone.id != session.id
@@ -71,7 +71,7 @@ def test_line_waypoint_persists_across_rehydrate():
             Command(op="set_layout", payload={"id": "l1", "kind": "line", "waypoint": {"x": 150, "y": 80}}),
         ],
     )
-    store.snapshot(session)
+    store.record(session)
     sid = session.id
 
     store._live.clear()

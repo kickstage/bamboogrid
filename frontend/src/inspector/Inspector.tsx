@@ -1,5 +1,4 @@
 import {
-  Button,
   Divider,
   NumberInput,
   Select,
@@ -49,8 +48,6 @@ export function Inspector() {
     selectedEdgeId,
     updateNodeData,
     updateEdgeData,
-    removeNode,
-    removeEdge,
   } = useEditor();
   const node = nodes.find((n) => n.id === selectedId);
   const lineEdge = edges.find((e) => e.id === selectedEdgeId && e.type === "line");
@@ -98,10 +95,6 @@ export function Inspector() {
             ]}
           />
         )}
-        <Divider my="xs" />
-        <Button color="red" variant="light" size="xs" onClick={() => removeEdge(lineEdge.id)}>
-          Delete line
-        </Button>
       </Stack>
     );
   }
@@ -417,14 +410,6 @@ export function Inspector() {
           ...(inj ? busInjectionRows(inj) : []),
         ]}
       />
-
-      <Divider my="xs" />
-      <Button color="red" variant="light" size="xs" onClick={() => removeNode(node.id)}>
-        Delete element
-      </Button>
-      <Text size="xs" c="dimmed">
-        Tip: select an element or wire and press Backspace/Delete.
-      </Text>
 
       {node.type === "bus" && (
         <>

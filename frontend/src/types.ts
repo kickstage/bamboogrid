@@ -341,6 +341,9 @@ export interface ForeignElement {
 export interface ViewModel {
   network: Network;
   foreign: ForeignElement[];
+  // Whether the session's in-memory edit history can undo/redo right now.
+  can_undo: boolean;
+  can_redo: boolean;
 }
 
 // A single edit applied to the session's net. `op` selects the server handler;

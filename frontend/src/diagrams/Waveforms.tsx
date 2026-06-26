@@ -18,14 +18,14 @@ export function Waveforms({ p, q }: { p: number; q: number }) {
   const pf = powerFactor(p, q);
   const mag = Math.abs(phi);
 
-  // Caption is driven by φ itself, not the sign of Q alone: a bus with negative
-  // real-power injection (a net load) has φ ≈ ±180°, so the current is antiphase
-  // even at unity power factor — describing that as "in phase" would be wrong.
+  // Caption is driven by φ itself, not the sign of Q alone: negative real power
+  // (e.g. a generator running as a motor) gives φ ≈ ±180°, so the current is
+  // antiphase even at unity power factor — calling that "in phase" would be wrong.
   const caption =
     mag < 0.1
       ? "Current in phase with voltage (unity pf)"
       : mag > 179.9
-        ? "Current antiphase with voltage — bus absorbs real power (unity pf)"
+        ? "Current antiphase with voltage — absorbs real power (unity pf)"
         : `Current ${fixed(mag, 1)}° ${phi < 0 ? "leading" : "lagging"} (pf ${fixed(pf.value, 3)})`;
 
   const W = 320;

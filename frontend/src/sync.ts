@@ -16,13 +16,17 @@ let queue: Command[] = [];
 let timer: ReturnType<typeof setTimeout> | undefined;
 let sessionId: () => string | null = () => null;
 let onError: (message: string) => void = () => {};
+let onHistory: (canUndo: boolean, canRedo: boolean) => void = () => {};
 
 export function configureSync(opts: {
   sessionId: () => string | null;
   onError: (message: string) => void;
+  // Called after each flush with the session's resulting undo/redo availability.
+  onHistory: (canUndo: boolean, canRedo: boolean) => void;
 }): void {
   sessionId = opts.sessionId;
   onError = opts.onError;
+  onHistory = opts.onHistory;
 }
 
 export function enqueue(cmd: Command): void {
@@ -44,7 +48,8 @@ export async function flushPending(): Promise<void> {
   const batch = queue;
   queue = [];
   try {
-    await sendCommands(id, batch);
+    const { can_undo, can_redo } = await sendCommands(id, batch);
+    onHistory(can_undo, can_redo);
   } catch (err) {
     onError(`Sync failed: ${(err as Error).message}`);
   }

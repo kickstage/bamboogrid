@@ -42,7 +42,7 @@ function initialVoltageUnit(): VoltageUnit {
     return "kv";
   }
 }
-import { getView } from "./api";
+import { getView, redo as redoApi, undo as undoApi } from "./api";
 import { toast } from "./toast";
 import {
   connectedTrafoVoltages,
@@ -207,6 +207,9 @@ interface EditorState {
   // When set, every mutating action is a no-op (the mobile read-only demo).
   // Selection, view preferences, and load-flow results still apply.
   readOnly: boolean;
+  // Whether the server session's edit history can undo/redo right now.
+  canUndo: boolean;
+  canRedo: boolean;
 
   onNodesChange: (changes: NodeChange[]) => void;
   onEdgesChange: (changes: EdgeChange[]) => void;
@@ -245,9 +248,18 @@ interface EditorState {
   setVoltageUnit: (unit: VoltageUnit) => void;
   setReadOnly: (readOnly: boolean) => void;
   applyResults: (result: LoadFlowResult) => void;
-  loadNetwork: (network: Network, foreign?: ForeignElement[]) => void;
+  loadNetwork: (
+    network: Network,
+    foreign?: ForeignElement[],
+    opts?: { fit?: boolean },
+  ) => void;
   // Bind this editor to a server session and hydrate it from a projection.
   attachSession: (id: string, view: ViewModel) => void;
+  // Update the undo/redo availability (driven by server responses).
+  setHistory: (canUndo: boolean, canRedo: boolean) => void;
+  // Revert/replay one edit step on the server, re-hydrating the projection.
+  undo: () => Promise<void>;
+  redo: () => Promise<void>;
   // Re-pull the projection from the server (after a server-side cascade, e.g. a
   // bus delete that drops its attached elements).
   resyncFromServer: () => Promise<void>;
@@ -498,6 +510,8 @@ export const useEditor = create<EditorState>((set, get) => ({
   fitSignal: 0,
   sessionId: null,
   readOnly: false,
+  canUndo: false,
+  canRedo: false,
 
   onNodesChange: (changes) => {
     const nodes = applyNodeChanges(changes, get().nodes) as ElementNode[];
@@ -513,12 +527,17 @@ export const useEditor = create<EditorState>((set, get) => ({
             op: "set_layout",
             payload: { id: n.id, kind: n.type, x: n.position.x, y: n.position.y },
           });
-      } else if (ch.type === "dimensions" && ch.dimensions) {
+      } else if (ch.type === "dimensions" && ch.resizing === false) {
+        // Only a finished user resize syncs width. React Flow's initial
+        // measurement also emits a dimensions change but without the `resizing`
+        // flag; enqueuing on that would record a spurious edit on every hydrate
+        // (polluting the undo history and clobbering the redo stack after undo).
         const n = nodes.find((x) => x.id === ch.id);
-        if (n?.type === "bus" && serverIds.has(n.id))
+        const width = n?.width ?? ch.dimensions?.width;
+        if (n?.type === "bus" && serverIds.has(n.id) && width !== undefined)
           enqueue({
             op: "set_layout",
-            payload: { id: n.id, kind: "bus", width: n.width ?? ch.dimensions.width },
+            payload: { id: n.id, kind: "bus", width },
           });
       }
     }
@@ -986,7 +1005,8 @@ export const useEditor = create<EditorState>((set, get) => ({
     });
   },
 
-  loadNetwork: (network, foreign = []) => {
+  loadNetwork: (network, foreign = [], opts = {}) => {
+    const { fit = true } = opts;
     const nodes: ElementNode[] = [];
     const edges: Edge[] = [];
     // Spread elements that carry no explicit port (e.g. a plain pandapower
@@ -1214,13 +1234,42 @@ export const useEditor = create<EditorState>((set, get) => ({
       edges,
       selectedId: null,
       selectedEdgeId: null,
-      fitSignal: get().fitSignal + 1,
+      // Undo/redo restore the same diagram in place, so they keep the viewport.
+      fitSignal: fit ? get().fitSignal + 1 : get().fitSignal,
     });
   },
 
   attachSession: (id, view) => {
-    set({ sessionId: id });
+    set({ sessionId: id, canUndo: view.can_undo, canRedo: view.can_redo });
     get().loadNetwork(view.network, view.foreign);
+  },
+
+  setHistory: (canUndo, canRedo) => set({ canUndo, canRedo }),
+
+  undo: async () => {
+    const { sessionId: id, readOnly } = get();
+    if (!id || readOnly) return;
+    await flushPending();
+    try {
+      const view = await undoApi(id);
+      get().loadNetwork(view.network, view.foreign, { fit: false });
+      set({ canUndo: view.can_undo, canRedo: view.can_redo });
+    } catch (err) {
+      toast.error(`Undo failed: ${(err as Error).message}`);
+    }
+  },
+
+  redo: async () => {
+    const { sessionId: id, readOnly } = get();
+    if (!id || readOnly) return;
+    await flushPending();
+    try {
+      const view = await redoApi(id);
+      get().loadNetwork(view.network, view.foreign, { fit: false });
+      set({ canUndo: view.can_undo, canRedo: view.can_redo });
+    } catch (err) {
+      toast.error(`Redo failed: ${(err as Error).message}`);
+    }
   },
 
   resyncFromServer: async () => {
@@ -1230,6 +1279,7 @@ export const useEditor = create<EditorState>((set, get) => ({
     try {
       const view = await getView(id);
       get().loadNetwork(view.network, view.foreign);
+      set({ canUndo: view.can_undo, canRedo: view.can_redo });
     } catch (err) {
       toast.error(`Sync failed: ${(err as Error).message}`);
     }
@@ -1250,8 +1300,11 @@ export const useEditor = create<EditorState>((set, get) => ({
   },
 }));
 
-// Surface command-sync failures (the session id is read from this store).
+// Surface command-sync failures and keep undo/redo availability current (the
+// session id is read from this store).
 configureSync({
   sessionId: () => useEditor.getState().sessionId,
   onError: (message) => toast.error(message),
+  onHistory: (canUndo, canRedo) =>
+    useEditor.getState().setHistory(canUndo, canRedo),
 });

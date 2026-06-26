@@ -46,6 +46,14 @@ def current_session(x_session_id: str = Header(..., alias="X-Session-Id")) -> Se
         raise HTTPException(status_code=404, detail="Session not found.")
 
 
+def _view(session: Session) -> ViewModel:
+    """The session projection stamped with its current undo/redo availability."""
+    view = net_to_view(session.net)
+    view.can_undo = session.history.can_undo
+    view.can_redo = session.history.can_redo
+    return view
+
+
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
@@ -56,7 +64,7 @@ def create_session() -> SessionInfo:
     """Start an empty session and return its id plus the (empty) projection."""
     session = store.create()
     with session.lock:
-        return SessionInfo(id=session.id, view=net_to_view(session.net))
+        return SessionInfo(id=session.id, view=_view(session))
 
 
 @app.post("/session/demo", response_model=SessionInfo)
@@ -69,28 +77,51 @@ def create_demo_session() -> SessionInfo:
     net.name = "IEEE 14-bus system"
     session = store.create(net=net, name=net.name)
     with session.lock:
-        return SessionInfo(id=session.id, view=net_to_view(session.net))
+        return SessionInfo(id=session.id, view=_view(session))
 
 
 @app.get("/session", response_model=ViewModel)
 def get_session(session: Session = Depends(current_session)) -> ViewModel:
     """The current projection — used to (re)hydrate the editor on load/refresh."""
     with session.lock:
-        return net_to_view(session.net)
+        return _view(session)
 
 
 @app.post("/session/commands")
 def post_commands(
     commands: list[Command], session: Session = Depends(current_session)
 ) -> dict[str, bool]:
-    """Apply a batch of edits to the session's authoritative net."""
+    """Apply a batch of edits to the session's authoritative net, recording the
+    new state as one undo step."""
     with session.lock:
         try:
             apply_commands(session.net, commands)
         except CommandError as exc:
             raise HTTPException(status_code=400, detail=str(exc))
-        store.snapshot(session)
-    return {"ok": True}
+        store.record(session)
+        return {
+            "ok": True,
+            "can_undo": session.history.can_undo,
+            "can_redo": session.history.can_redo,
+        }
+
+
+@app.post("/session/undo", response_model=ViewModel)
+def undo(session: Session = Depends(current_session)) -> ViewModel:
+    """Restore the previous net state. No-op (returns the current view) when
+    there is nothing to undo."""
+    with session.lock:
+        store.undo(session)
+        return _view(session)
+
+
+@app.post("/session/redo", response_model=ViewModel)
+def redo(session: Session = Depends(current_session)) -> ViewModel:
+    """Re-apply the next net state after an undo. No-op when there is nothing to
+    redo."""
+    with session.lock:
+        store.redo(session)
+        return _view(session)
 
 
 @app.post("/session/share")
@@ -108,7 +139,7 @@ def open_share(token: str) -> SessionInfo:
     except KeyError:
         raise HTTPException(status_code=404, detail="Share link not found or expired.")
     with session.lock:
-        return SessionInfo(id=session.id, view=net_to_view(session.net))
+        return SessionInfo(id=session.id, view=_view(session))
 
 
 @app.post("/session/run-loadflow", response_model=LoadFlowResult)
@@ -143,7 +174,7 @@ async def import_pandapower(
         )
     with session.lock:
         store.replace_net(session, net, net.name or "Imported network")
-        return net_to_view(session.net)
+        return _view(session)
 
 
 @app.get("/session/export")
