@@ -455,6 +455,15 @@ export default function App() {
         >
           Kickstage
         </Anchor>
+        {" · "}powered by{" "}
+        <Anchor
+          href="https://www.pandapower.org/"
+          target="_blank"
+          rel="noopener noreferrer"
+          inherit
+        >
+          pandapower
+        </Anchor>
       </Text>
     </div>
   );
