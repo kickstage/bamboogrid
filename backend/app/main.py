@@ -18,9 +18,16 @@ from fastapi.staticfiles import StaticFiles
 from .commands import CommandError, apply_commands
 from .ppjson import MAX_IMPORT_BUSES
 from .projection import net_to_view
-from .schema import Command, LoadFlowResult, SessionInfo, ViewModel
+from .schema import (
+    Command,
+    LoadFlowResult,
+    NetworkSummary,
+    SessionInfo,
+    ViewModel,
+)
 from .session import Session, store
 from .solve import solve_net
+from .summary import network_summary
 
 app = FastAPI(title="BambooGrid API", version="0.2.0")
 
@@ -147,6 +154,14 @@ def run_loadflow(session: Session = Depends(current_session)) -> LoadFlowResult:
     """Run a load flow on the retained net and return results keyed by editor id."""
     with session.lock:
         return solve_net(session.net)
+
+
+@app.post("/session/summary", response_model=NetworkSummary)
+def session_summary(session: Session = Depends(current_session)) -> NetworkSummary:
+    """Solve the retained net and return a power-balance / voltage / loading
+    overview plus pandapower diagnostic findings."""
+    with session.lock:
+        return network_summary(session.net)
 
 
 @app.post("/session/import", response_model=ViewModel)

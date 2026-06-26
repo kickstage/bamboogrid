@@ -353,6 +353,68 @@ export interface Command {
   payload: Record<string, unknown>;
 }
 
+// --- Network summary / diagnostics ----------------------------------------
+
+export interface PowerBalance {
+  gen_p_mw: number;
+  gen_q_mvar: number;
+  load_p_mw: number;
+  load_q_mvar: number;
+  loss_p_mw: number;
+  loss_q_mvar: number;
+}
+
+// A worst-case quantity (lowest voltage, peak loading, ...) and the element it
+// occurs on.
+export interface Extreme {
+  value: number;
+  label: string;
+}
+
+export interface SummaryCounts {
+  buses: number;
+  lines: number;
+  transformers: number;
+  loads: number;
+  generators: number;
+  switches: number;
+  shunts: number;
+  foreign: number;
+  islands: number;
+  unsupplied_buses: number;
+}
+
+export type DiagnosticSeverity = "error" | "warning" | "info";
+
+// An element a diagnostic refers to, resolved to its editor identity so it can
+// be selected. `id` is the element's uuid (or "table:index" for a foreign one);
+// `kind` is the editor kind ("line" for a line edge, "foreign" for unmodeled).
+export interface DiagnosticElement {
+  id: string;
+  kind: string;
+  label: string;
+}
+
+export interface Diagnostic {
+  check: string;
+  detail: string;
+  severity: DiagnosticSeverity;
+  elements: DiagnosticElement[];
+}
+
+export interface NetworkSummary {
+  converged: boolean;
+  message: string;
+  counts: SummaryCounts;
+  diagnostics: Diagnostic[];
+  // Present only when the load flow converged.
+  balance: PowerBalance | null;
+  min_voltage: Extreme | null;
+  max_voltage: Extreme | null;
+  max_line_loading: Extreme | null;
+  max_trafo_loading: Extreme | null;
+}
+
 export interface LoadFlowResult {
   converged: boolean;
   message: string;

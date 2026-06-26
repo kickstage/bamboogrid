@@ -1,4 +1,9 @@
-import type { Command, LoadFlowResult, ViewModel } from "./types";
+import type {
+  Command,
+  LoadFlowResult,
+  NetworkSummary,
+  ViewModel,
+} from "./types";
 
 const BASE = "";
 
@@ -105,6 +110,17 @@ export async function openShare(token: string): Promise<SessionInfo> {
 export async function runLoadFlow(id: string): Promise<LoadFlowResult> {
   return json(
     await fetch(`${BASE}/session/run-loadflow`, {
+      method: "POST",
+      headers: { [SESSION_HEADER]: id },
+    }),
+  );
+}
+
+// Solve the retained net and return a power-balance / voltage / loading
+// overview plus pandapower diagnostic findings.
+export async function networkSummary(id: string): Promise<NetworkSummary> {
+  return json(
+    await fetch(`${BASE}/session/summary`, {
       method: "POST",
       headers: { [SESSION_HEADER]: id },
     }),

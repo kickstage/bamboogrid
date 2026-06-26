@@ -338,6 +338,79 @@ class LoadFlowResult(BaseModel):
     res_line: list[LineResult] = Field(default_factory=list)
 
 
+# --- Network summary / diagnostics -----------------------------------------
+
+
+class PowerBalance(BaseModel):
+    """System-wide active/reactive totals after a solve. ``loss`` is the network
+    loss (generation minus load), i.e. the sum of branch losses."""
+
+    gen_p_mw: float
+    gen_q_mvar: float
+    load_p_mw: float
+    load_q_mvar: float
+    loss_p_mw: float
+    loss_q_mvar: float
+
+
+class Extreme(BaseModel):
+    """A single worst-case quantity (e.g. lowest bus voltage, most-loaded line)
+    with the name of the element it occurs on."""
+
+    value: float
+    label: str = ""
+
+
+class Counts(BaseModel):
+    buses: int = 0
+    lines: int = 0
+    transformers: int = 0
+    loads: int = 0
+    generators: int = 0
+    switches: int = 0
+    shunts: int = 0
+    foreign: int = 0
+    # Connected sub-networks, and in-service buses left without a voltage (an
+    # island with no reference, surfaced as NaN by the solver).
+    islands: int = 0
+    unsupplied_buses: int = 0
+
+
+class DiagnosticElement(BaseModel):
+    """An element a diagnostic refers to, resolved to its editor identity so the
+    UI can select it. ``id`` is the modeled element's uuid, or ``"<table>:<index>"``
+    for a foreign element; ``kind`` is the editor kind (``"line"`` for a line edge,
+    ``"foreign"`` for an unmodeled element)."""
+
+    id: str
+    kind: str
+    label: str
+
+
+class Diagnostic(BaseModel):
+    check: str
+    detail: str
+    severity: str = "warning"  # "error" | "warning" | "info"
+    elements: list[DiagnosticElement] = Field(default_factory=list)
+
+
+class NetworkSummary(BaseModel):
+    """A post-solve overview of a network: power balance, voltage/loading
+    extremes, element counts and pandapower diagnostic findings. ``counts`` and
+    ``diagnostics`` are always populated; the solved metrics are present only
+    when the load flow converged."""
+
+    converged: bool
+    message: str = ""
+    counts: Counts
+    diagnostics: list[Diagnostic] = Field(default_factory=list)
+    balance: PowerBalance | None = None
+    min_voltage: Extreme | None = None
+    max_voltage: Extreme | None = None
+    max_line_loading: Extreme | None = None
+    max_trafo_loading: Extreme | None = None
+
+
 # --- Session view model ----------------------------------------------------
 
 

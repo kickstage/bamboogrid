@@ -202,6 +202,9 @@ interface EditorState {
   voltageUnit: VoltageUnit;
   // Bumped whenever a network is loaded, so the canvas can re-fit the view.
   fitSignal: number;
+  // A request to pan/zoom the canvas onto specific nodes. `nonce` bumps on every
+  // request so the canvas re-fits even when targeting the same ids twice.
+  focusRequest: { ids: string[]; nonce: number } | null;
   // The server session whose authoritative net this editor mirrors.
   sessionId: string | null;
   // When set, every mutating action is a no-op (the mobile read-only demo).
@@ -241,6 +244,9 @@ interface EditorState {
   // Make `id` the sole selection (clearing any multi-selection). Used when
   // right-clicking a node that isn't part of the current selection.
   selectOnly: (id: string) => void;
+  // Select an element by id (node or line edge) and pan/zoom the canvas onto it.
+  // Returns false if no such element exists (e.g. it was since deleted).
+  revealElement: (id: string) => boolean;
   // Clear the inspector selection and every node/edge highlight on the canvas.
   // Used when clicking outside the canvas (e.g. the palette).
   deselectAll: () => void;
@@ -508,6 +514,7 @@ export const useEditor = create<EditorState>((set, get) => ({
   showResults: true,
   voltageUnit: initialVoltageUnit(),
   fitSignal: 0,
+  focusRequest: null,
   sessionId: null,
   readOnly: false,
   canUndo: false,
@@ -889,6 +896,33 @@ export const useEditor = create<EditorState>((set, get) => ({
       ),
       edges: s.edges.map((e) => (e.selected ? { ...e, selected: false } : e)),
     })),
+
+  revealElement: (id) => {
+    const { nodes, edges } = get();
+    if (nodes.some((n) => n.id === id)) {
+      get().selectOnly(id);
+      set((s) => ({ focusRequest: { ids: [id], nonce: s.focusRequest ? s.focusRequest.nonce + 1 : 1 } }));
+      return true;
+    }
+    const edge = edges.find((e) => e.id === id && e.type === "line");
+    if (edge) {
+      set((s) => ({
+        selectedEdgeId: id,
+        selectedId: null,
+        nodes: s.nodes.map((n) => (n.selected ? { ...n, selected: false } : n)),
+        edges: s.edges.map((e) =>
+          e.selected !== (e.id === id) ? { ...e, selected: e.id === id } : e,
+        ),
+        // A line has no body; frame its two end buses instead.
+        focusRequest: {
+          ids: [edge.source, edge.target].filter(Boolean) as string[],
+          nonce: s.focusRequest ? s.focusRequest.nonce + 1 : 1,
+        },
+      }));
+      return true;
+    }
+    return false;
+  },
 
   deselectAll: () =>
     set((s) => ({

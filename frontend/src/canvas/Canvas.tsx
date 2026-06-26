@@ -85,6 +85,7 @@ export function Canvas() {
     selectEdge,
     selectOnly,
     fitSignal,
+    focusRequest,
     clipboard,
     copySelection,
     duplicateSelection,
@@ -141,6 +142,17 @@ export function Canvas() {
     const t = setTimeout(() => fitView({ padding: 0.2, duration: 300 }), 60);
     return () => clearTimeout(t);
   }, [fitSignal, fitView]);
+
+  // Pan/zoom onto the elements a reveal requested (e.g. a diagnostic chip).
+  useEffect(() => {
+    if (!focusRequest || focusRequest.ids.length === 0) return;
+    fitView({
+      nodes: focusRequest.ids.map((id) => ({ id })),
+      padding: 0.6,
+      duration: 400,
+      maxZoom: 1.5,
+    });
+  }, [focusRequest, fitView]);
 
   // Close the open floating menus on Escape.
   useEffect(() => {

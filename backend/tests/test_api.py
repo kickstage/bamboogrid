@@ -118,6 +118,51 @@ def test_export_then_import_roundtrip(client):
     assert len(network["loads"]) == 1
 
 
+def test_summary_reports_balance_and_counts(client):
+    sid = new_session(client)
+    build_one_bus(client, sid)
+    res = client.post("/session/summary", headers=auth(sid))
+    assert res.status_code == 200
+    body = res.json()
+    assert body["converged"] is True
+    assert body["counts"]["buses"] == 1
+    assert body["counts"]["loads"] == 1
+    assert body["counts"]["islands"] == 1
+    # Generation balances the load plus losses.
+    assert body["balance"]["load_p_mw"] == pytest.approx(0.01, abs=1e-6)
+    assert body["min_voltage"]["label"] == "Bus bar"
+
+
+def test_summary_diagnostics_resolve_to_elements(client):
+    sid = new_session(client)
+    # A generator and external grid on the same bus is a textbook diagnostic
+    # (multiple voltage-controlling elements), resolvable to that bus.
+    cmds = [
+        {"op": "add_bus", "payload": {"id": "b1", "name": "Slack bus", "vn_kv": 110, "x": 0, "y": 0, "width": 220}},
+        {"op": "add_element", "payload": {"id": "eg", "kind": "extgrid", "bus_id": "b1", "port": "p0", "x": 0, "y": -100, "data": {"name": "Grid", "vm_pu": 1.0, "va_degree": 0.0}}},
+        {"op": "add_element", "payload": {"id": "g1", "kind": "generator", "bus_id": "b1", "port": "p1", "x": 0, "y": -160, "data": {"name": "Gen", "p_mw": 1.0, "vm_pu": 1.0, "slack": False, "slack_weight": 1.0}}},
+    ]
+    assert client.post("/session/commands", json=cmds, headers=auth(sid)).status_code == 200
+
+    diagnostics = client.post("/session/summary", headers=auth(sid)).json()["diagnostics"]
+    resolved = {el["id"] for d in diagnostics for el in d["elements"]}
+    assert "b1" in resolved
+    # A resolved element carries the editor kind and a human label.
+    bus_refs = [el for d in diagnostics for el in d["elements"] if el["id"] == "b1"]
+    assert bus_refs[0]["kind"] == "bus"
+    assert bus_refs[0]["label"] == "Slack bus"
+
+
+def test_summary_handles_non_convergence(client):
+    sid = new_session(client)
+    build_one_bus(client, sid, slack=False)  # no voltage reference
+    body = client.post("/session/summary", headers=auth(sid)).json()
+    assert body["converged"] is False
+    # Counts and diagnostics are still reported without a successful solve.
+    assert body["counts"]["buses"] == 1
+    assert body["balance"] is None
+
+
 def test_missing_session_is_404(client):
     assert client.get("/session", headers=auth("nope")).status_code == 404
     assert (

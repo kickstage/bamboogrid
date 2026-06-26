@@ -68,13 +68,22 @@ def _use_distributed_slack(net) -> bool:
     return any(c > 1 for c in counts.values())
 
 
-def solve_net(net) -> LoadFlowResult:
+def run_powerflow(net) -> str | None:
+    """Run an AC power flow on ``net`` in place. Returns ``None`` on success or a
+    human-readable error message (used by both the load-flow and summary APIs)."""
     try:
         pp.runpp(net, distributed_slack=_use_distributed_slack(net))
+        return None
     except pp.LoadflowNotConverged:
-        return LoadFlowResult(converged=False, message="Load flow did not converge.")
+        return "Load flow did not converge."
     except Exception as exc:  # noqa: BLE001 - surface solver errors to the UI
-        return LoadFlowResult(converged=False, message=f"Solver error: {exc}")
+        return f"Solver error: {exc}"
+
+
+def solve_net(net) -> LoadFlowResult:
+    err = run_powerflow(net)
+    if err is not None:
+        return LoadFlowResult(converged=False, message=err)
 
     def _gen_like(table: str) -> list[GenResult]:
         res = net[f"res_{table}"]

@@ -15,6 +15,7 @@ import { ReactFlowProvider } from "@xyflow/react";
 import { Canvas } from "./canvas/Canvas";
 import { Inspector } from "./inspector/Inspector";
 import { Palette } from "./palette/Palette";
+import { SummaryModal } from "./study/SummaryModal";
 import { MobileApp } from "./mobile/MobileApp";
 import { useIsMobile } from "./mobile/useIsMobile";
 import { useEditor } from "./store";
@@ -141,9 +142,10 @@ export default function App() {
   // React Flow's d3-zoom handlers stop pointer events from reaching the
   // document, so Mantine's outside-click never closes these menus over the
   // canvas. We control them and close on a capture-phase press of the canvas.
-  const [openMenu, setOpenMenu] = useState<"file" | "edit" | "view" | null>(
-    null,
-  );
+  const [openMenu, setOpenMenu] = useState<
+    "file" | "edit" | "view" | "study" | null
+  >(null);
+  const [summaryOpen, setSummaryOpen] = useState(false);
   const [leftW, setLeftW] = useState(() => readWidth(PANELS.left));
   const [rightW, setRightW] = useState(() => readWidth(PANELS.right));
   const ppInputRef = useRef<HTMLInputElement>(null);
@@ -390,6 +392,26 @@ export default function App() {
 
             <Menu
               shadow="md"
+              width={200}
+              position="bottom-start"
+              trigger="click"
+              opened={openMenu === "study"}
+              onChange={(o) => setOpenMenu(o ? "study" : null)}
+            >
+              <Menu.Target>
+                <Button variant="subtle" color="gray" size="xs">
+                  Study
+                </Button>
+              </Menu.Target>
+              <Menu.Dropdown>
+                <Menu.Item onClick={() => setSummaryOpen(true)}>
+                  Network summary…
+                </Menu.Item>
+              </Menu.Dropdown>
+            </Menu>
+
+            <Menu
+              shadow="md"
               width={230}
               position="bottom-start"
               trigger="click"
@@ -528,6 +550,8 @@ export default function App() {
           pandapower
         </Anchor>
       </Text>
+
+      <SummaryModal opened={summaryOpen} onClose={() => setSummaryOpen(false)} />
     </div>
   );
 }
