@@ -51,7 +51,7 @@ const newId = () => crypto.randomUUID();
 function defaultData(kind: ElementKind): ElementData {
   switch (kind) {
     case "bus":
-      return { name: "Bus", vn_kv: 0.4 } satisfies BusData;
+      return { name: "Bus", vn_kv: 110.0 } satisfies BusData;
     case "generator":
       return {
         name: "Generator",
@@ -69,7 +69,7 @@ function defaultData(kind: ElementKind): ElementData {
         va_degree: 0.0,
       } satisfies ExtGridData;
     case "load":
-      return { name: "Load", p_mw: 0.01, q_mvar: 0.0 } satisfies LoadData;
+      return { name: "Load", p_mw: 1.0, q_mvar: 0.0 } satisfies LoadData;
     case "shunt":
       // A new shunt defaults to a 1 Mvar capacitor (negative q_mvar injects
       // reactive power). vn_kv null = use the bus voltage; step 1 = one stage.
