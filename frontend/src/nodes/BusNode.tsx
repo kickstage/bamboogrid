@@ -37,9 +37,21 @@ function voltageColor(vm_pu?: number): string {
 export function BusNode({ data, selected, width }: NodeProps) {
   const d = data as BusData;
   const showResults = useEditor((s) => s.showResults);
+  const voltageUnit = useEditor((s) => s.voltageUnit);
   const hasResult = showResults && d.vm_pu !== undefined;
   const color = hasResult ? voltageColor(d.vm_pu) : "currentColor";
   const ports = portOffsets(width ?? BUS_DEFAULT_WIDTH);
+
+  // The color metric always tracks per-unit deviation; only the readout text
+  // switches between actual kV (vm_pu × vn_kv) and per-unit.
+  const voltageReadout = () => {
+    const angle = `${fixed(d.va_degree ?? 0, 1)}°`;
+    if (voltageUnit === "kv") {
+      const kv = d.vm_pu! * d.vn_kv;
+      return `${fixed(kv, kv >= 100 ? 1 : 3)} kV · ${angle}`;
+    }
+    return `${fixed(d.vm_pu!, 3)} p.u. · ${angle}`;
+  };
 
   return (
     <div
@@ -92,11 +104,7 @@ export function BusNode({ data, selected, width }: NodeProps) {
       </svg>
       <div style={{ fontSize: 11, fontWeight: 600 }}>{d.name}</div>
       <Value>{d.vn_kv} kV</Value>
-      {hasResult && (
-        <Readout>
-          {fixed(d.vm_pu!, 3)} p.u. · {fixed(d.va_degree ?? 0, 1)}°
-        </Readout>
-      )}
+      {hasResult && <Readout>{voltageReadout()}</Readout>}
     </div>
   );
 }

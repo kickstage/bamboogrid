@@ -22,8 +22,8 @@ const GROUPS: { title: string; items: Item[] }[] = [
   {
     title: "Sources",
     items: [
-      { kind: "generator", label: "Generator", hint: "Sets P + voltage; can be slack" },
-      { kind: "sgen", label: "Static generator", hint: "PQ injection (PV/wind/storage)" },
+      { kind: "generator", label: "Generator", hint: "Fixed U injection" },
+      { kind: "sgen", label: "Static generator", hint: "Fixed Q injection" },
       { kind: "extgrid", label: "External grid", hint: "Slack / voltage reference" },
     ],
   },

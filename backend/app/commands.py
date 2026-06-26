@@ -279,13 +279,6 @@ def _set_layout(net, p: dict) -> None:
         _set_diagram(net, table, idx, row)
 
 
-def _rename_network(net, p: dict) -> None:
-    net["name"] = p.get("name", "")
-    d = net.get("diagram_meta")
-    if d is not None and len(d):
-        d.at[d.index[0], "network_name"] = p.get("name", "")
-
-
 _HANDLERS = {
     "add_bus": _add_bus,
     "add_element": _add_element,
@@ -296,7 +289,6 @@ _HANDLERS = {
     "update": _update,
     "delete": _delete,
     "set_layout": _set_layout,
-    "rename_network": _rename_network,
 }
 
 

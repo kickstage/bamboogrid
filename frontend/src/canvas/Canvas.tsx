@@ -24,6 +24,7 @@ import "@xyflow/react/dist/style.css";
 import { edgeTypes } from "../edges";
 import { nodeTypes } from "../nodes";
 import { useEditor } from "../store";
+import { toast } from "../toast";
 import { busInjection, type BusInjection } from "../power";
 import { PowerTriangle } from "../diagrams/PowerTriangle";
 import { Waveforms } from "../diagrams/Waveforms";
@@ -77,7 +78,6 @@ export function Canvas() {
     addNode,
     select,
     selectEdge,
-    setMessage,
     fitSignal,
     selectedId,
     clipboard,
@@ -167,6 +167,34 @@ export function Canvas() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [selectedId, clipboard, copyNode, pasteAt, screenToFlowPosition]);
+
+  // Backspace/Delete removal goes through the store (which enqueues the server
+  // command) rather than React Flow's built-in delete, which only mutates local
+  // state and would silently drop the edit on reload.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Backspace" && e.key !== "Delete") return;
+      const el = document.activeElement;
+      const inField =
+        el instanceof HTMLElement &&
+        (el.tagName === "INPUT" ||
+          el.tagName === "TEXTAREA" ||
+          el.tagName === "SELECT" ||
+          el.isContentEditable);
+      if (inField) return;
+      const s = useEditor.getState();
+      const selEdges = s.edges.filter((ed) => ed.selected).map((ed) => ed.id);
+      const selNodes = s.nodes.filter((n) => n.selected).map((n) => n.id);
+      if (selEdges.length === 0 && selNodes.length === 0) return;
+      e.preventDefault();
+      // Edges before nodes, so a line is dropped before a bus it hangs off of
+      // cascades on the server (avoids deleting an already-cascaded line).
+      for (const id of selEdges) s.removeEdge(id);
+      for (const id of selNodes) s.removeNode(id);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   const onDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -262,13 +290,13 @@ export function Canvas() {
           nodeType,
         );
         if (!bothBus && !isAttachment) {
-          setMessage(
+          toast.info(
             "Connections must go through a bus — attach to a bus, not directly to another element.",
           );
         }
       }
     },
-    [nodes, setMessage],
+    [nodes],
   );
 
   const choose = (make: (c: Connection) => void) => {
@@ -377,7 +405,9 @@ export function Canvas() {
         defaultEdgeOptions={{ type: "wire" }}
         // Cmd is reserved for clone-drag, so don't let it engage multi-selection.
         multiSelectionKeyCode={null}
-        deleteKeyCode={["Backspace", "Delete"]}
+        // Deletion is handled by our own keydown listener (see above) so it
+        // routes through the store and syncs to the server.
+        deleteKeyCode={null}
         minZoom={0.05}
         maxZoom={4}
         fitView

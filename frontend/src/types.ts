@@ -146,6 +146,10 @@ export type ShuntData = {
   res_q_mvar?: number;
 };
 
+// How bus voltage results are shown on the canvas: actual kilovolts
+// (vm_pu × vn_kv) or per-unit magnitude.
+export type VoltageUnit = "kv" | "pu";
+
 // Read-only canvas node for an element the editor doesn't model (see
 // ForeignNode / ForeignElement). Part of the node-data union so these render as
 // regular React Flow nodes.

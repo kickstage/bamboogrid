@@ -30,8 +30,20 @@ import type {
   Trafo2WData,
   Trafo3WData,
   ViewModel,
+  VoltageUnit,
 } from "./types";
+
+const VOLTAGE_UNIT_KEY = "bamboogrid:voltageUnit";
+
+function initialVoltageUnit(): VoltageUnit {
+  try {
+    return localStorage.getItem(VOLTAGE_UNIT_KEY) === "pu" ? "pu" : "kv";
+  } catch {
+    return "kv";
+  }
+}
 import { getView } from "./api";
+import { toast } from "./toast";
 import {
   configureSync,
   enqueue,
@@ -59,15 +71,16 @@ function handleToEnd(handle: string | null | undefined): string {
 export const DEFAULT_TRAFO_STD = "0.25 MVA 20/0.4 kV";
 export const DEFAULT_TRAFO3W_STD = "63/25/38 MVA 110/20/10 kV";
 
-// A freshly drawn line: a 1 km MV-ish overhead line. Users tune it in the
-// inspector; the explicit params (not a std_type) are what the solver uses.
+// A freshly drawn line: a 1 km 110 kV overhead line (our default level). Users
+// tune it in the inspector; the explicit params (not a std_type) are what the
+// solver uses.
 export const DEFAULT_LINE = (): LineData => ({
   name: "Line",
   length_km: 1.0,
   r_ohm_per_km: 0.1,
-  x_ohm_per_km: 0.1,
-  c_nf_per_km: 0.0,
-  max_i_ka: 1.0,
+  x_ohm_per_km: 0.4,
+  c_nf_per_km: 10.0,
+  max_i_ka: 0.6,
   std_type: "",
 });
 
@@ -167,8 +180,10 @@ interface EditorState {
   selectedId: string | null;
   // A selected line edge (mutually exclusive with selectedId), for the inspector.
   selectedEdgeId: string | null;
-  message: string;
   showResults: boolean;
+  // Whether bus voltage results show as kV or per-unit. A view-only preference,
+  // persisted to localStorage (not part of the server net).
+  voltageUnit: VoltageUnit;
   // Bumped whenever a network is loaded, so the canvas can re-fit the view.
   fitSignal: number;
   // The server session whose authoritative net this editor mirrors.
@@ -197,9 +212,8 @@ interface EditorState {
   setEdgeWaypoint: (id: string, point: { x: number; y: number } | null) => void;
   select: (id: string | null) => void;
   selectEdge: (id: string | null) => void;
-  setNetworkName: (name: string) => void;
-  setMessage: (message: string) => void;
   setShowResults: (show: boolean) => void;
+  setVoltageUnit: (unit: VoltageUnit) => void;
   applyResults: (result: LoadFlowResult) => void;
   loadNetwork: (network: Network, foreign?: ForeignElement[]) => void;
   // Bind this editor to a server session and hydrate it from a projection.
@@ -393,8 +407,8 @@ export const useEditor = create<EditorState>((set, get) => ({
   selectedId: null,
   selectedEdgeId: null,
   clipboard: null,
-  message: "",
   showResults: true,
+  voltageUnit: initialVoltageUnit(),
   fitSignal: 0,
   sessionId: null,
 
@@ -448,8 +462,9 @@ export const useEditor = create<EditorState>((set, get) => ({
     const id = `line-${newId()}`;
     const data = DEFAULT_LINE();
     set((s) => ({
+      nodes: s.nodes.map((n) => (n.selected ? { ...n, selected: false } : n)),
       edges: [
-        ...s.edges,
+        ...s.edges.map((e) => (e.selected ? { ...e, selected: false } : e)),
         {
           id,
           source: c.source,
@@ -458,8 +473,11 @@ export const useEditor = create<EditorState>((set, get) => ({
           targetHandle: c.targetHandle ?? undefined,
           type: "line",
           data,
+          selected: true,
         },
       ],
+      selectedEdgeId: id,
+      selectedId: null,
     }));
     if (c.source && c.target) {
       enqueue({
@@ -494,6 +512,7 @@ export const useEditor = create<EditorState>((set, get) => ({
         id,
         type: "trafo2w",
         position: midpoint(a, b),
+        selected: true,
         data: {
           name: "Transformer",
           std_type: DEFAULT_TRAFO_STD,
@@ -515,12 +534,17 @@ export const useEditor = create<EditorState>((set, get) => ({
       });
       serverIds.add(id);
       return {
-        nodes: [...s.nodes, node],
+        nodes: [
+          ...s.nodes.map((n) => (n.selected ? { ...n, selected: false } : n)),
+          node,
+        ],
         edges: [
           ...s.edges,
           branchWire(id, "hv", hvBus, hvPort),
           branchWire(id, "lv", lvBus, lvPort),
         ],
+        selectedId: id,
+        selectedEdgeId: null,
       };
     }),
 
@@ -529,16 +553,19 @@ export const useEditor = create<EditorState>((set, get) => ({
     const data = defaultData(kind);
     set((s) => ({
       nodes: [
-        ...s.nodes,
+        ...s.nodes.map((n) => (n.selected ? { ...n, selected: false } : n)),
         {
           id,
           type: kind,
           position,
           data,
+          selected: true,
           // Give buses a resizable initial length.
           ...(kind === "bus" ? { width: BUS_DEFAULT_WIDTH } : {}),
         },
       ],
+      selectedId: id,
+      selectedEdgeId: null,
     }));
     // A bus stands alone, so it's created on the server immediately. Other
     // elements need a bus first — they sync once wired (see syncAttachment).
@@ -564,13 +591,13 @@ export const useEditor = create<EditorState>((set, get) => ({
       const n = s.nodes.find((x) => x.id === id);
       if (!n) return {};
       const name = (n.data as { name?: string }).name ?? n.type;
+      toast.info(`Copied ${name}.`);
       return {
         clipboard: {
           type: n.type as ElementKind,
           data: structuredClone(n.data),
           width: n.width,
         },
-        message: `Copied ${name}.`,
       };
     }),
 
@@ -672,14 +699,19 @@ export const useEditor = create<EditorState>((set, get) => ({
 
   select: (id) => set({ selectedId: id, selectedEdgeId: null }),
   selectEdge: (id) => set({ selectedEdgeId: id, selectedId: null }),
-  setNetworkName: (name) => {
-    set({ networkName: name });
-    enqueue({ op: "rename_network", payload: { name } });
-  },
-  setMessage: (message) => set({ message }),
   setShowResults: (show) => set({ showResults: show }),
 
-  applyResults: (result) =>
+  setVoltageUnit: (unit) => {
+    try {
+      localStorage.setItem(VOLTAGE_UNIT_KEY, unit);
+    } catch {
+      // best-effort
+    }
+    set({ voltageUnit: unit });
+  },
+
+  applyResults: (result) => {
+    if (!result.converged) toast.error(`Did not converge: ${result.message}`);
     set((s) => {
       const byBus = new Map(result.res_bus.map((r) => [r.id, r]));
       const byGen = new Map(result.res_gen.map((r) => [r.id, r]));
@@ -694,9 +726,6 @@ export const useEditor = create<EditorState>((set, get) => ({
       // successful result (which would be misleading). Unsupplied buses come
       // back as null — also treated as "no result".
       return {
-        message: result.converged
-          ? "Load flow converged."
-          : `Did not converge: ${result.message}`,
         edges: s.edges.map((e) => {
           if (e.type !== "line") return e;
           const r = result.converged ? byLine.get(e.id) : undefined;
@@ -771,7 +800,8 @@ export const useEditor = create<EditorState>((set, get) => ({
           return n;
         }),
       };
-    }),
+    });
+  },
 
   loadNetwork: (network, foreign = []) => {
     const nodes: ElementNode[] = [];
@@ -1000,7 +1030,6 @@ export const useEditor = create<EditorState>((set, get) => ({
       edges,
       selectedId: null,
       selectedEdgeId: null,
-      message: "",
       fitSignal: get().fitSignal + 1,
     });
   },
@@ -1018,7 +1047,7 @@ export const useEditor = create<EditorState>((set, get) => ({
       const view = await getView(id);
       get().loadNetwork(view.network, view.foreign);
     } catch (err) {
-      set({ message: `Sync failed: ${(err as Error).message}` });
+      toast.error(`Sync failed: ${(err as Error).message}`);
     }
   },
 
@@ -1032,15 +1061,13 @@ export const useEditor = create<EditorState>((set, get) => ({
       edges: [],
       selectedId: null,
       selectedEdgeId: null,
-      message: "",
       fitSignal: s.fitSignal + 1,
     }));
   },
 }));
 
-// Wire the command-sync layer to this store: it reads the active session id and
-// surfaces sync errors through the editor's message bar.
+// Surface command-sync failures (the session id is read from this store).
 configureSync({
   sessionId: () => useEditor.getState().sessionId,
-  onError: (message) => useEditor.getState().setMessage(message),
+  onError: (message) => toast.error(message),
 });

@@ -1,12 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import {
-  ActionIcon,
-  Alert,
+  Anchor,
   Button,
   Group,
+  Menu,
   Paper,
-  Switch,
-  TextInput,
+  Text,
   Title,
   useMantineColorScheme,
   useComputedColorScheme,
@@ -17,6 +16,7 @@ import { Canvas } from "./canvas/Canvas";
 import { Inspector } from "./inspector/Inspector";
 import { Palette } from "./palette/Palette";
 import { useEditor } from "./store";
+import { toast } from "./toast";
 import { flushPending } from "./sync";
 import {
   createSession,
@@ -33,6 +33,73 @@ import {
 // reload (also mirrored into the URL so the link can be shared).
 const SESSION_KEY = "bamboogrid:session";
 
+const PANELS = {
+  left: { key: "bamboogrid:leftW", default: 220, min: 160, max: 460 },
+  right: { key: "bamboogrid:rightW", default: 260, min: 200, max: 560 },
+} as const;
+
+const clamp = (v: number, min: number, max: number) =>
+  Math.min(max, Math.max(min, v));
+
+function readWidth(p: (typeof PANELS)[keyof typeof PANELS]): number {
+  try {
+    const raw = Number(localStorage.getItem(p.key));
+    if (Number.isFinite(raw) && raw > 0) return clamp(raw, p.min, p.max);
+  } catch {
+    // best-effort
+  }
+  return p.default;
+}
+
+// A 5px hit area that drives a width via mouse drag. `dir` is +1 when dragging
+// right grows the panel (left sidebar) and -1 when it shrinks it (right one).
+function ResizeHandle({
+  panel,
+  dir,
+  get,
+  set,
+}: {
+  panel: (typeof PANELS)[keyof typeof PANELS];
+  dir: 1 | -1;
+  get: () => number;
+  set: (w: number) => void;
+}) {
+  const onDown = (e: React.MouseEvent) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startW = get();
+    const onMove = (ev: MouseEvent) => {
+      set(clamp(startW + (ev.clientX - startX) * dir, panel.min, panel.max));
+    };
+    const onUp = () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      try {
+        localStorage.setItem(panel.key, String(get()));
+      } catch {
+        // best-effort
+      }
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+  };
+  return (
+    <div
+      onMouseDown={onDown}
+      style={{
+        width: 5,
+        flex: "0 0 5px",
+        cursor: "col-resize",
+        background: "var(--mantine-color-default-border)",
+      }}
+    />
+  );
+}
+
 function rememberSession(id: string): void {
   try {
     localStorage.setItem(SESSION_KEY, id);
@@ -48,20 +115,29 @@ function rememberSession(id: string): void {
 export default function App() {
   const {
     networkName,
-    setNetworkName,
-    setMessage,
-    message,
     applyResults,
     showResults,
     setShowResults,
+    voltageUnit,
+    setVoltageUnit,
     attachSession,
     sessionId,
   } = useEditor();
   const [busy, setBusy] = useState(false);
+  // React Flow's d3-zoom handlers stop pointer events from reaching the
+  // document, so Mantine's outside-click never closes these menus over the
+  // canvas. We control them and close on a capture-phase press of the canvas.
+  const [openMenu, setOpenMenu] = useState<"file" | "view" | null>(null);
+  const [leftW, setLeftW] = useState(() => readWidth(PANELS.left));
+  const [rightW, setRightW] = useState(() => readWidth(PANELS.right));
   const ppInputRef = useRef<HTMLInputElement>(null);
   const { setColorScheme } = useMantineColorScheme();
   const scheme = useComputedColorScheme("light");
-  const toggleScheme = () => setColorScheme(scheme === "dark" ? "light" : "dark");
+
+  // Fixed-width checkmark gutter so menu items align whether ticked or not.
+  const check = (on: boolean) => (
+    <span style={{ display: "inline-block", width: 14 }}>{on ? "✓" : ""}</span>
+  );
 
   // On first load, reattach to a session (URL ?session wins, then the last one
   // used) or start a fresh one.
@@ -77,11 +153,11 @@ export default function App() {
           if (cancelled) return;
           attachSession(id, view);
           rememberSession(id);
-          setMessage("Opened an editable copy of a shared network.");
+          toast.success("Opened an editable copy of a shared network.");
           return;
         } catch (err) {
           if (cancelled) return;
-          setMessage(`Could not open shared link: ${(err as Error).message}`);
+          toast.error(`Could not open shared link: ${(err as Error).message}`);
           // Fall through to a normal/fresh session.
         }
       }
@@ -105,7 +181,7 @@ export default function App() {
         rememberSession(id);
       } catch (err) {
         if (!cancelled)
-          setMessage(`Could not start session: ${(err as Error).message}`);
+          toast.error(`Could not start session: ${(err as Error).message}`);
       }
     })();
     return () => {
@@ -125,12 +201,12 @@ export default function App() {
       const link = url.toString();
       try {
         await navigator.clipboard.writeText(link);
-        setMessage("Share link copied — opening it creates an editable copy.");
+        toast.success("Share link copied — opening it creates an editable copy.");
       } catch {
         window.prompt("Copy this share link:", link);
       }
     } catch (err) {
-      setMessage(`Could not create share link: ${(err as Error).message}`);
+      toast.error(`Could not create share link: ${(err as Error).message}`);
     }
   };
 
@@ -147,9 +223,9 @@ export default function App() {
       a.download = `${networkName || "network"}.pp.json`;
       a.click();
       URL.revokeObjectURL(url);
-      setMessage("Exported pandapower net.");
+      toast.success("Exported pandapower net.");
     } catch (err) {
-      setMessage(`Export failed: ${(err as Error).message}`);
+      toast.error(`Export failed: ${(err as Error).message}`);
     } finally {
       setBusy(false);
     }
@@ -166,9 +242,9 @@ export default function App() {
       await flushPending();
       const view = await importPandapower(sessionId, await file.text());
       attachSession(sessionId, view);
-      setMessage(`Imported "${file.name}".`);
+      toast.success(`Imported "${file.name}".`);
     } catch (err) {
-      setMessage(`Import failed: ${(err as Error).message}`);
+      toast.error(`Import failed: ${(err as Error).message}`);
     } finally {
       setBusy(false);
     }
@@ -186,9 +262,9 @@ export default function App() {
       const { id, view } = await createSession();
       attachSession(id, view);
       rememberSession(id);
-      setMessage("Started a new network.");
+      toast.success("Started a new network.");
     } catch (err) {
-      setMessage(`Could not start session: ${(err as Error).message}`);
+      toast.error(`Could not start session: ${(err as Error).message}`);
     } finally {
       setBusy(false);
     }
@@ -202,7 +278,7 @@ export default function App() {
       const result = await runLoadFlow(sessionId);
       applyResults(result);
     } catch (err) {
-      setMessage(`Request failed: ${(err as Error).message}`);
+      toast.error(`Request failed: ${(err as Error).message}`);
     } finally {
       setBusy(false);
     }
@@ -212,25 +288,98 @@ export default function App() {
     <div style={{ display: "flex", flexDirection: "column", height: "100vh" }}>
       <Paper shadow="xs" p="sm" radius={0}>
         <Group justify="space-between">
-          <Group>
-            <Title order={4}>BambooGrid</Title>
-            <TextInput
-              value={networkName}
-              onChange={(e) => setNetworkName(e.currentTarget.value)}
-              size="xs"
-              w={220}
-            />
-            <Button variant="default" size="xs" onClick={onReset}>
-              New network
-            </Button>
+          <Group gap="xs">
+            <Title order={4} mr="xs">
+              BambooGrid
+            </Title>
+
+            <Menu
+              shadow="md"
+              width={200}
+              position="bottom-start"
+              trigger="click"
+              opened={openMenu === "file"}
+              onChange={(o) => setOpenMenu(o ? "file" : null)}
+            >
+              <Menu.Target>
+                <Button variant="subtle" color="gray" size="xs">
+                  File
+                </Button>
+              </Menu.Target>
+              <Menu.Dropdown>
+                <Menu.Item onClick={onReset} disabled={busy}>
+                  New network
+                </Menu.Item>
+                <Menu.Divider />
+                <Menu.Item
+                  onClick={() => ppInputRef.current?.click()}
+                  disabled={busy}
+                >
+                  Import…
+                </Menu.Item>
+                <Menu.Item onClick={onExport} disabled={busy}>
+                  Export…
+                </Menu.Item>
+                <Menu.Divider />
+                <Menu.Item onClick={onShare} disabled={busy}>
+                  Share…
+                </Menu.Item>
+              </Menu.Dropdown>
+            </Menu>
+
+            <Menu
+              shadow="md"
+              width={230}
+              position="bottom-start"
+              trigger="click"
+              closeOnItemClick={false}
+              opened={openMenu === "view"}
+              onChange={(o) => setOpenMenu(o ? "view" : null)}
+            >
+              <Menu.Target>
+                <Button variant="subtle" color="gray" size="xs">
+                  View
+                </Button>
+              </Menu.Target>
+              <Menu.Dropdown>
+                <Menu.Label>Voltage display</Menu.Label>
+                <Menu.Item
+                  leftSection={check(voltageUnit === "kv")}
+                  onClick={() => setVoltageUnit("kv")}
+                >
+                  Kilovolts (kV)
+                </Menu.Item>
+                <Menu.Item
+                  leftSection={check(voltageUnit === "pu")}
+                  onClick={() => setVoltageUnit("pu")}
+                >
+                  Per-unit (p.u.)
+                </Menu.Item>
+                <Menu.Divider />
+                <Menu.Item
+                  leftSection={check(showResults)}
+                  onClick={() => setShowResults(!showResults)}
+                >
+                  Show results
+                </Menu.Item>
+                <Menu.Divider />
+                <Menu.Label>Appearance</Menu.Label>
+                <Menu.Item
+                  leftSection={check(scheme === "light")}
+                  onClick={() => setColorScheme("light")}
+                >
+                  Light
+                </Menu.Item>
+                <Menu.Item
+                  leftSection={check(scheme === "dark")}
+                  onClick={() => setColorScheme("dark")}
+                >
+                  Dark
+                </Menu.Item>
+              </Menu.Dropdown>
+            </Menu>
           </Group>
           <Group>
-            <Switch
-              size="sm"
-              label="Results"
-              checked={showResults}
-              onChange={(e) => setShowResults(e.currentTarget.checked)}
-            />
             <input
               ref={ppInputRef}
               type="file"
@@ -238,54 +387,75 @@ export default function App() {
               style={{ display: "none" }}
               onChange={onImportFile}
             />
-            <Button
-              variant="default"
-              size="xs"
-              loading={busy}
-              onClick={() => ppInputRef.current?.click()}
-            >
-              Import
-            </Button>
-            <Button variant="default" size="xs" loading={busy} onClick={onExport}>
-              Export
-            </Button>
-            <Button variant="default" size="xs" onClick={onShare}>
-              Share
-            </Button>
             <Button size="xs" onClick={onRun} loading={busy}>
               Run load flow
             </Button>
-            <ActionIcon
-              variant="default"
-              size="lg"
-              onClick={toggleScheme}
-              aria-label="Toggle color scheme"
-              title="Toggle dark mode"
-            >
-              {scheme === "dark" ? "☀️" : "🌙"}
-            </ActionIcon>
           </Group>
         </Group>
-        {message && (
-          <Alert mt="xs" py={4} color={message.includes("converged") && !message.includes("not") ? "green" : "blue"}>
-            {message}
-          </Alert>
-        )}
       </Paper>
 
       <div style={{ display: "flex", flex: 1, minHeight: 0 }}>
-        <Paper withBorder w={220} radius={0} style={{ overflowY: "auto" }}>
-          <Palette />
+        <Paper
+          withBorder
+          radius={0}
+          style={{
+            width: leftW,
+            flex: `0 0 ${leftW}px`,
+            display: "flex",
+            flexDirection: "column",
+            overflow: "hidden",
+          }}
+        >
+          <div style={{ flex: 1, overflowY: "auto" }}>
+            <Palette />
+          </div>
         </Paper>
-        <div style={{ flex: 1, minWidth: 0 }}>
+        <ResizeHandle
+          panel={PANELS.left}
+          dir={1}
+          get={() => leftW}
+          set={setLeftW}
+        />
+        <div
+          style={{ flex: 1, minWidth: 0 }}
+          onPointerDownCapture={() => setOpenMenu(null)}
+        >
           <ReactFlowProvider>
             <Canvas />
           </ReactFlowProvider>
         </div>
-        <Paper withBorder w={260} radius={0} style={{ overflowY: "auto" }}>
+        <ResizeHandle
+          panel={PANELS.right}
+          dir={-1}
+          get={() => rightW}
+          set={setRightW}
+        />
+        <Paper
+          withBorder
+          radius={0}
+          style={{ width: rightW, flex: `0 0 ${rightW}px`, overflowY: "auto" }}
+        >
           <Inspector />
         </Paper>
       </div>
+
+      <Text
+        size="xs"
+        c="dimmed"
+        ta="center"
+        py={6}
+        style={{ borderTop: "1px solid var(--mantine-color-default-border)" }}
+      >
+        Made with ⚡ by{" "}
+        <Anchor
+          href="https://kickstage.com"
+          target="_blank"
+          rel="noopener noreferrer"
+          inherit
+        >
+          Kickstage
+        </Anchor>
+      </Text>
     </div>
   );
 }
