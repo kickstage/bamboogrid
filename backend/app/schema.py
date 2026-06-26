@@ -46,6 +46,12 @@ class Generator(BaseModel):
     # (distributed slack).
     slack: bool = False
     slack_weight: float = Field(default=1.0, ge=0)
+    # Short-circuit (IEC 60909) machine data: rated power and subtransient
+    # reactance/resistance and power factor. Defaulted so a network solves a
+    # short circuit out of the box; vn_kv follows the connected bus at build time.
+    sn_mva: float = Field(default=1.0, gt=0, description="Rated apparent power [MVA]")
+    xdss_pu: float = Field(default=0.2, gt=0, description="Subtransient reactance [p.u.]")
+    cos_phi: float = Field(default=0.8, gt=0, le=1, description="Rated power factor")
     # Which bus port (handle id, e.g. "p2") the wire attaches to (visual only).
     port: str = ""
     x: float = 0.0
@@ -80,6 +86,12 @@ class ExtGrid(BaseModel):
     bus_id: str = ""
     vm_pu: float = Field(default=1.0, gt=0, description="Voltage setpoint [p.u.]")
     va_degree: float = Field(default=0.0, description="Voltage angle [deg]")
+    # Short-circuit (IEC 60909) source data: the grid's maximum short-circuit
+    # power and R/X ratio at this connection, used by calc_sc.
+    s_sc_max_mva: float = Field(
+        default=1000.0, gt=0, description="Max short-circuit power [MVA]"
+    )
+    rx_max: float = Field(default=0.1, ge=0, description="R/X ratio (max case)")
     port: str = ""
     x: float = 0.0
     y: float = 0.0
@@ -336,6 +348,25 @@ class LoadFlowResult(BaseModel):
     res_trafo: list[TrafoResult] = Field(default_factory=list)
     res_trafo3w: list[TrafoResult] = Field(default_factory=list)
     res_line: list[LineResult] = Field(default_factory=list)
+
+
+# --- Short-circuit (IEC 60909) result types --------------------------------
+
+
+class BusScResult(BaseModel):
+    id: str
+    # Initial symmetrical short-circuit current and its apparent power.
+    ikss_ka: float | None = None
+    skss_mw: float | None = None
+    # Peak and thermal-equivalent short-circuit currents.
+    ip_ka: float | None = None
+    ith_ka: float | None = None
+
+
+class ShortCircuitResult(BaseModel):
+    ok: bool
+    message: str = ""
+    res_bus: list[BusScResult] = Field(default_factory=list)
 
 
 # --- Network summary / diagnostics -----------------------------------------

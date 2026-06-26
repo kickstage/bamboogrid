@@ -58,6 +58,7 @@ export function WireEdge({
   sourcePosition,
   targetPosition,
   selected,
+  style,
 }: EdgeProps) {
   const setEdgeWaypoint = useEditor((s) => s.setEdgeWaypoint);
   const { screenToFlowPosition } = useReactFlow();
@@ -115,7 +116,7 @@ export function WireEdge({
 
   return (
     <>
-      <BaseEdge id={id} path={path} style={{ strokeWidth: selected ? 2.5 : 1.5 }} />
+      <BaseEdge id={id} path={path} style={{ ...style, strokeWidth: selected ? 2.5 : 1.5 }} />
       <EdgeLabelRenderer>
         {selected && (
           <div

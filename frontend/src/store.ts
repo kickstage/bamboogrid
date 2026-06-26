@@ -25,6 +25,7 @@ import type {
   LoadFlowResult,
   Network,
   SgenData,
+  ShortCircuitResult,
   ShuntData,
   SwitchData,
   Trafo2WData,
@@ -32,6 +33,9 @@ import type {
   ViewModel,
   VoltageUnit,
 } from "./types";
+
+// Which study the canvas visualizes: load-flow voltage or short-circuit current.
+export type StudyMode = "loadflow" | "shortcircuit";
 
 const VOLTAGE_UNIT_KEY = "bamboogrid:voltageUnit";
 
@@ -115,6 +119,10 @@ function withoutResults(type: ElementKind, data: ElementData): ElementData {
   if (type === "bus") {
     delete d.vm_pu;
     delete d.va_degree;
+    delete d.ikss_ka;
+    delete d.ip_ka;
+    delete d.ith_ka;
+    delete d.skss_mw;
   } else {
     delete d.res_p_mw;
     delete d.res_q_mvar;
@@ -150,6 +158,9 @@ function defaultData(kind: ElementKind): ElementData {
         vm_pu: 1.0,
         slack: false,
         slack_weight: 1.0,
+        sn_mva: 1.0,
+        xdss_pu: 0.2,
+        cos_phi: 0.8,
       } satisfies GeneratorData;
     case "sgen":
       return { name: "Static gen", p_mw: 1.0, q_mvar: 0.0 } satisfies SgenData;
@@ -158,6 +169,8 @@ function defaultData(kind: ElementKind): ElementData {
         name: "External grid",
         vm_pu: 1.0,
         va_degree: 0.0,
+        s_sc_max_mva: 1000.0,
+        rx_max: 0.1,
       } satisfies ExtGridData;
     case "load":
       return { name: "Load", p_mw: 1.0, q_mvar: 0.0 } satisfies LoadData;
@@ -197,6 +210,10 @@ interface EditorState {
   // A selected line edge (mutually exclusive with selectedId), for the inspector.
   selectedEdgeId: string | null;
   showResults: boolean;
+  // Which study the canvas visualizes (load-flow voltage vs short-circuit current).
+  studyMode: StudyMode;
+  // Network-wide max initial fault current, for scaling the SC heatmap.
+  scMaxIkss: number;
   // Whether bus voltage results show as kV or per-unit. A view-only preference,
   // persisted to localStorage (not part of the server net).
   voltageUnit: VoltageUnit;
@@ -205,6 +222,11 @@ interface EditorState {
   // A request to pan/zoom the canvas onto specific nodes. `nonce` bumps on every
   // request so the canvas re-fits even when targeting the same ids twice.
   focusRequest: { ids: string[]; nonce: number } | null;
+  // Whether the floating "Find" panel is open.
+  searchOpen: boolean;
+  // The single element (node or line edge) spotlighted by a search reveal; the
+  // canvas dims everything else. Cleared on any other selection or on close.
+  searchHighlightId: string | null;
   // The server session whose authoritative net this editor mirrors.
   sessionId: string | null;
   // When set, every mutating action is a no-op (the mobile read-only demo).
@@ -244,16 +266,25 @@ interface EditorState {
   // Make `id` the sole selection (clearing any multi-selection). Used when
   // right-clicking a node that isn't part of the current selection.
   selectOnly: (id: string) => void;
+  // Spotlight an element (dimming the rest) without moving the viewport or
+  // touching the selection — a search "preview". Pass null to clear.
+  highlightElement: (id: string | null) => void;
   // Select an element by id (node or line edge) and pan/zoom the canvas onto it.
-  // Returns false if no such element exists (e.g. it was since deleted).
-  revealElement: (id: string) => boolean;
+  // With `highlight`, also spotlight it (dimming the rest). Returns false if no
+  // such element exists (e.g. it was since deleted).
+  revealElement: (id: string, opts?: { highlight?: boolean }) => boolean;
+  // Open/close the Find panel; closing clears any search spotlight.
+  setSearchOpen: (open: boolean) => void;
   // Clear the inspector selection and every node/edge highlight on the canvas.
   // Used when clicking outside the canvas (e.g. the palette).
   deselectAll: () => void;
   setShowResults: (show: boolean) => void;
+  setStudyMode: (mode: StudyMode) => void;
   setVoltageUnit: (unit: VoltageUnit) => void;
   setReadOnly: (readOnly: boolean) => void;
   applyResults: (result: LoadFlowResult) => void;
+  // Write short-circuit currents onto bus nodes (cleared when !ok).
+  applyShortCircuit: (result: ShortCircuitResult) => void;
   loadNetwork: (
     network: Network,
     foreign?: ForeignElement[],
@@ -512,9 +543,13 @@ export const useEditor = create<EditorState>((set, get) => ({
   selectedEdgeId: null,
   clipboard: null,
   showResults: true,
+  studyMode: "loadflow",
+  scMaxIkss: 0,
   voltageUnit: initialVoltageUnit(),
   fitSignal: 0,
   focusRequest: null,
+  searchOpen: false,
+  searchHighlightId: null,
   sessionId: null,
   readOnly: false,
   canUndo: false,
@@ -884,8 +919,11 @@ export const useEditor = create<EditorState>((set, get) => ({
       });
   },
 
-  select: (id) => set({ selectedId: id, selectedEdgeId: null }),
-  selectEdge: (id) => set({ selectedEdgeId: id, selectedId: null }),
+  // Any plain selection (a click on the canvas/pane) drops the search spotlight.
+  select: (id) =>
+    set({ selectedId: id, selectedEdgeId: null, searchHighlightId: null }),
+  selectEdge: (id) =>
+    set({ selectedEdgeId: id, selectedId: null, searchHighlightId: null }),
 
   selectOnly: (id) =>
     set((s) => ({
@@ -897,11 +935,17 @@ export const useEditor = create<EditorState>((set, get) => ({
       edges: s.edges.map((e) => (e.selected ? { ...e, selected: false } : e)),
     })),
 
-  revealElement: (id) => {
+  highlightElement: (id) => set({ searchHighlightId: id }),
+
+  revealElement: (id, opts = {}) => {
+    const highlight = opts.highlight ? id : null;
     const { nodes, edges } = get();
     if (nodes.some((n) => n.id === id)) {
       get().selectOnly(id);
-      set((s) => ({ focusRequest: { ids: [id], nonce: s.focusRequest ? s.focusRequest.nonce + 1 : 1 } }));
+      set((s) => ({
+        focusRequest: { ids: [id], nonce: s.focusRequest ? s.focusRequest.nonce + 1 : 1 },
+        searchHighlightId: highlight,
+      }));
       return true;
     }
     const edge = edges.find((e) => e.id === id && e.type === "line");
@@ -918,21 +962,27 @@ export const useEditor = create<EditorState>((set, get) => ({
           ids: [edge.source, edge.target].filter(Boolean) as string[],
           nonce: s.focusRequest ? s.focusRequest.nonce + 1 : 1,
         },
+        searchHighlightId: highlight,
       }));
       return true;
     }
     return false;
   },
 
+  setSearchOpen: (open) =>
+    set(open ? { searchOpen: true } : { searchOpen: false, searchHighlightId: null }),
+
   deselectAll: () =>
     set((s) => ({
       selectedId: null,
       selectedEdgeId: null,
+      searchHighlightId: null,
       nodes: s.nodes.map((n) => (n.selected ? { ...n, selected: false } : n)),
       edges: s.edges.map((e) => (e.selected ? { ...e, selected: false } : e)),
     })),
 
   setShowResults: (show) => set({ showResults: show }),
+  setStudyMode: (mode) => set({ studyMode: mode }),
   setReadOnly: (readOnly) => set({ readOnly }),
 
   setVoltageUnit: (unit) => {
@@ -1039,6 +1089,54 @@ export const useEditor = create<EditorState>((set, get) => ({
     });
   },
 
+  applyShortCircuit: (result) => {
+    if (!result.ok) {
+      toast.error(`Short circuit failed: ${result.message}`);
+      set((s) => ({
+        scMaxIkss: 0,
+        nodes: s.nodes.map((n) =>
+          n.type === "bus"
+            ? ({
+                ...n,
+                data: {
+                  ...(n.data as BusData),
+                  ikss_ka: undefined,
+                  ip_ka: undefined,
+                  ith_ka: undefined,
+                  skss_mw: undefined,
+                },
+              } as ElementNode)
+            : n,
+        ),
+      }));
+      return;
+    }
+    set((s) => {
+      const byBus = new Map(result.res_bus.map((r) => [r.id, r]));
+      const maxIkss = result.res_bus.reduce(
+        (m, r) => Math.max(m, r.ikss_ka ?? 0),
+        0,
+      );
+      return {
+        scMaxIkss: maxIkss,
+        nodes: s.nodes.map((n) => {
+          if (n.type !== "bus") return n;
+          const r = byBus.get(n.id);
+          return {
+            ...n,
+            data: {
+              ...(n.data as BusData),
+              ikss_ka: r?.ikss_ka ?? undefined,
+              ip_ka: r?.ip_ka ?? undefined,
+              ith_ka: r?.ith_ka ?? undefined,
+              skss_mw: r?.skss_mw ?? undefined,
+            },
+          } as ElementNode;
+        }),
+      };
+    });
+  },
+
   loadNetwork: (network, foreign = [], opts = {}) => {
     const { fit = true } = opts;
     const nodes: ElementNode[] = [];
@@ -1073,6 +1171,9 @@ export const useEditor = create<EditorState>((set, get) => ({
           vm_pu: g.vm_pu,
           slack: g.slack,
           slack_weight: g.slack_weight,
+          sn_mva: g.sn_mva,
+          xdss_pu: g.xdss_pu,
+          cos_phi: g.cos_phi,
         },
       });
       if (g.bus_id)
@@ -1107,7 +1208,13 @@ export const useEditor = create<EditorState>((set, get) => ({
         id: eg.id,
         type: "extgrid",
         position: { x: eg.x, y: eg.y },
-        data: { name: eg.name, vm_pu: eg.vm_pu, va_degree: eg.va_degree },
+        data: {
+          name: eg.name,
+          vm_pu: eg.vm_pu,
+          va_degree: eg.va_degree,
+          s_sc_max_mva: eg.s_sc_max_mva,
+          rx_max: eg.rx_max,
+        },
       });
       if (eg.bus_id)
         edges.push({

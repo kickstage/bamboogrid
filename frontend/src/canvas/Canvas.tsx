@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Button,
   Modal,
@@ -29,7 +29,11 @@ import { elementInjection, type BusInjection } from "../power";
 import { PowerTriangle } from "../diagrams/PowerTriangle";
 import { Waveforms } from "../diagrams/Waveforms";
 import { NodeContextMenu, type BusGraphKind } from "./NodeContextMenu";
+import { SearchPanel } from "./SearchPanel";
 import type { BusData, ElementKind } from "../types";
+
+// How far a search-dimmed element fades back (the spotlighted one stays at 1).
+const DIM_OPACITY = 0.15;
 
 // The "add connection" menu shown after a bus → bus drag: the user explicitly
 // picks the branch type (we never infer it). Same-voltage buses take a line;
@@ -94,8 +98,47 @@ export function Canvas() {
     readOnly,
     undo,
     redo,
+    setSearchOpen,
+    searchHighlightId,
   } = useEditor();
   const { screenToFlowPosition, fitView } = useReactFlow();
+
+  // When a search spotlights one element, fade everything else so it stands out.
+  // A spotlighted line keeps its two end buses bright (a line has no body of its
+  // own), so the framed branch reads as a connected whole.
+  const bright = useMemo(() => {
+    if (!searchHighlightId) return null;
+    const set = new Set<string>([searchHighlightId]);
+    const line = edges.find(
+      (e) => e.id === searchHighlightId && e.type === "line",
+    );
+    if (line) {
+      set.add(line.source);
+      set.add(line.target);
+    }
+    return set;
+  }, [edges, searchHighlightId]);
+
+  const dim = (id: string) => ({
+    opacity: bright!.has(id) ? 1 : DIM_OPACITY,
+    transition: "opacity 150ms ease",
+  });
+  const displayNodes = useMemo(
+    () =>
+      bright
+        ? nodes.map((n) => ({ ...n, style: { ...n.style, ...dim(n.id) } }))
+        : nodes,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [nodes, bright],
+  );
+  const displayEdges = useMemo(
+    () =>
+      bright
+        ? edges.map((e) => ({ ...e, style: { ...e.style, ...dim(e.id) } }))
+        : edges,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [edges, bright],
+  );
   const colorScheme = useComputedColorScheme("light");
 
   // A bus→bus connection in progress: stashed on connect, turned into the menu on
@@ -210,6 +253,19 @@ export function Canvas() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [clipboard, copySelection, pasteAt, screenToFlowPosition, undo, redo]);
+
+  // Cmd/Ctrl+F opens the Find panel (suppressing the browser's own find), even
+  // while a form field is focused — find should always be reachable.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "f") {
+        e.preventDefault();
+        setSearchOpen(true);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [setSearchOpen]);
 
   // Backspace/Delete removal goes through the store (which enqueues the server
   // command) rather than React Flow's built-in delete, which only mutates local
@@ -393,8 +449,8 @@ export function Canvas() {
       }}
     >
       <ReactFlow
-        nodes={nodes}
-        edges={edges}
+        nodes={displayNodes}
+        edges={displayEdges}
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
         onNodesChange={handleNodesChange}
@@ -477,6 +533,8 @@ export function Canvas() {
         <Background />
         <Controls />
       </ReactFlow>
+
+      <SearchPanel />
 
       {menu && (
         <>

@@ -58,6 +58,7 @@ export function LineEdge({
   sourcePosition,
   targetPosition,
   selected,
+  style,
 }: EdgeProps) {
   const setEdgeWaypoint = useEditor((s) => s.setEdgeWaypoint);
   const showResults = useEditor((s) => s.showResults);
@@ -119,7 +120,7 @@ export function LineEdge({
     <>
       {/* A line carries real power, so it reads slightly heavier than a plain
           connecting wire (which is 1.5 / 2.5 when selected). */}
-      <BaseEdge id={id} path={path} style={{ strokeWidth: selected ? 3.5 : 2.5 }} />
+      <BaseEdge id={id} path={path} style={{ ...style, strokeWidth: selected ? 3.5 : 2.5 }} />
       <EdgeLabelRenderer>
         {label && (
           <div

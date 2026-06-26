@@ -23,8 +23,10 @@ from .schema import (
     LoadFlowResult,
     NetworkSummary,
     SessionInfo,
+    ShortCircuitResult,
     ViewModel,
 )
+from .sc import run_shortcircuit
 from .session import Session, store
 from .solve import solve_net
 from .summary import network_summary
@@ -154,6 +156,15 @@ def run_loadflow(session: Session = Depends(current_session)) -> LoadFlowResult:
     """Run a load flow on the retained net and return results keyed by editor id."""
     with session.lock:
         return solve_net(session.net)
+
+
+@app.post("/session/run-shortcircuit", response_model=ShortCircuitResult)
+def run_short_circuit(
+    session: Session = Depends(current_session),
+) -> ShortCircuitResult:
+    """Run an IEC 60909 3-phase (max) short circuit, results keyed by editor id."""
+    with session.lock:
+        return run_shortcircuit(session.net)
 
 
 @app.post("/session/summary", response_model=NetworkSummary)

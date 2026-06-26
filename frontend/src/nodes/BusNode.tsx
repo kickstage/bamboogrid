@@ -34,12 +34,28 @@ function voltageColor(vm_pu?: number): string {
   return "#dc2626";
 }
 
+// Fault-current heatmap: a sequential cool→hot scale by share of the network's
+// peak Ik''. Higher fault current isn't "bad" (unlike voltage), so this avoids
+// the green/amber/red good-bad semantics.
+const SC_LOW: [number, number, number] = [125, 211, 252]; // sky-300
+const SC_HIGH: [number, number, number] = [190, 24, 93]; // pink-700
+function faultColor(ikss?: number, max?: number): string {
+  if (ikss === undefined || !max || max <= 0) return "currentColor";
+  const t = Math.max(0, Math.min(1, ikss / max));
+  const c = SC_LOW.map((lo, i) => Math.round(lo + (SC_HIGH[i] - lo) * t));
+  return `rgb(${c[0]}, ${c[1]}, ${c[2]})`;
+}
+
 export function BusNode({ data, selected, width }: NodeProps) {
   const d = data as BusData;
   const showResults = useEditor((s) => s.showResults);
   const voltageUnit = useEditor((s) => s.voltageUnit);
-  const hasResult = showResults && d.vm_pu !== undefined;
-  const color = hasResult ? voltageColor(d.vm_pu) : "currentColor";
+  const studyMode = useEditor((s) => s.studyMode);
+  const scMaxIkss = useEditor((s) => s.scMaxIkss);
+  const isSc = studyMode === "shortcircuit";
+  const hasResult = showResults && (isSc ? d.ikss_ka !== undefined : d.vm_pu !== undefined);
+  let color = "currentColor";
+  if (hasResult) color = isSc ? faultColor(d.ikss_ka, scMaxIkss) : voltageColor(d.vm_pu);
   const ports = portOffsets(width ?? BUS_DEFAULT_WIDTH);
 
   // The color metric always tracks per-unit deviation; only the readout text
@@ -52,6 +68,8 @@ export function BusNode({ data, selected, width }: NodeProps) {
     }
     return `${fixed(d.vm_pu!, 3)} p.u. · ${angle}`;
   };
+
+  const faultReadout = () => `${fixed(d.ikss_ka!, 2)} kA Ik″`;
 
   return (
     <div
@@ -104,7 +122,9 @@ export function BusNode({ data, selected, width }: NodeProps) {
       </svg>
       <div style={{ fontSize: 11, fontWeight: 600 }}>{d.name}</div>
       <Value>{d.vn_kv} kV</Value>
-      {hasResult && <Readout>{voltageReadout()}</Readout>}
+      {hasResult && (
+        <Readout>{isSc ? faultReadout() : voltageReadout()}</Readout>
+      )}
     </div>
   );
 }

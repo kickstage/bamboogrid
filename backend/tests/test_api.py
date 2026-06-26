@@ -276,6 +276,60 @@ def test_import_resets_history(client):
     assert imported.json()["can_undo"] is False
 
 
+def _two_bus_grid(client, sid: str) -> None:
+    """20 kV ext_grid → 1 km line → second bus (a textbook 3-phase SC net)."""
+    cmds = [
+        {"op": "add_bus", "payload": {"id": "b1", "name": "B1", "vn_kv": 20.0, "x": 0, "y": 0, "width": 220}},
+        {"op": "add_bus", "payload": {"id": "b2", "name": "B2", "vn_kv": 20.0, "x": 300, "y": 0, "width": 220}},
+        {"op": "add_element", "payload": {"id": "eg", "kind": "extgrid", "bus_id": "b1", "port": "p0", "x": 0, "y": -100, "data": {"name": "Grid", "vm_pu": 1.0, "va_degree": 0.0, "s_sc_max_mva": 1000.0, "rx_max": 0.1}}},
+        {"op": "add_line", "payload": {"id": "ln", "from_bus": "b1", "to_bus": "b2", "port_from": "p1", "port_to": "p0", "data": {"name": "Line", "length_km": 1.0, "r_ohm_per_km": 0.1, "x_ohm_per_km": 0.1, "c_nf_per_km": 0.0, "max_i_ka": 1.0, "std_type": ""}}},
+    ]
+    assert client.post("/session/commands", json=cmds, headers=auth(sid)).status_code == 200
+
+
+def test_run_shortcircuit_reports_fault_current(client):
+    sid = new_session(client)
+    _two_bus_grid(client, sid)
+    res = client.post("/session/run-shortcircuit", headers=auth(sid))
+    assert res.status_code == 200
+    body = res.json()
+    assert body["ok"] is True
+    by_bus = {r["id"]: r for r in body["res_bus"]}
+    assert by_bus["b1"]["ikss_ka"] > 0
+    assert by_bus["b2"]["ikss_ka"] > 0
+    # The fault current is highest right at the source bus.
+    assert by_bus["b1"]["ikss_ka"] > by_bus["b2"]["ikss_ka"]
+    assert by_bus["b1"]["ip_ka"] is not None
+
+
+def test_run_shortcircuit_without_source_fails(client):
+    sid = new_session(client)
+    _add_bus(client, sid, "b1")
+    body = client.post("/session/run-shortcircuit", headers=auth(sid)).json()
+    assert body["ok"] is False
+    assert body["message"]
+    assert body["res_bus"] == []
+
+
+def test_run_shortcircuit_with_generator_solves(client):
+    sid = new_session(client)
+    _two_bus_grid(client, sid)
+    # Add a generator on b2 with default SC params: the calc must still solve.
+    gen = [
+        {"op": "add_element", "payload": {"id": "g1", "kind": "generator", "bus_id": "b2", "port": "p1", "x": 300, "y": -100, "data": {"name": "Gen", "p_mw": 1.0, "vm_pu": 1.0, "slack": False, "slack_weight": 1.0, "sn_mva": 5.0, "xdss_pu": 0.2, "cos_phi": 0.8}}},
+    ]
+    assert client.post("/session/commands", json=gen, headers=auth(sid)).status_code == 200
+    body = client.post("/session/run-shortcircuit", headers=auth(sid)).json()
+    assert body["ok"] is True
+    assert {r["id"] for r in body["res_bus"]} == {"b1", "b2"}
+
+
+def test_run_shortcircuit_missing_session_is_404(client):
+    assert (
+        client.post("/session/run-shortcircuit", headers=auth("nope")).status_code == 404
+    )
+
+
 def test_open_unknown_share_is_404(client):
     assert client.post("/share/does-not-exist").status_code == 404
 

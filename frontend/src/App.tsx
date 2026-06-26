@@ -5,6 +5,7 @@ import {
   Group,
   Menu,
   Paper,
+  SegmentedControl,
   Text,
   Title,
   useMantineColorScheme,
@@ -28,6 +29,7 @@ import {
   importPandapower,
   openShare,
   runLoadFlow,
+  runShortCircuit,
   shareSession,
 } from "./api";
 
@@ -42,6 +44,7 @@ const isMac =
 // + Shift to redo and Ctrl/⌘+Y).
 const UNDO_HINT = isMac ? "⌘Z" : "Ctrl+Z";
 const REDO_HINT = isMac ? "⇧⌘Z" : "Ctrl+Y";
+const FIND_HINT = isMac ? "⌘F" : "Ctrl+F";
 
 const PANELS = {
   left: { key: "bamboogrid:leftW", default: 220, min: 160, max: 460 },
@@ -126,6 +129,9 @@ export default function App() {
   const {
     networkName,
     applyResults,
+    applyShortCircuit,
+    studyMode,
+    setStudyMode,
     showResults,
     setShowResults,
     voltageUnit,
@@ -137,6 +143,7 @@ export default function App() {
     canRedo,
     undo,
     redo,
+    setSearchOpen,
   } = useEditor();
   const [busy, setBusy] = useState(false);
   // React Flow's d3-zoom handlers stop pointer events from reaching the
@@ -304,8 +311,11 @@ export default function App() {
     setBusy(true);
     try {
       await flushPending();
-      const result = await runLoadFlow(sessionId);
-      applyResults(result);
+      if (studyMode === "shortcircuit") {
+        applyShortCircuit(await runShortCircuit(sessionId));
+      } else {
+        applyResults(await runLoadFlow(sessionId));
+      }
     } catch (err) {
       toast.error(`Request failed: ${(err as Error).message}`);
     } finally {
@@ -386,6 +396,13 @@ export default function App() {
                   rightSection={hotkey(REDO_HINT)}
                 >
                   Redo
+                </Menu.Item>
+                <Menu.Divider />
+                <Menu.Item
+                  onClick={() => setSearchOpen(true)}
+                  rightSection={hotkey(FIND_HINT)}
+                >
+                  Find…
                 </Menu.Item>
               </Menu.Dropdown>
             </Menu>
@@ -470,8 +487,17 @@ export default function App() {
               style={{ display: "none" }}
               onChange={onImportFile}
             />
+            <SegmentedControl
+              size="xs"
+              value={studyMode}
+              onChange={(v) => setStudyMode(v as typeof studyMode)}
+              data={[
+                { label: "Load flow", value: "loadflow" },
+                { label: "Short circuit", value: "shortcircuit" },
+              ]}
+            />
             <Button size="xs" onClick={onRun} loading={busy}>
-              Run load flow
+              Run
             </Button>
           </Group>
         </Group>

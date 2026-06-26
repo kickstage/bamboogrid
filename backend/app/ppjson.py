@@ -298,6 +298,16 @@ def net_to_network(net) -> Network:
         value = lay[key]
         return str(value) if isinstance(value, str) else ""
 
+    def _num(table, idx, key: str, default: float) -> float:
+        """An optional numeric column, defaulted when absent or NaN (e.g. the SC
+        machine data a plain pandapower import doesn't carry)."""
+        if key not in table.columns:
+            return default
+        value = table.at[idx, key]
+        if value is None or pd.isna(value):
+            return default
+        return float(value)
+
     # Buses, building the pandapower-index -> our-uuid map for the references.
     bus_uuid: dict[int, str] = {}
     buses: list[Bus] = []
@@ -329,6 +339,9 @@ def net_to_network(net) -> Network:
                 vm_pu=float(net.gen.at[j, "vm_pu"]),
                 slack=bool(net.gen.at[j, "slack"]),
                 slack_weight=float(net.gen.at[j, "slack_weight"]),
+                sn_mva=_num(net.gen, j, "sn_mva", 1.0),
+                xdss_pu=_num(net.gen, j, "xdss_pu", 0.2),
+                cos_phi=_num(net.gen, j, "cos_phi", 0.8),
                 port=_col(lay, "port"),
                 x=_pos(lay, "gen", j)[0],
                 y=_pos(lay, "gen", j)[1],
@@ -364,6 +377,8 @@ def net_to_network(net) -> Network:
                 bus_id=bus_uuid[int(net.ext_grid.at[j, "bus"])],
                 vm_pu=float(net.ext_grid.at[j, "vm_pu"]),
                 va_degree=float(va) if va is not None else 0.0,
+                s_sc_max_mva=_num(net.ext_grid, j, "s_sc_max_mva", 1000.0),
+                rx_max=_num(net.ext_grid, j, "rx_max", 0.1),
                 port=_col(lay, "port"),
                 x=_pos(lay, "ext_grid", j)[0],
                 y=_pos(lay, "ext_grid", j)[1],

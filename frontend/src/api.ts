@@ -2,6 +2,7 @@ import type {
   Command,
   LoadFlowResult,
   NetworkSummary,
+  ShortCircuitResult,
   ViewModel,
 } from "./types";
 
@@ -110,6 +111,16 @@ export async function openShare(token: string): Promise<SessionInfo> {
 export async function runLoadFlow(id: string): Promise<LoadFlowResult> {
   return json(
     await fetch(`${BASE}/session/run-loadflow`, {
+      method: "POST",
+      headers: { [SESSION_HEADER]: id },
+    }),
+  );
+}
+
+// Run an IEC 60909 3-phase (max) short circuit; results are keyed by bus id.
+export async function runShortCircuit(id: string): Promise<ShortCircuitResult> {
+  return json(
+    await fetch(`${BASE}/session/run-shortcircuit`, {
       method: "POST",
       headers: { [SESSION_HEADER]: id },
     }),

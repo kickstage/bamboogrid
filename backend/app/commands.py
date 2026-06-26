@@ -122,6 +122,8 @@ def _add_element(net, p: dict) -> None:
     bus = _index_of(net, "bus", p["bus_id"])
     name = d.get("name", kind)
     if kind == "generator":
+        # Rated voltage follows the connected bus so the machine impedance is
+        # referenced correctly for the short-circuit calc.
         idx = pp.create_gen(
             net,
             bus=bus,
@@ -130,12 +132,22 @@ def _add_element(net, p: dict) -> None:
             name=name,
             slack=d.get("slack", False),
             slack_weight=d.get("slack_weight", 1.0),
+            sn_mva=d.get("sn_mva", 1.0),
+            vn_kv=float(net.bus.at[bus, "vn_kv"]),
+            xdss_pu=d.get("xdss_pu", 0.2),
+            cos_phi=d.get("cos_phi", 0.8),
         )
     elif kind == "sgen":
         idx = pp.create_sgen(net, bus=bus, p_mw=d["p_mw"], q_mvar=d["q_mvar"], name=name)
     elif kind == "extgrid":
         idx = pp.create_ext_grid(
-            net, bus=bus, vm_pu=d["vm_pu"], va_degree=d["va_degree"], name=name
+            net,
+            bus=bus,
+            vm_pu=d["vm_pu"],
+            va_degree=d["va_degree"],
+            name=name,
+            s_sc_max_mva=d.get("s_sc_max_mva", 1000.0),
+            rx_max=d.get("rx_max", 0.1),
         )
     elif kind == "load":
         idx = pp.create_load(net, bus=bus, p_mw=d["p_mw"], q_mvar=d["q_mvar"], name=name)

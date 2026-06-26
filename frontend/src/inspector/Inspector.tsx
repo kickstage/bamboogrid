@@ -19,10 +19,12 @@ import {
   trafo3wNames,
 } from "../trafo";
 import {
+  FaultCurrentLegend,
   HEADERS,
   ResultList,
   VoltageLegend,
   busInjectionRows,
+  busScRows,
   nodeResultRows,
   type ResultRow,
 } from "./results";
@@ -48,6 +50,7 @@ export function Inspector() {
     selectedEdgeId,
     updateNodeData,
     updateEdgeData,
+    studyMode,
   } = useEditor();
   const node = nodes.find((n) => n.id === selectedId);
   const lineEdge = edges.find((e) => e.id === selectedEdgeId && e.type === "line");
@@ -199,6 +202,33 @@ export function Inspector() {
               onChange={(v) => update({ slack_weight: Number(v) || 0 })}
             />
           )}
+          <Divider my={4} label="Short-circuit" labelPosition="left" />
+          <NumberInput
+            label="Rated power (MVA)"
+            value={(node.data as GeneratorData).sn_mva}
+            min={0}
+            step={0.1}
+            decimalScale={3}
+            onChange={(v) => update({ sn_mva: Number(v) || 0 })}
+          />
+          <NumberInput
+            label="Subtransient reactance (p.u.)"
+            description="xdss″ — drives the machine's fault contribution"
+            value={(node.data as GeneratorData).xdss_pu}
+            min={0}
+            step={0.01}
+            decimalScale={4}
+            onChange={(v) => update({ xdss_pu: Number(v) || 0 })}
+          />
+          <NumberInput
+            label="Power factor (cos φ)"
+            value={(node.data as GeneratorData).cos_phi}
+            min={0}
+            max={1}
+            step={0.01}
+            decimalScale={3}
+            onChange={(v) => update({ cos_phi: Number(v) || 0 })}
+          />
         </>
       )}
 
@@ -241,6 +271,24 @@ export function Inspector() {
           <Text size="xs" c="dimmed">
             Always a slack (voltage reference) that balances the network.
           </Text>
+          <Divider my={4} label="Short-circuit" labelPosition="left" />
+          <NumberInput
+            label="Fault level (MVA)"
+            description="Max short-circuit power at this connection"
+            value={(node.data as ExtGridData).s_sc_max_mva}
+            min={0}
+            step={10}
+            decimalScale={2}
+            onChange={(v) => update({ s_sc_max_mva: Number(v) || 0 })}
+          />
+          <NumberInput
+            label="R/X ratio (max)"
+            value={(node.data as ExtGridData).rx_max}
+            min={0}
+            step={0.01}
+            decimalScale={4}
+            onChange={(v) => update({ rx_max: Number(v) || 0 })}
+          />
         </>
       )}
 
@@ -412,9 +460,13 @@ export function Inspector() {
       />
 
       {node.type === "bus" && (
+        <ResultList label="Short-circuit result" rows={busScRows(bus!)} />
+      )}
+
+      {node.type === "bus" && (
         <>
           <Divider my="xs" />
-          <VoltageLegend />
+          {studyMode === "shortcircuit" ? <FaultCurrentLegend /> : <VoltageLegend />}
         </>
       )}
     </Stack>

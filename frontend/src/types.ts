@@ -20,6 +20,11 @@ export type BusData = {
   // Filled in after a load flow.
   vm_pu?: number;
   va_degree?: number;
+  // Filled in after a short circuit (initial symmetrical fault current etc.).
+  ikss_ka?: number;
+  ip_ka?: number;
+  ith_ka?: number;
+  skss_mw?: number;
 };
 
 export type GeneratorData = {
@@ -28,6 +33,10 @@ export type GeneratorData = {
   vm_pu: number;
   slack: boolean;
   slack_weight: number;
+  // Short-circuit (IEC 60909) machine data.
+  sn_mva: number;
+  xdss_pu: number;
+  cos_phi: number;
   // Filled in after a load flow (reactive power is solved).
   res_p_mw?: number;
   res_q_mvar?: number;
@@ -46,6 +55,9 @@ export type ExtGridData = {
   name: string;
   vm_pu: number;
   va_degree: number;
+  // Short-circuit (IEC 60909) source data.
+  s_sc_max_mva: number;
+  rx_max: number;
   // Filled in after a load flow (the slack's balancing P/Q is solved).
   res_p_mw?: number;
   res_q_mvar?: number;
@@ -193,6 +205,9 @@ export interface Generator {
   vm_pu: number;
   slack: boolean;
   slack_weight: number;
+  sn_mva: number;
+  xdss_pu: number;
+  cos_phi: number;
   port?: string;
   x: number;
   y: number;
@@ -217,6 +232,8 @@ export interface ExtGrid {
   bus_id: string;
   vm_pu: number;
   va_degree: number;
+  s_sc_max_mva: number;
+  rx_max: number;
   port?: string;
   x: number;
   y: number;
@@ -443,4 +460,18 @@ export interface LoadFlowResult {
     q_mvar: number | null;
     i_ka: number | null;
   }[];
+}
+
+export interface BusScResult {
+  id: string;
+  ikss_ka: number | null;
+  skss_mw: number | null;
+  ip_ka: number | null;
+  ith_ka: number | null;
+}
+
+export interface ShortCircuitResult {
+  ok: boolean;
+  message: string;
+  res_bus: BusScResult[];
 }
