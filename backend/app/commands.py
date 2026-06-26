@@ -174,6 +174,7 @@ def _add_line(net, p: dict) -> None:
             "y": 0.0,
             "port_from": p.get("port_from", ""),
             "port_to": p.get("port_to", ""),
+            "waypoint_json": _waypoint_json(p.get("waypoint")),
         },
     )
 

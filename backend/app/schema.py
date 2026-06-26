@@ -259,6 +259,8 @@ class Line(BaseModel):
     # Which bus port each end attaches to (handle ids, visual only).
     port_from: str = ""
     port_to: str = ""
+    # Optional routing waypoint for the edge (visual only).
+    waypoint: Point | None = None
     # An edge has no body; x/y are kept only so the layout round-trips uniformly.
     x: float = 0.0
     y: float = 0.0

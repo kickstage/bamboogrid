@@ -686,9 +686,18 @@ export const useEditor = create<EditorState>((set, get) => ({
           : e,
       ),
     }));
-    // Waypoints on element wires persist (stored on the component's layout); a
-    // line edge's waypoint is purely visual and stays client-side.
-    if (!edge || edge.type !== "wire") return;
+    if (!edge) return;
+    // A line edge stores its waypoint on the line's own layout row; an element
+    // wire stores it on the attached component's layout.
+    if (edge.type === "line") {
+      if (serverIds.has(edge.id))
+        enqueue({
+          op: "set_layout",
+          payload: { id: edge.id, kind: "line", waypoint: point },
+        });
+      return;
+    }
+    if (edge.type !== "wire") return;
     const source = get().nodes.find((n) => n.id === edge.source);
     if (source?.type && source.type !== "foreign" && serverIds.has(source.id))
       enqueue({
@@ -1001,6 +1010,7 @@ export const useEditor = create<EditorState>((set, get) => ({
           c_nf_per_km: l.c_nf_per_km,
           max_i_ka: l.max_i_ka,
           std_type: l.std_type,
+          waypoint: l.waypoint ?? undefined,
         } satisfies LineData,
       });
     }

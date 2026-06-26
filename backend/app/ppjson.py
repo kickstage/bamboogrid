@@ -237,6 +237,7 @@ def ensure_diagram_tables(net) -> None:
                     "y": _xy("line", i)[1],
                     "port_from": "",
                     "port_to": "",
+                    "waypoint_json": "",
                 }
                 for i in net.line.index
             ],
@@ -483,6 +484,7 @@ def net_to_network(net) -> Network:
                 max_i_ka=float(net.line.at[k, "max_i_ka"]),
                 port_from=_col(lay, "port_from"),
                 port_to=_col(lay, "port_to"),
+                waypoint=_parse_waypoint(lay.get("waypoint_json")) if lay is not None else None,
                 x=_pos(lay, "line", k)[0],
                 y=_pos(lay, "line", k)[1],
             )

@@ -285,6 +285,7 @@ export interface Line {
   std_type: string;
   port_from?: string;
   port_to?: string;
+  waypoint?: { x: number; y: number } | null;
   x: number;
   y: number;
 }
