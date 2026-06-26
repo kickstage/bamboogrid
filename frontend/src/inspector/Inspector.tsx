@@ -11,6 +11,12 @@ import {
 } from "@mantine/core";
 import { useEditor } from "../store";
 import { fixed } from "../format";
+import {
+  busInjection,
+  phaseAngleDeg,
+  powerFactor,
+  type BusInjection,
+} from "../power";
 import type {
   BusData,
   ExtGridData,
@@ -147,6 +153,25 @@ function nodeResultRows(type: string | undefined, data: unknown): ResultRow[] {
   return [];
 }
 
+// Derived figures for a solved bus from its net injection: the P/Q the bus
+// pushes into the network, and the power factor and power-factor angle they
+// imply.
+function busInjectionRows(inj: BusInjection): ResultRow[] {
+  const { p_mw, q_mvar } = inj;
+  const pf = powerFactor(p_mw, q_mvar);
+  return [
+    ["P injection", `${fixed(p_mw, 4)} MW`],
+    ["Q injection", `${fixed(q_mvar, 4)} Mvar`],
+    [
+      "Power factor",
+      pf.sense === "unity"
+        ? fixed(pf.value, 3)
+        : `${fixed(pf.value, 3)} ${pf.sense}`,
+    ],
+    ["Phase angle", `${fixed(phaseAngleDeg(p_mw, q_mvar), 1)}°`],
+  ];
+}
+
 export function Inspector() {
   const {
     nodes,
@@ -226,6 +251,12 @@ export function Inspector() {
 
   const update = (patch: Record<string, unknown>) =>
     updateNodeData(node.id, patch as never);
+
+  // Net injection at a solved bus, summed from the elements wired to it. Powers
+  // the P/Q figures and the power-factor tools below.
+  const bus = node.type === "bus" ? (node.data as BusData) : null;
+  const inj =
+    bus && bus.vm_pu !== undefined ? busInjection(node.id, nodes, edges) : null;
 
   return (
     <Stack gap="sm" p="sm">
@@ -437,8 +468,12 @@ export function Inspector() {
         </>
       )}
 
-      <ResultList rows={nodeResultRows(node.type, node.data)} />
-
+      <ResultList
+        rows={[
+          ...nodeResultRows(node.type, node.data),
+          ...(inj ? busInjectionRows(inj) : []),
+        ]}
+      />
 
       <Divider my="xs" />
       <Button color="red" variant="light" size="xs" onClick={() => removeNode(node.id)}>

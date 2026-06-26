@@ -1,5 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Button, Paper, Stack, Text, useComputedColorScheme } from "@mantine/core";
+import {
+  Button,
+  Modal,
+  Paper,
+  Stack,
+  Text,
+  useComputedColorScheme,
+} from "@mantine/core";
 import {
   Background,
   ConnectionMode,
@@ -16,6 +23,10 @@ import "@xyflow/react/dist/style.css";
 import { edgeTypes } from "../edges";
 import { nodeTypes } from "../nodes";
 import { useEditor } from "../store";
+import { busInjection, type BusInjection } from "../power";
+import { PowerTriangle } from "../diagrams/PowerTriangle";
+import { Waveforms } from "../diagrams/Waveforms";
+import { BusGraphMenu, type BusGraphKind } from "./BusGraphMenu";
 import type { BusData, ElementKind } from "../types";
 
 // The "add connection" menu shown after a bus → bus drag: the user explicitly
@@ -75,6 +86,20 @@ export function Canvas() {
   // connect-end (which carries the drop position).
   const pendingConn = useRef<Connection | null>(null);
   const [menu, setMenu] = useState<BranchMenu | null>(null);
+  // Right-click-a-bus graph menu, and the diagram it opens.
+  const [busMenu, setBusMenu] = useState<{ x: number; y: number; busId: string } | null>(
+    null,
+  );
+  const [graph, setGraph] = useState<{ kind: BusGraphKind; inj: BusInjection } | null>(
+    null,
+  );
+  // Only graph a bus once a load flow has solved it (vm_pu set); before that the
+  // injection would be built from inputs alone and the diagrams would mislead.
+  const busSolved =
+    busMenu !== null &&
+    (nodes.find((n) => n.id === busMenu.busId)?.data as BusData | undefined)
+      ?.vm_pu !== undefined;
+  const busMenuInj = busSolved ? busInjection(busMenu!.busId, nodes, edges) : null;
 
   // After a network is loaded (import / open), bring it into view.
   useEffect(() => {
@@ -83,13 +108,17 @@ export function Canvas() {
     return () => clearTimeout(t);
   }, [fitSignal, fitView]);
 
-  // Close the menu on Escape.
+  // Close the open floating menus on Escape.
   useEffect(() => {
-    if (!menu) return;
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setMenu(null);
+    if (!menu && !busMenu) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      setMenu(null);
+      setBusMenu(null);
+    };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [menu]);
+  }, [menu, busMenu]);
 
   const onDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -211,7 +240,12 @@ export function Canvas() {
   );
 
   return (
-    <div style={{ width: "100%", height: "100%", position: "relative" }}>
+    <div
+      style={{ width: "100%", height: "100%", position: "relative" }}
+      // Suppress the native context menu canvas-wide; only the bus right-click
+      // menu (opened via onNodeContextMenu) should appear.
+      onContextMenu={(e) => e.preventDefault()}
+    >
       <ReactFlow
         nodes={nodes}
         edges={edges}
@@ -226,6 +260,12 @@ export function Canvas() {
         onDrop={onDrop}
         onDragOver={onDragOver}
         onNodeClick={(_, node: Node) => select(node.id)}
+        onNodeContextMenu={(e, node: Node) => {
+          if (node.type !== "bus") return;
+          e.preventDefault();
+          setMenu(null);
+          setBusMenu({ x: e.clientX, y: e.clientY, busId: node.id });
+        }}
         onEdgeClick={(_, edge: Edge) =>
           edge.type === "line" ? selectEdge(edge.id) : select(null)
         }
@@ -277,6 +317,33 @@ export function Canvas() {
           </Paper>
         </>
       )}
+
+      {busMenu && (
+        <BusGraphMenu
+          x={busMenu.x}
+          y={busMenu.y}
+          hasInjection={busMenuInj !== null}
+          onPick={(kind) => {
+            if (busMenuInj) setGraph({ kind, inj: busMenuInj });
+            setBusMenu(null);
+          }}
+          onClose={() => setBusMenu(null)}
+        />
+      )}
+
+      <Modal
+        opened={graph !== null}
+        onClose={() => setGraph(null)}
+        centered
+        title={graph?.kind === "waves" ? "Voltage / current waveform" : "Power triangle"}
+      >
+        {graph?.kind === "triangle" && (
+          <PowerTriangle p={graph.inj.p_mw} q={graph.inj.q_mvar} />
+        )}
+        {graph?.kind === "waves" && (
+          <Waveforms p={graph.inj.p_mw} q={graph.inj.q_mvar} />
+        )}
+      </Modal>
     </div>
   );
 }
