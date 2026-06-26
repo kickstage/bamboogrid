@@ -4,9 +4,11 @@ A web-based editor for building power networks and running load-flow (power-flow
 calculations with [pandapower](https://pandapower.org).
 
 You drag elements onto a canvas, wire them together, set their parameters, and
-run a load flow. The network is the editor's own JSON document; a pandapower
-network is built from it on demand to solve. The long-term aim is to also export
-to a pandapower DataFrame and to CGMES.
+run a load flow. Each editing session is backed by a **pandapower network kept on
+the server** as the source of truth; the browser holds only a projection of it
+(the modeled elements, their layout, and read-only placeholders for elements the
+editor doesn't model yet) and edits it through commands. The long-term aim is to
+also export to CGMES.
 
 > **Status.** The editor supports **buses**, three source types (**external
 > grid**/slack, **generator**, **static generator**), **loads**, bus–bus
@@ -35,14 +37,15 @@ progressively richer networks you can import and solve.
 
 ```
 bamboogrid/
-  backend/    FastAPI + pandapower: schema, JSON→pandapower converter, load-flow API
+  backend/    FastAPI + pandapower: session store, projection, command + load-flow API
   frontend/   Vite + React + TypeScript: React Flow canvas, palette, inspector
 ```
 
-The **editor JSON document is the source of truth.** The backend builds a
-pandapower `net` from it only when it needs to solve, and never persists
-pandapower's own format as primary. This keeps the door open for a CGMES exporter
-later that reads the same JSON.
+The **server-side pandapower `net` is the source of truth**, held per session and
+persisted in SQLite. The browser never holds the full net: it receives a
+projection (modeled elements + layout + read-only foreign elements) and mutates
+the authoritative net through commands. Elements and attributes the editor
+doesn't model yet are therefore preserved and still influence the solve.
 
 ## Prerequisites
 
@@ -81,8 +84,8 @@ npm run dev
 ```
 
 Open <http://localhost:5173>. The frontend calls the API on its own origin
-(relative paths); in dev, Vite proxies `/run-loadflow`, `/export`, `/import` and
-`/health` to `http://localhost:8000` (see `frontend/vite.config.ts`).
+(relative paths); in dev, Vite proxies `/session`, `/share` and `/health` to
+`http://localhost:8000` (see `frontend/vite.config.ts`).
 
 Type-check / production build:
 
@@ -147,6 +150,9 @@ helm install bamboogrid deploy/helm/bamboogrid \
    JSON (a valid pandapower net plus `diagram_*` layout tables); *Import* loads a
    pandapower JSON back — either one we exported, or a plain pandapower net
    (which gets an automatic layout).
+6. **Share** — *Share* copies a short link; opening it gives the recipient an
+   editable **copy** (a fresh session), so the original is never modified. Your
+   work is saved to its server session and restored on reload.
 
 Delete elements or wires with **Backspace/Delete**, or via the inspector's
 **Delete element** button / the **×** that appears on a selected wire. Toggle

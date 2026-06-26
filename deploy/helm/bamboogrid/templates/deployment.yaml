@@ -30,6 +30,13 @@ spec:
             - name: http
               containerPort: 8000
               protocol: TCP
+          env:
+            - name: BG_SESSION_DIR
+              value: /data
+            {{- if .Values.session.ttlSeconds }}
+            - name: BG_SESSION_TTL_S
+              value: {{ .Values.session.ttlSeconds | quote }}
+            {{- end }}
           livenessProbe:
             httpGet:
               path: /health
@@ -47,9 +54,18 @@ spec:
           volumeMounts:
             - name: tmp
               mountPath: /tmp
+            - name: data
+              mountPath: /data
       volumes:
         - name: tmp
           emptyDir: {}
+        - name: data
+          {{- if .Values.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "bamboogrid.fullname" . }}-data
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

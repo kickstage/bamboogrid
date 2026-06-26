@@ -1,18 +1,28 @@
-"""FastAPI app: load-flow + pandapower JSON import/export."""
+"""FastAPI app: per-user sessions holding the authoritative pandapower net.
+
+The browser never holds the full net — it creates a session, receives a
+projection (modeled elements + read-only foreign elements + layout), and edits
+through commands. Load flow runs on the retained net, so elements/attributes the
+editor doesn't model still influence the result.
+"""
 
 from __future__ import annotations
 
 import os
 
-from fastapi import FastAPI, HTTPException, Request, Response
+import pandapower as pp
+from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from .converter import run_load_flow
-from .ppjson import NetworkTooLargeError, network_to_pp_json, pp_json_to_network
-from .schema import LoadFlowResult, Network
+from .commands import CommandError, apply_commands
+from .ppjson import MAX_IMPORT_BUSES
+from .projection import net_to_view
+from .schema import Command, LoadFlowResult, SessionInfo, ViewModel
+from .session import Session, store
+from .solve import solve_net
 
-app = FastAPI(title="BambooGrid API", version="0.1.0")
+app = FastAPI(title="BambooGrid API", version="0.2.0")
 
 # Vite dev server origins.
 app.add_middleware(
@@ -26,43 +36,109 @@ app.add_middleware(
 )
 
 
+def current_session(x_session_id: str = Header(..., alias="X-Session-Id")) -> Session:
+    """Resolve the session from the ``X-Session-Id`` header (its bearer token).
+
+    The id is held by the browser, not embedded in each URL."""
+    try:
+        return store.get(x_session_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Session not found.")
+
+
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
-@app.post("/run-loadflow", response_model=LoadFlowResult)
-def run_loadflow(network: Network) -> LoadFlowResult:
-    """Run a load flow on the posted network document."""
-    return run_load_flow(network)
+@app.post("/session", response_model=SessionInfo)
+def create_session() -> SessionInfo:
+    """Start an empty session and return its id plus the (empty) projection."""
+    session = store.create()
+    with session.lock:
+        return SessionInfo(id=session.id, view=net_to_view(session.net))
 
 
-@app.post("/export/pandapower")
-def export_pandapower(network: Network) -> Response:
-    """Serialize the posted network to a single pandapower JSON (electrical net
-    + diagram_* layout tables)."""
-    return Response(
-        content=network_to_pp_json(network), media_type="application/json"
-    )
+@app.get("/session", response_model=ViewModel)
+def get_session(session: Session = Depends(current_session)) -> ViewModel:
+    """The current projection — used to (re)hydrate the editor on load/refresh."""
+    with session.lock:
+        return net_to_view(session.net)
 
 
-@app.post("/import/pandapower", response_model=Network)
-async def import_pandapower(request: Request) -> Network:
-    """Reconstruct the editor network from an uploaded pandapower JSON.
+@app.post("/session/commands")
+def post_commands(
+    commands: list[Command], session: Session = Depends(current_session)
+) -> dict[str, bool]:
+    """Apply a batch of edits to the session's authoritative net."""
+    with session.lock:
+        try:
+            apply_commands(session.net, commands)
+        except CommandError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        store.snapshot(session)
+    return {"ok": True}
 
-    The body is the raw pandapower JSON file (arbitrary structure), so it's read
-    directly rather than validated as a Network.
-    """
+
+@app.post("/session/share")
+def share_session(session: Session = Depends(current_session)) -> dict[str, str]:
+    """Mint (or reuse) a short token for this session. Opening it clones the
+    session, so a recipient edits their own copy rather than this one."""
+    return {"token": store.create_share(session.id)}
+
+
+@app.post("/share/{token}", response_model=SessionInfo)
+def open_share(token: str) -> SessionInfo:
+    """Clone the shared session into a fresh, independent session."""
+    try:
+        session = store.clone_from_share(token)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Share link not found or expired.")
+    with session.lock:
+        return SessionInfo(id=session.id, view=net_to_view(session.net))
+
+
+@app.post("/session/run-loadflow", response_model=LoadFlowResult)
+def run_loadflow(session: Session = Depends(current_session)) -> LoadFlowResult:
+    """Run a load flow on the retained net and return results keyed by editor id."""
+    with session.lock:
+        return solve_net(session.net)
+
+
+@app.post("/session/import", response_model=ViewModel)
+async def import_pandapower(
+    request: Request, session: Session = Depends(current_session)
+) -> ViewModel:
+    """Replace the session's net with an uploaded pandapower JSON (ours or a plain
+    pandapower net). The full net — including elements/columns we don't model — is
+    retained server-side; the browser gets only the projection."""
     raw = (await request.body()).decode("utf-8")
     try:
-        return pp_json_to_network(raw)
-    except NetworkTooLargeError as exc:
-        # 413: the file parsed fine, it's just over the supported size.
-        raise HTTPException(status_code=413, detail=str(exc))
-    except Exception as exc:  # noqa: BLE001 - report parse/convert failures
+        net = pp.from_json_string(raw)
+    except Exception as exc:  # noqa: BLE001 - report parse failures
         raise HTTPException(
             status_code=400, detail=f"Could not import pandapower JSON: {exc}"
         )
+    if len(net.bus) > MAX_IMPORT_BUSES:
+        raise HTTPException(
+            status_code=413,
+            detail=(
+                f"This network has {len(net.bus)} buses, but the import limit is "
+                f"{MAX_IMPORT_BUSES}. Larger networks are disabled for now to keep "
+                "the editor responsive."
+            ),
+        )
+    with session.lock:
+        store.replace_net(session, net, net.name or "Imported network")
+        return net_to_view(session.net)
+
+
+@app.get("/session/export")
+def export_pandapower(session: Session = Depends(current_session)) -> Response:
+    """Serialize the retained net to pandapower JSON (a valid net plus diagram_*
+    layout tables) for download — lossless, since it is the authoritative net."""
+    with session.lock:
+        return Response(content=pp.to_json(session.net), media_type="application/json")
 
 
 # Serve the built SPA (same origin as the API). Mounted last so the API routes

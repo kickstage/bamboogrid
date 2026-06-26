@@ -20,6 +20,7 @@ import {
 import type {
   BusData,
   ExtGridData,
+  ForeignData,
   GeneratorData,
   LineData,
   LoadData,
@@ -232,6 +233,29 @@ export function Inspector() {
         <Button color="red" variant="light" size="xs" onClick={() => removeEdge(lineEdge.id)}>
           Delete line
         </Button>
+      </Stack>
+    );
+  }
+
+  if (node?.type === "foreign") {
+    const d = node.data as ForeignData;
+    return (
+      <Stack gap="sm" p="sm">
+        <Text size="sm" fw={700} c="dimmed">
+          {d.table.toUpperCase()}
+        </Text>
+        <Text size="sm">{d.label}</Text>
+        <Text size="xs" c="dimmed">
+          This pandapower element type isn't editable in the diagram yet. It stays
+          on the network and is included in the load flow; edit it in pandapower
+          or re-import to change it.
+        </Text>
+        {d.bus_ids.length > 0 && (
+          <Text size="xs" c="dimmed">
+            Connected to {d.bus_ids.length} bus
+            {d.bus_ids.length === 1 ? "" : "es"}.
+          </Text>
+        )}
       </Stack>
     );
   }

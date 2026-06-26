@@ -1,6 +1,7 @@
 # Python
 backend/.venv/
 backend/data/
+backend/.sessions/
 __pycache__/
 *.egg-info/
 .pytest_cache/

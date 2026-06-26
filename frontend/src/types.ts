@@ -146,6 +146,15 @@ export type ShuntData = {
   res_q_mvar?: number;
 };
 
+// Read-only canvas node for an element the editor doesn't model (see
+// ForeignNode / ForeignElement). Part of the node-data union so these render as
+// regular React Flow nodes.
+export type ForeignData = {
+  table: string;
+  label: string;
+  bus_ids: string[];
+};
+
 export type ElementData =
   | BusData
   | GeneratorData
@@ -155,7 +164,8 @@ export type ElementData =
   | ShuntData
   | SwitchData
   | Trafo2WData
-  | Trafo3WData;
+  | Trafo3WData
+  | ForeignData;
 
 // --- Backend network document ---------------------------------------------
 
@@ -305,6 +315,31 @@ export interface Network {
   transformers3w: Transformer3W[];
   lines: Line[];
   shunts: Shunt[];
+}
+
+// A pandapower element the editor doesn't model yet, surfaced read-only on the
+// canvas. The full element stays on the server net.
+export interface ForeignElement {
+  id: string;
+  table: string;
+  name: string;
+  bus_ids: string[];
+  x: number;
+  y: number;
+}
+
+// The session projection a browser receives: the editable modeled network plus
+// read-only foreign elements. The authoritative pandapower net stays server-side.
+export interface ViewModel {
+  network: Network;
+  foreign: ForeignElement[];
+}
+
+// A single edit applied to the session's net. `op` selects the server handler;
+// `payload` carries op-specific fields (see backend commands.py).
+export interface Command {
+  op: string;
+  payload: Record<string, unknown>;
 }
 
 export interface LoadFlowResult {

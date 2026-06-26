@@ -1,19 +1,21 @@
-"""Serialize an editor :class:`Network` to a single pandapower JSON that also
-carries the diagram layout, and read it back.
+"""Project a pandapower net to the editor model, and attach the diagram layout
+tables an editor session needs.
 
-The file is a 100% valid pandapower net (``pp.to_json``): the electrical model
-lives in the standard tables (``bus``, ``ext_grid``, ``load``), and the diagram
-layout lives in separate custom tables with a ``diagram_`` prefix:
+A session net is a 100% valid pandapower net (``pp.to_json``): the electrical
+model lives in the standard tables (``bus``, ``ext_grid``, ``load``, …), and the
+diagram layout lives in separate custom tables with a ``diagram_`` prefix:
 
   * ``diagram_bus``      — per-bus ``uuid, x, y, width``
-  * ``diagram_ext_grid`` — per-generator ``uuid, x, y, waypoint_json``
-  * ``diagram_load``     — per-load ``uuid, x, y, waypoint_json``
+  * ``diagram_gen`` etc. — per-component ``uuid, x, y, port, waypoint_json``
   * ``diagram_meta``     — one row of document metadata
 
 These extra tables are isolated from the core frames (so we never touch
 pandapower's schemas), are ignored by the solver, and round-trip through
 ``to_json``/``from_json``. Coordinates are editor canvas pixels (y-down) — not
 geographic — so they go here, never in pandapower's ``geo`` column.
+
+``ensure_diagram_tables`` adds these tables (with stable uuids) to any net that
+lacks them; ``net_to_network`` projects the modeled subset back to the editor.
 """
 
 from __future__ import annotations
@@ -25,7 +27,6 @@ import pandapower as pp
 import pandas as pd
 
 from .autolayout import auto_layout
-from .converter import build_net
 from .schema import (
     Bus,
     ExtGrid,
@@ -44,10 +45,6 @@ from .schema import (
 )
 
 SCHEMA_VERSION = "bamboogrid/1"
-
-
-def _waypoint_json(point: Point | None) -> str:
-    return json.dumps({"x": point.x, "y": point.y}) if point else ""
 
 
 def _parse_waypoint(value) -> Point | None:
@@ -126,151 +123,136 @@ def _trafo3w_params(row) -> Trafo3WParams:
     )
 
 
-def network_to_pp_json(network: Network) -> str:
-    """Build the pandapower net and attach the diagram_* layout tables."""
-    net, id_maps = build_net(network)
-
-    bus_by_id = {b.id: b for b in network.buses}
-    gen_by_id = {g.id: g for g in network.generators}
-    sgen_by_id = {s.id: s for s in network.sgens}
-    ext_grid_by_id = {e.id: e for e in network.ext_grids}
-    load_by_id = {load.id: load for load in network.loads}
-
-    def _component_rows(by_id, id_map):
-        return pd.DataFrame(
-            [
-                {
-                    "uuid": uid,
-                    "x": by_id[uid].x,
-                    "y": by_id[uid].y,
-                    "port": by_id[uid].port,
-                    "waypoint_json": _waypoint_json(by_id[uid].waypoint),
-                }
-                for uid in id_map
-            ],
-            index=list(id_map.values()),
-        )
-
-    net["diagram_bus"] = pd.DataFrame(
-        [
-            {"uuid": uid, "x": bus_by_id[uid].x, "y": bus_by_id[uid].y, "width": bus_by_id[uid].width}
-            for uid in id_maps["bus"]
-        ],
-        index=list(id_maps["bus"].values()),
-    )
-    net["diagram_gen"] = _component_rows(gen_by_id, id_maps["gen"])
-    net["diagram_sgen"] = _component_rows(sgen_by_id, id_maps["sgen"])
-    net["diagram_ext_grid"] = _component_rows(ext_grid_by_id, id_maps["ext_grid"])
-    net["diagram_load"] = _component_rows(load_by_id, id_maps["load"])
-    switch_by_id = {s.id: s for s in network.switches}
-    net["diagram_switch"] = pd.DataFrame(
-        [
-            {
-                "uuid": uid,
-                "x": switch_by_id[uid].x,
-                "y": switch_by_id[uid].y,
-                "port_a": switch_by_id[uid].port_a,
-                "port_b": switch_by_id[uid].port_b,
-            }
-            for uid in id_maps["switch"]
-        ],
-        index=list(id_maps["switch"].values()),
-    )
-    t2_by_id = {t.id: t for t in network.transformers2w}
-    net["diagram_trafo"] = pd.DataFrame(
-        [
-            {
-                "uuid": uid,
-                "x": t2_by_id[uid].x,
-                "y": t2_by_id[uid].y,
-                "port_hv": t2_by_id[uid].port_hv,
-                "port_lv": t2_by_id[uid].port_lv,
-            }
-            for uid in id_maps["trafo"]
-        ],
-        index=list(id_maps["trafo"].values()),
-    )
-    t3_by_id = {t.id: t for t in network.transformers3w}
-    net["diagram_trafo3w"] = pd.DataFrame(
-        [
-            {
-                "uuid": uid,
-                "x": t3_by_id[uid].x,
-                "y": t3_by_id[uid].y,
-                "port_hv": t3_by_id[uid].port_hv,
-                "port_mv": t3_by_id[uid].port_mv,
-                "port_lv": t3_by_id[uid].port_lv,
-            }
-            for uid in id_maps["trafo3w"]
-        ],
-        index=list(id_maps["trafo3w"].values()),
-    )
-    line_by_id = {ln.id: ln for ln in network.lines}
-    net["diagram_line"] = pd.DataFrame(
-        [
-            {
-                "uuid": uid,
-                "x": line_by_id[uid].x,
-                "y": line_by_id[uid].y,
-                "port_from": line_by_id[uid].port_from,
-                "port_to": line_by_id[uid].port_to,
-            }
-            for uid in id_maps["line"]
-        ],
-        index=list(id_maps["line"].values()),
-    )
-    shunt_by_id = {s.id: s for s in network.shunts}
-    net["diagram_shunt"] = pd.DataFrame(
-        [
-            {"uuid": uid, "x": shunt_by_id[uid].x, "y": shunt_by_id[uid].y,
-             "port": shunt_by_id[uid].port}
-            for uid in id_maps["shunt"]
-        ],
-        index=list(id_maps["shunt"].values()),
-    )
-    net["diagram_meta"] = pd.DataFrame(
-        [
-            {
-                "schema_version": SCHEMA_VERSION,
-                "coordinate_space": "screen-px-y-down",
-                "network_id": network.id,
-                "network_name": network.name,
-            }
-        ]
-    )
-
-    return pp.to_json(net)
-
-
 # Cap imported networks for now: beyond this, both the solver round-trip and
 # the React Flow canvas start to crawl. Lifted once rendering/perf is addressed.
 MAX_IMPORT_BUSES = 100
 
 
-class NetworkTooLargeError(ValueError):
-    """An imported net exceeds the bus limit we currently support."""
+_COMPONENT_DIAGRAMS = ("gen", "sgen", "ext_grid", "load")
 
 
-def pp_json_to_network(raw: str) -> Network:
-    """Reconstruct the editor Network from a pandapower JSON.
+def ensure_diagram_tables(net) -> None:
+    """Attach diagram_* layout tables (carrying a stable ``uuid`` per row) for
+    every modeled element that lacks one, mutating ``net`` in place.
 
-    Works on files we exported (rich diagram tables) and, best-effort, on plain
-    pandapower nets with no diagram_* tables (positions default, ids generated).
-    Buses, gens, sgens, ext_grids, loads, lines, bus-bus switches and
-    transformers are reconstructed; remaining element tables are ignored until
-    supported.
+    Run once when a net becomes session state: commands address elements by their
+    stable uuid, so every modeled row needs one. A foreign net with no layout
+    gets an auto-generated one; our own exports already carry these tables and
+    are left untouched.
     """
-    net = pp.from_json_string(raw)
+    auto = auto_layout(net) if net.get("diagram_bus") is None else None
 
-    # Reject oversized nets early, before the full conversion work.
-    n_buses = len(net.bus)
-    if n_buses > MAX_IMPORT_BUSES:
-        raise NetworkTooLargeError(
-            f"This network has {n_buses} buses, but the import limit is "
-            f"{MAX_IMPORT_BUSES}. Larger networks are disabled for now to keep "
-            "the editor responsive."
+    def _xy(table: str, idx: int) -> tuple[float, float]:
+        return auto.get(table, {}).get(idx, (0.0, 0.0)) if auto else (0.0, 0.0)
+
+    if net.get("diagram_bus") is None and len(net.bus):
+        net["diagram_bus"] = pd.DataFrame(
+            [
+                {
+                    "uuid": uuid.uuid4().hex,
+                    "x": _xy("bus", i)[0],
+                    "y": _xy("bus", i)[1],
+                    "width": 220.0,
+                }
+                for i in net.bus.index
+            ],
+            index=list(net.bus.index),
+        )
+    for table in _COMPONENT_DIAGRAMS:
+        if net.get(f"diagram_{table}") is None and len(net[table]):
+            net[f"diagram_{table}"] = pd.DataFrame(
+                [
+                    {
+                        "uuid": uuid.uuid4().hex,
+                        "x": _xy(table, i)[0],
+                        "y": _xy(table, i)[1],
+                        "port": "",
+                        "waypoint_json": "",
+                    }
+                    for i in net[table].index
+                ],
+                index=list(net[table].index),
+            )
+    if net.get("diagram_shunt") is None and len(net.shunt):
+        net["diagram_shunt"] = pd.DataFrame(
+            [
+                {"uuid": uuid.uuid4().hex, "x": 0.0, "y": 0.0, "port": ""}
+                for _ in net.shunt.index
+            ],
+            index=list(net.shunt.index),
+        )
+    if net.get("diagram_switch") is None and len(net.switch):
+        # Only bus-bus switches are modeled by the editor; other switch types
+        # stay on the net for the solve but get no layout row.
+        rows = [i for i in net.switch.index if net.switch.at[i, "et"] == "b"]
+        if rows:
+            net["diagram_switch"] = pd.DataFrame(
+                [
+                    {
+                        "uuid": uuid.uuid4().hex,
+                        "x": _xy("switch", i)[0],
+                        "y": _xy("switch", i)[1],
+                        "port_a": "",
+                        "port_b": "",
+                    }
+                    for i in rows
+                ],
+                index=rows,
+            )
+    if net.get("diagram_trafo") is None and len(net.trafo):
+        net["diagram_trafo"] = pd.DataFrame(
+            [
+                {
+                    "uuid": uuid.uuid4().hex,
+                    "x": _xy("trafo", i)[0],
+                    "y": _xy("trafo", i)[1],
+                    "port_hv": "",
+                    "port_lv": "",
+                }
+                for i in net.trafo.index
+            ],
+            index=list(net.trafo.index),
+        )
+    if net.get("diagram_trafo3w") is None and len(net.trafo3w):
+        net["diagram_trafo3w"] = pd.DataFrame(
+            [
+                {
+                    "uuid": uuid.uuid4().hex,
+                    "x": _xy("trafo3w", i)[0],
+                    "y": _xy("trafo3w", i)[1],
+                    "port_hv": "",
+                    "port_mv": "",
+                    "port_lv": "",
+                }
+                for i in net.trafo3w.index
+            ],
+            index=list(net.trafo3w.index),
+        )
+    if net.get("diagram_line") is None and len(net.line):
+        net["diagram_line"] = pd.DataFrame(
+            [
+                {
+                    "uuid": uuid.uuid4().hex,
+                    "x": _xy("line", i)[0],
+                    "y": _xy("line", i)[1],
+                    "port_from": "",
+                    "port_to": "",
+                }
+                for i in net.line.index
+            ],
+            index=list(net.line.index),
         )
 
+
+def net_to_network(net) -> Network:
+    """Project a pandapower net to the editor Network (modeled subset + layout).
+
+    Works on nets we prepared (rich diagram tables) and, best-effort, on plain
+    pandapower nets with no diagram_* tables (positions default, ids generated).
+    Buses, gens, sgens, ext_grids, loads, lines, bus-bus switches and
+    transformers are reconstructed; element tables we don't model are surfaced
+    separately as read-only foreign elements (see ``projection.py``).
+    """
     d_bus = net.get("diagram_bus")
     d_gen = net.get("diagram_gen")
     d_sgen = net.get("diagram_sgen")

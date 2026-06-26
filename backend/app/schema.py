@@ -1,8 +1,8 @@
-"""Pydantic schema for the editor's network document.
+"""Pydantic schema for the editor's network model.
 
-This JSON document is the source of truth. The pandapower ``net`` is built on
-demand from it (see ``converter.py``); we never persist pandapower's own format
-as the primary representation.
+This is the projection the browser edits: the server-side pandapower ``net`` is
+the source of truth (see ``session.py``), and ``ppjson.net_to_network`` projects
+its modeled subset into these types.
 
 Buses are nodes; generators, static generators, external grids and loads each
 attach to one bus; switches and transformers tie buses together. A Generator is
@@ -248,9 +248,8 @@ class Line(BaseModel):
     name: str = "Line"
     from_bus: str = ""  # bus on handle "from" ("" while unwired)
     to_bus: str = ""  # bus on handle "to"
-    # No gt=0 here on purpose: an invalid (e.g. zero) length is a thing the user
-    # can draw, and is reported with a line-named message at load-flow time (see
-    # converter.validate) rather than as an opaque 422 from the API boundary.
+    # No gt=0 here on purpose: a user can draw an invalid (e.g. zero) length; it
+    # surfaces at load-flow time rather than as an opaque 422 at the API boundary.
     length_km: float = Field(default=1.0, description="Line length [km]")
     r_ohm_per_km: float = Field(default=0.1, ge=0, description="Resistance [ohm/km]")
     x_ohm_per_km: float = Field(default=0.1, ge=0, description="Reactance [ohm/km]")
@@ -333,3 +332,46 @@ class LoadFlowResult(BaseModel):
     res_trafo: list[TrafoResult] = Field(default_factory=list)
     res_trafo3w: list[TrafoResult] = Field(default_factory=list)
     res_line: list[LineResult] = Field(default_factory=list)
+
+
+# --- Session view model ----------------------------------------------------
+
+
+class ForeignElement(BaseModel):
+    """A pandapower element the editor doesn't model yet (e.g. dcline, impedance,
+    motor, storage). Kept on the authoritative server net for full-fidelity
+    solves and surfaced read-only so the user can see it's there. ``id`` is
+    derived as ``"<table>:<index>"`` and is stable as long as the row exists."""
+
+    id: str
+    table: str
+    name: str = ""
+    bus_ids: list[str] = Field(default_factory=list)
+    x: float = 0.0
+    y: float = 0.0
+
+
+class ViewModel(BaseModel):
+    """What a browser receives for a session: the editable modeled network plus
+    read-only foreign elements. The full pandapower net stays on the server."""
+
+    network: Network
+    foreign: list[ForeignElement] = Field(default_factory=list)
+
+
+class SessionInfo(BaseModel):
+    id: str
+    view: ViewModel
+
+
+# --- Commands (browser -> server edits applied to the authoritative net) ----
+
+
+class Command(BaseModel):
+    """A single edit applied to the session's pandapower net. ``op`` selects the
+    handler in ``commands.py``; ``payload`` carries op-specific fields. Loosely
+    typed on purpose: the editor sends element ``data`` objects whose shape
+    depends on ``op``/``kind``, validated inside the handler."""
+
+    op: str
+    payload: dict = Field(default_factory=dict)

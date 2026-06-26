@@ -17,16 +17,33 @@ import { Canvas } from "./canvas/Canvas";
 import { Inspector } from "./inspector/Inspector";
 import { Palette } from "./palette/Palette";
 import { useEditor } from "./store";
-import { exportPandapower, importPandapower, runLoadFlow } from "./api";
-import { buildShareUrl, clearShareHash, readSharedNetwork } from "./share";
+import { flushPending } from "./sync";
 import {
-  clearSavedNetwork,
-  loadSavedNetwork,
-  startAutosave,
-} from "./persistence";
+  createSession,
+  exportPandapower,
+  getView,
+  importPandapower,
+  openShare,
+  runLoadFlow,
+  shareSession,
+} from "./api";
 
-// Whether a restored/shared network is worth loading (skip an empty canvas).
-const hasContent = (n: { buses: unknown[] }) => n.buses.length > 0;
+// A pointer to the server-side document this browser is editing. The model
+// itself lives on the server; this is just which session to reattach to on
+// reload (also mirrored into the URL so the link can be shared).
+const SESSION_KEY = "bamboogrid:session";
+
+function rememberSession(id: string): void {
+  try {
+    localStorage.setItem(SESSION_KEY, id);
+  } catch {
+    // best-effort
+  }
+  const url = new URL(window.location.href);
+  url.searchParams.delete("s"); // drop any share token we arrived through
+  url.searchParams.set("session", id);
+  window.history.replaceState(null, "", url.toString());
+}
 
 export default function App() {
   const {
@@ -34,12 +51,11 @@ export default function App() {
     setNetworkName,
     setMessage,
     message,
-    toNetwork,
-    loadNetwork,
     applyResults,
     showResults,
     setShowResults,
-    resetNetwork,
+    attachSession,
+    sessionId,
   } = useEditor();
   const [busy, setBusy] = useState(false);
   const ppInputRef = useRef<HTMLInputElement>(null);
@@ -47,40 +63,84 @@ export default function App() {
   const scheme = useComputedColorScheme("light");
   const toggleScheme = () => setColorScheme(scheme === "dark" ? "light" : "dark");
 
-  // On first load: a shared link wins (and is then cleared from the URL),
-  // otherwise restore the autosaved session. Then keep autosaving edits.
+  // On first load, reattach to a session (URL ?session wins, then the last one
+  // used) or start a fresh one.
   useEffect(() => {
-    const shared = readSharedNetwork();
-    if (shared && hasContent(shared)) {
-      loadNetwork(shared);
-      clearShareHash();
-      setMessage("Loaded a shared scenario.");
-    } else {
-      const saved = loadSavedNetwork();
-      if (saved && hasContent(saved)) loadNetwork(saved);
-    }
-    return startAutosave();
+    let cancelled = false;
+    (async () => {
+      const url = new URL(window.location.href);
+      // A share token always wins: clone it into a fresh copy to edit.
+      const shareToken = url.searchParams.get("s");
+      if (shareToken) {
+        try {
+          const { id, view } = await openShare(shareToken);
+          if (cancelled) return;
+          attachSession(id, view);
+          rememberSession(id);
+          setMessage("Opened an editable copy of a shared network.");
+          return;
+        } catch (err) {
+          if (cancelled) return;
+          setMessage(`Could not open shared link: ${(err as Error).message}`);
+          // Fall through to a normal/fresh session.
+        }
+      }
+      const candidate =
+        url.searchParams.get("session") || localStorage.getItem(SESSION_KEY);
+      try {
+        if (candidate) {
+          try {
+            const view = await getView(candidate);
+            if (cancelled) return;
+            attachSession(candidate, view);
+            rememberSession(candidate);
+            return;
+          } catch {
+            // Stale/unknown id — fall through and create a new session.
+          }
+        }
+        const { id, view } = await createSession();
+        if (cancelled) return;
+        attachSession(id, view);
+        rememberSession(id);
+      } catch (err) {
+        if (!cancelled)
+          setMessage(`Could not start session: ${(err as Error).message}`);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Copy a self-contained share link (the whole scenario lives in the URL).
+  // Copy a short share link. Opening it gives the recipient an editable copy of
+  // this network, so they can't change the original.
   const onShare = async () => {
-    const url = buildShareUrl(toNetwork());
+    if (!sessionId) return;
     try {
-      await navigator.clipboard.writeText(url);
-      setMessage("Share link copied to clipboard.");
-    } catch {
-      // Clipboard needs a secure context; fall back to a manual copy prompt.
-      window.prompt("Copy this share link:", url);
+      const token = await shareSession(sessionId);
+      const url = new URL(window.location.origin + window.location.pathname);
+      url.searchParams.set("s", token);
+      const link = url.toString();
+      try {
+        await navigator.clipboard.writeText(link);
+        setMessage("Share link copied — opening it creates an editable copy.");
+      } catch {
+        window.prompt("Copy this share link:", link);
+      }
+    } catch (err) {
+      setMessage(`Could not create share link: ${(err as Error).message}`);
     }
   };
 
-  // Export the current network as a single pandapower JSON (valid net +
-  // diagram_* layout tables) and download it.
+  // Export the retained net as a single pandapower JSON and download it.
   const onExport = async () => {
+    if (!sessionId) return;
     setBusy(true);
     try {
-      const text = await exportPandapower(toNetwork());
+      await flushPending();
+      const text = await exportPandapower(sessionId);
       const url = URL.createObjectURL(new Blob([text], { type: "application/json" }));
       const a = document.createElement("a");
       a.href = url;
@@ -95,15 +155,17 @@ export default function App() {
     }
   };
 
-  // Import a pandapower JSON (ours or a plain pandapower net) into the editor.
+  // Import a pandapower JSON (ours or a plain pandapower net): it replaces the
+  // session's net server-side, and we reload the projection.
   const onImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = "";
-    if (!file) return;
+    if (!file || !sessionId) return;
     setBusy(true);
     try {
-      const network = await importPandapower(await file.text());
-      loadNetwork(network);
+      await flushPending();
+      const view = await importPandapower(sessionId, await file.text());
+      attachSession(sessionId, view);
       setMessage(`Imported "${file.name}".`);
     } catch (err) {
       setMessage(`Import failed: ${(err as Error).message}`);
@@ -112,21 +174,32 @@ export default function App() {
     }
   };
 
-  // Clear the whole canvas back to an empty network. Destructive, so confirm
-  // first (skip the prompt when there's nothing to lose).
-  const onReset = () => {
+  // Clear the canvas by starting a brand-new server session. Destructive, so
+  // confirm first (skip the prompt when there's nothing to lose).
+  const onReset = async () => {
     const { nodes, edges } = useEditor.getState();
     const empty = nodes.length === 0 && edges.length === 0;
-    if (empty || window.confirm("Clear the editor and remove everything?")) {
-      resetNetwork();
-      clearSavedNetwork();
+    if (!empty && !window.confirm("Clear the editor and start a new network?"))
+      return;
+    setBusy(true);
+    try {
+      const { id, view } = await createSession();
+      attachSession(id, view);
+      rememberSession(id);
+      setMessage("Started a new network.");
+    } catch (err) {
+      setMessage(`Could not start session: ${(err as Error).message}`);
+    } finally {
+      setBusy(false);
     }
   };
 
   const onRun = async () => {
+    if (!sessionId) return;
     setBusy(true);
     try {
-      const result = await runLoadFlow(toNetwork());
+      await flushPending();
+      const result = await runLoadFlow(sessionId);
       applyResults(result);
     } catch (err) {
       setMessage(`Request failed: ${(err as Error).message}`);
@@ -148,7 +221,7 @@ export default function App() {
               w={220}
             />
             <Button variant="default" size="xs" onClick={onReset}>
-              Reset editor
+              New network
             </Button>
           </Group>
           <Group>

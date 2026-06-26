@@ -8,6 +8,7 @@ import { ShuntNode } from "./ShuntNode";
 import { SwitchNode } from "./SwitchNode";
 import { Transformer2WNode } from "./Transformer2WNode";
 import { Transformer3WNode } from "./Transformer3WNode";
+import { ForeignNode } from "./ForeignNode";
 
 export const nodeTypes: NodeTypes = {
   bus: BusNode,
@@ -19,4 +20,5 @@ export const nodeTypes: NodeTypes = {
   switch: SwitchNode,
   trafo2w: Transformer2WNode,
   trafo3w: Transformer3WNode,
+  foreign: ForeignNode,
 };

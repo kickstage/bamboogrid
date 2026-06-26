@@ -17,6 +17,8 @@ import type {
   ElementData,
   ElementKind,
   ExtGridData,
+  ForeignData,
+  ForeignElement,
   GeneratorData,
   LineData,
   LoadData,
@@ -27,7 +29,32 @@ import type {
   SwitchData,
   Trafo2WData,
   Trafo3WData,
+  ViewModel,
 } from "./types";
+import { getView } from "./api";
+import {
+  configureSync,
+  enqueue,
+  flushPending,
+  resetServerIds,
+  serverIds,
+} from "./sync";
+
+// Editor element kinds that attach to a single bus and so can be created on the
+// server the moment they're first wired.
+const COMPONENT_KINDS = new Set<ElementKind>([
+  "generator",
+  "sgen",
+  "extgrid",
+  "load",
+  "shunt",
+]);
+
+// Source-handle id of an element's wire -> attachment "end" understood by the
+// server connect command. Components have a single (null) handle.
+function handleToEnd(handle: string | null | undefined): string {
+  return handle ?? "";
+}
 
 export const DEFAULT_TRAFO_STD = "0.25 MVA 20/0.4 kV";
 export const DEFAULT_TRAFO3W_STD = "63/25/38 MVA 110/20/10 kV";
@@ -131,7 +158,6 @@ function defaultData(kind: ElementKind): ElementData {
 }
 
 interface EditorState {
-  networkId: string | null;
   networkName: string;
   // System frequency / per-unit base, preserved from imports and passed back.
   f_hz: number;
@@ -145,6 +171,8 @@ interface EditorState {
   showResults: boolean;
   // Bumped whenever a network is loaded, so the canvas can re-fit the view.
   fitSignal: number;
+  // The server session whose authoritative net this editor mirrors.
+  sessionId: string | null;
 
   onNodesChange: (changes: NodeChange[]) => void;
   onEdgesChange: (changes: EdgeChange[]) => void;
@@ -173,19 +201,14 @@ interface EditorState {
   setMessage: (message: string) => void;
   setShowResults: (show: boolean) => void;
   applyResults: (result: LoadFlowResult) => void;
-  clearResults: () => void;
-  toNetwork: () => Network;
-  loadNetwork: (network: Network) => void;
+  loadNetwork: (network: Network, foreign?: ForeignElement[]) => void;
+  // Bind this editor to a server session and hydrate it from a projection.
+  attachSession: (id: string, view: ViewModel) => void;
+  // Re-pull the projection from the server (after a server-side cascade, e.g. a
+  // bus delete that drops its attached elements).
+  resyncFromServer: () => Promise<void>;
   // Clear everything back to an empty, untitled network.
   resetNetwork: () => void;
-}
-
-// A component (generator/load) has at most one wire, to its bus.
-function edgeForComponent(
-  componentId: string,
-  edges: Edge[],
-): Edge | undefined {
-  return edges.find((e) => e.source === componentId);
 }
 
 // Midpoint of two nodes' positions — where an inserted switch/transformer body
@@ -214,14 +237,154 @@ function branchWire(
   };
 }
 
-function waypointOf(edge: Edge | undefined): { x: number; y: number } | null {
-  const wp = (edge?.data as { waypoint?: { x: number; y: number } } | undefined)
-    ?.waypoint;
-  return wp ?? null;
+// Translate a freshly-drawn element->bus attachment into a server command.
+// A single-attachment component materializes (add_element) on its first wire;
+// a switch/transformer materializes only once all its windings are wired; an
+// element already on the server just re-points (connect).
+function syncAttachment(
+  node: ElementNode,
+  busId: string,
+  port: string,
+  handle: string | null,
+  edges: Edge[],
+): void {
+  const kind = node.type as ElementKind;
+  const known = serverIds.has(node.id);
+
+  if (COMPONENT_KINDS.has(kind)) {
+    if (known) {
+      enqueue({
+        op: "connect",
+        payload: { id: node.id, kind, end: "", bus_id: busId, port },
+      });
+    } else {
+      enqueue({
+        op: "add_element",
+        payload: {
+          id: node.id,
+          kind,
+          bus_id: busId,
+          port,
+          x: node.position.x,
+          y: node.position.y,
+          data: node.data,
+          waypoint: null,
+        },
+      });
+      serverIds.add(node.id);
+    }
+    return;
+  }
+
+  const wire = (h: string) =>
+    edges.find((e) => e.source === node.id && e.sourceHandle === h);
+  const d = node.data as { name?: string; closed?: boolean; std_type?: string };
+
+  if (kind === "switch") {
+    const a = wire("a");
+    const b = wire("b");
+    if (a?.target && b?.target) {
+      if (known)
+        enqueue({
+          op: "connect",
+          payload: { id: node.id, kind, end: handleToEnd(handle), bus_id: busId, port },
+        });
+      else {
+        enqueue({
+          op: "add_switch",
+          payload: {
+            id: node.id,
+            bus_a: a.target,
+            bus_b: b.target,
+            closed: d.closed ?? true,
+            port_a: a.targetHandle ?? "",
+            port_b: b.targetHandle ?? "",
+            x: node.position.x,
+            y: node.position.y,
+            name: d.name,
+          },
+        });
+        serverIds.add(node.id);
+      }
+    }
+    return;
+  }
+
+  if (kind === "trafo2w") {
+    const hv = wire("hv");
+    const lv = wire("lv");
+    if (hv?.target && lv?.target) {
+      if (known)
+        enqueue({
+          op: "connect",
+          payload: { id: node.id, kind, end: handleToEnd(handle), bus_id: busId, port },
+        });
+      else {
+        enqueue({
+          op: "add_transformer",
+          payload: {
+            id: node.id,
+            hv_bus: hv.target,
+            lv_bus: lv.target,
+            std_type: d.std_type ?? DEFAULT_TRAFO_STD,
+            port_hv: hv.targetHandle ?? "",
+            port_lv: lv.targetHandle ?? "",
+            x: node.position.x,
+            y: node.position.y,
+            name: d.name,
+          },
+        });
+        serverIds.add(node.id);
+      }
+    }
+    return;
+  }
+
+  // trafo3w only ever exists via import (already on the server): re-point only.
+  if (kind === "trafo3w" && known)
+    enqueue({
+      op: "connect",
+      payload: { id: node.id, kind, end: handleToEnd(handle), bus_id: busId, port },
+    });
+}
+
+// A clone/paste produces a wireless node. A bus stands alone, so it's created
+// on the server right away; everything else is a draft until it's wired.
+function syncClonedNode(node: ElementNode): void {
+  if (node.type !== "bus") return;
+  const b = node.data as BusData;
+  enqueue({
+    op: "add_bus",
+    payload: {
+      id: node.id,
+      name: b.name,
+      vn_kv: b.vn_kv,
+      x: node.position.x,
+      y: node.position.y,
+      width: node.width ?? BUS_DEFAULT_WIDTH,
+    },
+  });
+  serverIds.add(node.id);
+}
+
+// A read-only canvas node for a pandapower element the editor doesn't model.
+function foreignNode(f: ForeignElement): ElementNode {
+  const data: ForeignData = {
+    table: f.table,
+    label: f.name,
+    bus_ids: f.bus_ids,
+  };
+  return {
+    id: f.id,
+    type: "foreign",
+    position: { x: f.x, y: f.y },
+    data,
+    draggable: false,
+    selectable: true,
+  };
 }
 
 export const useEditor = create<EditorState>((set, get) => ({
-  networkId: null,
   networkName: "Untitled network",
   f_hz: 50.0,
   sn_mva: 1.0,
@@ -233,46 +396,86 @@ export const useEditor = create<EditorState>((set, get) => ({
   message: "",
   showResults: true,
   fitSignal: 0,
+  sessionId: null,
 
-  onNodesChange: (changes) =>
-    set({ nodes: applyNodeChanges(changes, get().nodes) as ElementNode[] }),
+  onNodesChange: (changes) => {
+    const nodes = applyNodeChanges(changes, get().nodes) as ElementNode[];
+    set({ nodes });
+    // Sync layout for known elements: positions on drop, bus width on resize.
+    // Batched in sync.ts so a drag/resize (many changes) sends once.
+    for (const ch of changes) {
+      if (ch.type === "position" && ch.dragging === false) {
+        const n = nodes.find((x) => x.id === ch.id);
+        if (n?.type && serverIds.has(n.id) && n.type !== "foreign")
+          enqueue({
+            op: "set_layout",
+            payload: { id: n.id, kind: n.type, x: n.position.x, y: n.position.y },
+          });
+      } else if (ch.type === "dimensions" && ch.dimensions) {
+        const n = nodes.find((x) => x.id === ch.id);
+        if (n?.type === "bus" && serverIds.has(n.id))
+          enqueue({
+            op: "set_layout",
+            payload: { id: n.id, kind: "bus", width: n.width ?? ch.dimensions.width },
+          });
+      }
+    }
+  },
 
   onEdgesChange: (changes) =>
     set({ edges: applyEdgeChanges(changes, get().edges) }),
 
-  onConnect: (connection) =>
-    set((s) => {
-      // Element → bus attachment. (A bus → bus drag is intercepted by the canvas,
-      // which opens the "add connection" menu instead — see addBranch actions.)
-      // Each source port carries at most one wire: drop any existing wire from the
-      // same source handle before adding, so a load/generator can't fan out to two
-      // buses (and a transformer winding stays single).
-      const handle = connection.sourceHandle ?? null;
-      const filtered = s.edges.filter(
-        (e) =>
-          !(
-            e.source === connection.source &&
-            (e.sourceHandle ?? null) === handle
-          ),
-      );
-      return { edges: addEdge({ ...connection, type: "wire" }, filtered) };
-    }),
+  onConnect: (connection) => {
+    // Element → bus attachment. (A bus → bus drag is intercepted by the canvas,
+    // which opens the "add connection" menu instead — see addBranch actions.)
+    // Each source port carries at most one wire: drop any existing wire from the
+    // same source handle before adding, so a load/generator can't fan out to two
+    // buses (and a transformer winding stays single).
+    const s = get();
+    const handle = connection.sourceHandle ?? null;
+    const filtered = s.edges.filter(
+      (e) =>
+        !(e.source === connection.source && (e.sourceHandle ?? null) === handle),
+    );
+    const edges = addEdge({ ...connection, type: "wire" }, filtered);
+    set({ edges });
+    const node = s.nodes.find((n) => n.id === connection.source);
+    if (node?.type && connection.target)
+      syncAttachment(node, connection.target, connection.targetHandle ?? "", handle, edges);
+  },
 
-  addLineBetween: (c) =>
+  addLineBetween: (c) => {
+    const id = `line-${newId()}`;
+    const data = DEFAULT_LINE();
     set((s) => ({
       edges: [
         ...s.edges,
         {
-          id: `line-${newId()}`,
+          id,
           source: c.source,
           target: c.target,
           sourceHandle: c.sourceHandle ?? undefined,
           targetHandle: c.targetHandle ?? undefined,
           type: "line",
-          data: DEFAULT_LINE(),
+          data,
         },
       ],
-    })),
+    }));
+    if (c.source && c.target) {
+      enqueue({
+        op: "add_line",
+        payload: {
+          id,
+          from_bus: c.source,
+          to_bus: c.target,
+          port_from: c.sourceHandle ?? "",
+          port_to: c.targetHandle ?? "",
+          data,
+        },
+      });
+      serverIds.add(id);
+    }
+  },
 
   addTransformerBetween: (c) =>
     set((s) => {
@@ -296,6 +499,21 @@ export const useEditor = create<EditorState>((set, get) => ({
           std_type: DEFAULT_TRAFO_STD,
         } satisfies Trafo2WData,
       };
+      enqueue({
+        op: "add_transformer",
+        payload: {
+          id,
+          hv_bus: hvBus,
+          lv_bus: lvBus,
+          std_type: DEFAULT_TRAFO_STD,
+          port_hv: hvPort ?? "",
+          port_lv: lvPort ?? "",
+          x: node.position.x,
+          y: node.position.y,
+          name: "Transformer",
+        },
+      });
+      serverIds.add(id);
       return {
         nodes: [...s.nodes, node],
         edges: [
@@ -306,20 +524,40 @@ export const useEditor = create<EditorState>((set, get) => ({
       };
     }),
 
-  addNode: (kind, position) =>
+  addNode: (kind, position) => {
+    const id = newId();
+    const data = defaultData(kind);
     set((s) => ({
       nodes: [
         ...s.nodes,
         {
-          id: newId(),
+          id,
           type: kind,
           position,
-          data: defaultData(kind),
+          data,
           // Give buses a resizable initial length.
           ...(kind === "bus" ? { width: BUS_DEFAULT_WIDTH } : {}),
         },
       ],
-    })),
+    }));
+    // A bus stands alone, so it's created on the server immediately. Other
+    // elements need a bus first — they sync once wired (see syncAttachment).
+    if (kind === "bus") {
+      const b = data as BusData;
+      enqueue({
+        op: "add_bus",
+        payload: {
+          id,
+          name: b.name,
+          vn_kv: b.vn_kv,
+          x: position.x,
+          y: position.y,
+          width: BUS_DEFAULT_WIDTH,
+        },
+      });
+      serverIds.add(id);
+    }
+  },
 
   copyNode: (id) =>
     set((s) => {
@@ -348,55 +586,96 @@ export const useEditor = create<EditorState>((set, get) => ({
       selectedId: node.id,
       selectedEdgeId: null,
     }));
+    syncClonedNode(node);
     return node.id;
   },
 
-  pasteAt: (position) =>
-    set((s) => {
-      if (!s.clipboard) return {};
-      const node = makeCloneNode(s.clipboard, position);
-      return { nodes: [...s.nodes, node], selectedId: node.id, selectedEdgeId: null };
-    }),
+  pasteAt: (position) => {
+    const { clipboard } = get();
+    if (!clipboard) return;
+    const node = makeCloneNode(clipboard, position);
+    set((s) => ({
+      nodes: [...s.nodes, node],
+      selectedId: node.id,
+      selectedEdgeId: null,
+    }));
+    syncClonedNode(node);
+  },
 
-  updateNodeData: (id, patch) =>
+  updateNodeData: (id, patch) => {
+    const node = get().nodes.find((n) => n.id === id);
     set((s) => ({
       nodes: s.nodes.map((n) =>
         n.id === id
           ? ({ ...n, data: { ...n.data, ...patch } } as ElementNode)
           : n,
       ),
-    })),
+    }));
+    if (node?.type && node.type !== "foreign" && serverIds.has(id))
+      enqueue({ op: "update", payload: { id, kind: node.type, patch } });
+  },
 
-  updateEdgeData: (id, patch) =>
+  updateEdgeData: (id, patch) => {
     set((s) => ({
       edges: s.edges.map((e) =>
         e.id === id ? { ...e, data: { ...e.data, ...patch } } : e,
       ),
-    })),
+    }));
+    if (serverIds.has(id))
+      enqueue({ op: "update", payload: { id, kind: "line", patch } });
+  },
 
-  removeNode: (id) =>
+  removeNode: (id) => {
+    const node = get().nodes.find((n) => n.id === id);
     set((s) => ({
       nodes: s.nodes.filter((n) => n.id !== id),
       // Drop any wires touching the removed node.
       edges: s.edges.filter((e) => e.source !== id && e.target !== id),
       selectedId: s.selectedId === id ? null : s.selectedId,
-    })),
+    }));
+    if (!node?.type || node.type === "foreign" || !serverIds.has(id)) return;
+    enqueue({ op: "delete", payload: { id, kind: node.type } });
+    serverIds.delete(id);
+    // Deleting a bus cascades on the server (its attached elements go too), so
+    // re-pull the projection to stay consistent rather than guess what dropped.
+    if (node.type === "bus") void get().resyncFromServer();
+  },
 
-  removeEdge: (id) =>
-    set((s) => ({ edges: s.edges.filter((e) => e.id !== id) })),
+  removeEdge: (id) => {
+    const edge = get().edges.find((e) => e.id === id);
+    set((s) => ({ edges: s.edges.filter((e) => e.id !== id) }));
+    if (edge?.type === "line" && serverIds.has(id)) {
+      enqueue({ op: "delete", payload: { id, kind: "line" } });
+      serverIds.delete(id);
+    }
+  },
 
-  setEdgeWaypoint: (id, point) =>
+  setEdgeWaypoint: (id, point) => {
+    const edge = get().edges.find((e) => e.id === id);
     set((s) => ({
       edges: s.edges.map((e) =>
         e.id === id
           ? { ...e, data: { ...e.data, waypoint: point ?? undefined } }
           : e,
       ),
-    })),
+    }));
+    // Waypoints on element wires persist (stored on the component's layout); a
+    // line edge's waypoint is purely visual and stays client-side.
+    if (!edge || edge.type !== "wire") return;
+    const source = get().nodes.find((n) => n.id === edge.source);
+    if (source?.type && source.type !== "foreign" && serverIds.has(source.id))
+      enqueue({
+        op: "set_layout",
+        payload: { id: source.id, kind: source.type, waypoint: point },
+      });
+  },
 
   select: (id) => set({ selectedId: id, selectedEdgeId: null }),
   selectEdge: (id) => set({ selectedEdgeId: id, selectedId: null }),
-  setNetworkName: (name) => set({ networkName: name }),
+  setNetworkName: (name) => {
+    set({ networkName: name });
+    enqueue({ op: "rename_network", payload: { name } });
+  },
   setMessage: (message) => set({ message }),
   setShowResults: (show) => set({ showResults: show }),
 
@@ -494,281 +773,7 @@ export const useEditor = create<EditorState>((set, get) => ({
       };
     }),
 
-  clearResults: () =>
-    set((s) => ({
-      edges: s.edges.map((e) =>
-        e.type === "line"
-          ? {
-              ...e,
-              data: {
-                ...(e.data as LineData),
-                res_loading_percent: undefined,
-                res_p_mw: undefined,
-                res_i_ka: undefined,
-              },
-            }
-          : e,
-      ),
-      nodes: s.nodes.map((n) => {
-        if (n.type === "bus")
-          return {
-            ...n,
-            data: {
-              ...(n.data as BusData),
-              vm_pu: undefined,
-              va_degree: undefined,
-            },
-          } as ElementNode;
-        if (n.type === "generator")
-          return {
-            ...n,
-            data: {
-              ...(n.data as GeneratorData),
-              res_p_mw: undefined,
-              res_q_mvar: undefined,
-            },
-          } as ElementNode;
-        if (n.type === "sgen" || n.type === "extgrid")
-          return {
-            ...n,
-            data: {
-              ...(n.data as SgenData | ExtGridData),
-              res_p_mw: undefined,
-              res_q_mvar: undefined,
-            },
-          } as ElementNode;
-        if (n.type === "shunt")
-          return {
-            ...n,
-            data: {
-              ...(n.data as ShuntData),
-              res_p_mw: undefined,
-              res_q_mvar: undefined,
-            },
-          } as ElementNode;
-        if (n.type === "trafo2w" || n.type === "trafo3w")
-          return {
-            ...n,
-            data: {
-              ...(n.data as Trafo2WData),
-              res_loading_percent: undefined,
-              res_p_mw: undefined,
-            },
-          } as ElementNode;
-        return n;
-      }),
-    })),
-
-  toNetwork: () => {
-    const { nodes, edges, networkId, networkName, f_hz, sn_mva } = get();
-    const buses = nodes
-      .filter((n) => n.type === "bus")
-      .map((n) => {
-        const d = n.data as BusData;
-        return {
-          id: n.id,
-          name: d.name,
-          vn_kv: d.vn_kv,
-          x: n.position.x,
-          y: n.position.y,
-          width: n.width ?? BUS_DEFAULT_WIDTH,
-        };
-      });
-    const generators = nodes
-      .filter((n) => n.type === "generator")
-      .map((n) => {
-        const d = n.data as GeneratorData;
-        const edge = edgeForComponent(n.id, edges);
-        return {
-          id: n.id,
-          name: d.name,
-          bus_id: edge?.target ?? "",
-          p_mw: d.p_mw,
-          vm_pu: d.vm_pu,
-          slack: d.slack,
-          slack_weight: d.slack_weight,
-          port: edge?.targetHandle ?? "",
-          x: n.position.x,
-          y: n.position.y,
-          waypoint: waypointOf(edge),
-        };
-      });
-    const sgens = nodes
-      .filter((n) => n.type === "sgen")
-      .map((n) => {
-        const d = n.data as SgenData;
-        const edge = edgeForComponent(n.id, edges);
-        return {
-          id: n.id,
-          name: d.name,
-          bus_id: edge?.target ?? "",
-          p_mw: d.p_mw,
-          q_mvar: d.q_mvar,
-          port: edge?.targetHandle ?? "",
-          x: n.position.x,
-          y: n.position.y,
-          waypoint: waypointOf(edge),
-        };
-      });
-    const extGrids = nodes
-      .filter((n) => n.type === "extgrid")
-      .map((n) => {
-        const d = n.data as ExtGridData;
-        const edge = edgeForComponent(n.id, edges);
-        return {
-          id: n.id,
-          name: d.name,
-          bus_id: edge?.target ?? "",
-          vm_pu: d.vm_pu,
-          va_degree: d.va_degree,
-          port: edge?.targetHandle ?? "",
-          x: n.position.x,
-          y: n.position.y,
-          waypoint: waypointOf(edge),
-        };
-      });
-    const loads = nodes
-      .filter((n) => n.type === "load")
-      .map((n) => {
-        const d = n.data as LoadData;
-        const edge = edgeForComponent(n.id, edges);
-        return {
-          id: n.id,
-          name: d.name,
-          bus_id: edge?.target ?? "",
-          p_mw: d.p_mw,
-          q_mvar: d.q_mvar,
-          port: edge?.targetHandle ?? "",
-          x: n.position.x,
-          y: n.position.y,
-          waypoint: waypointOf(edge),
-        };
-      });
-    const shuntsOut = nodes
-      .filter((n) => n.type === "shunt")
-      .map((n) => {
-        const d = n.data as ShuntData;
-        const edge = edgeForComponent(n.id, edges);
-        return {
-          id: n.id,
-          name: d.name,
-          bus_id: edge?.target ?? "",
-          p_mw: d.p_mw,
-          q_mvar: d.q_mvar,
-          vn_kv: d.vn_kv,
-          step: d.step,
-          port: edge?.targetHandle ?? "",
-          x: n.position.x,
-          y: n.position.y,
-        };
-      });
-    const switches = nodes
-      .filter((n) => n.type === "switch")
-      .map((n) => {
-        const d = n.data as SwitchData;
-        // The two wires are distinguished by their source handle id ("a"/"b").
-        const edgeA = edges.find(
-          (e) => e.source === n.id && e.sourceHandle === "a",
-        );
-        const edgeB = edges.find(
-          (e) => e.source === n.id && e.sourceHandle === "b",
-        );
-        return {
-          id: n.id,
-          name: d.name,
-          bus_a: edgeA?.target ?? "",
-          bus_b: edgeB?.target ?? "",
-          closed: d.closed,
-          port_a: edgeA?.targetHandle ?? "",
-          port_b: edgeB?.targetHandle ?? "",
-          x: n.position.x,
-          y: n.position.y,
-        };
-      });
-    const edgeBy = (nodeId: string, handle: string) =>
-      edges.find((e) => e.source === nodeId && e.sourceHandle === handle);
-    const transformers2w = nodes
-      .filter((n) => n.type === "trafo2w")
-      .map((n) => {
-        const d = n.data as Trafo2WData;
-        const hv = edgeBy(n.id, "hv");
-        const lv = edgeBy(n.id, "lv");
-        return {
-          id: n.id,
-          name: d.name,
-          hv_bus: hv?.target ?? "",
-          lv_bus: lv?.target ?? "",
-          std_type: d.std_type,
-          params: d.params ?? null,
-          port_hv: hv?.targetHandle ?? "",
-          port_lv: lv?.targetHandle ?? "",
-          x: n.position.x,
-          y: n.position.y,
-        };
-      });
-    const transformers3w = nodes
-      .filter((n) => n.type === "trafo3w")
-      .map((n) => {
-        const d = n.data as Trafo3WData;
-        const hv = edgeBy(n.id, "hv");
-        const mv = edgeBy(n.id, "mv");
-        const lv = edgeBy(n.id, "lv");
-        return {
-          id: n.id,
-          name: d.name,
-          hv_bus: hv?.target ?? "",
-          mv_bus: mv?.target ?? "",
-          lv_bus: lv?.target ?? "",
-          std_type: d.std_type,
-          params: d.params ?? null,
-          port_hv: hv?.targetHandle ?? "",
-          port_mv: mv?.targetHandle ?? "",
-          port_lv: lv?.targetHandle ?? "",
-          x: n.position.x,
-          y: n.position.y,
-        };
-      });
-    // Lines are edges drawn bus → bus (source/target are bus node ids).
-    const lines = edges
-      .filter((e) => e.type === "line")
-      .map((e) => {
-        const d = e.data as LineData;
-        return {
-          id: e.id,
-          name: d.name,
-          from_bus: e.source,
-          to_bus: e.target,
-          length_km: d.length_km,
-          r_ohm_per_km: d.r_ohm_per_km,
-          x_ohm_per_km: d.x_ohm_per_km,
-          c_nf_per_km: d.c_nf_per_km,
-          max_i_ka: d.max_i_ka,
-          std_type: d.std_type,
-          port_from: e.sourceHandle ?? "",
-          port_to: e.targetHandle ?? "",
-          x: 0,
-          y: 0,
-        };
-      });
-    return {
-      id: networkId ?? "",
-      name: networkName,
-      f_hz,
-      sn_mva,
-      buses,
-      generators,
-      sgens,
-      ext_grids: extGrids,
-      loads,
-      switches,
-      transformers2w,
-      transformers3w,
-      lines,
-      shunts: shuntsOut,
-    };
-  },
-
-  loadNetwork: (network) => {
+  loadNetwork: (network, foreign = []) => {
     const nodes: ElementNode[] = [];
     const edges: Edge[] = [];
     // Spread elements that carry no explicit port (e.g. a plain pandapower
@@ -980,8 +985,14 @@ export const useEditor = create<EditorState>((set, get) => ({
           );
       }
     }
+    // Everything in the projection already lives on the server.
+    resetServerIds([
+      ...nodes.map((n) => n.id),
+      ...edges.filter((e) => e.type === "line").map((e) => e.id),
+    ]);
+    // Read-only placeholders for elements the editor doesn't model.
+    for (const f of foreign) nodes.push(foreignNode(f));
     set({
-      networkId: network.id,
       networkName: network.name,
       f_hz: network.f_hz ?? 50.0,
       sn_mva: network.sn_mva ?? 1.0,
@@ -994,9 +1005,26 @@ export const useEditor = create<EditorState>((set, get) => ({
     });
   },
 
-  resetNetwork: () =>
+  attachSession: (id, view) => {
+    set({ sessionId: id });
+    get().loadNetwork(view.network, view.foreign);
+  },
+
+  resyncFromServer: async () => {
+    const id = get().sessionId;
+    if (!id) return;
+    await flushPending();
+    try {
+      const view = await getView(id);
+      get().loadNetwork(view.network, view.foreign);
+    } catch (err) {
+      set({ message: `Sync failed: ${(err as Error).message}` });
+    }
+  },
+
+  resetNetwork: () => {
+    resetServerIds([]);
     set((s) => ({
-      networkId: null,
       networkName: "Untitled network",
       f_hz: 50.0,
       sn_mva: 1.0,
@@ -1006,5 +1034,13 @@ export const useEditor = create<EditorState>((set, get) => ({
       selectedEdgeId: null,
       message: "",
       fitSignal: s.fitSignal + 1,
-    })),
+    }));
+  },
 }));
+
+// Wire the command-sync layer to this store: it reads the active session id and
+// surfaces sync errors through the editor's message bar.
+configureSync({
+  sessionId: () => useEditor.getState().sessionId,
+  onError: (message) => useEditor.getState().setMessage(message),
+});

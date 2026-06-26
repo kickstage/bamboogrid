@@ -38,9 +38,25 @@ resources:
     cpu: "1"
     memory: 1Gi
 
+# Sessions are held in an SQLite database on a persistent volume so they survive
+# pod restarts. SQLite is a single writer, so keep replicaCount at 1.
+persistence:
+  enabled: true
+  storageClass: ""  # "" uses the cluster default StorageClass
+  accessModes:
+    - ReadWriteOnce
+  size: 1Gi
+
+session:
+  # Idle time before a session is purged from the database (seconds). 30 days.
+  # Quoted so Helm doesn't render it in scientific notation.
+  ttlSeconds: "2592000"
+
 podSecurityContext:
   runAsNonRoot: true
   runAsUser: 10001
+  # Group-own the mounted volume so the non-root user can write the database.
+  fsGroup: 10001
 
 securityContext:
   allowPrivilegeEscalation: false
