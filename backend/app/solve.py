@@ -105,6 +105,7 @@ def solve_net(net) -> LoadFlowResult:
                 id=uid,
                 loading_percent=_f(res.at[idx, "loading_percent"]),
                 p_mw=_f(res.at[idx, "p_hv_mw"]),
+                q_mvar=_f(res.at[idx, "q_hv_mvar"]),
             )
             for uid, idx in _uuid_index(net, table)
         ]
@@ -122,6 +123,7 @@ def solve_net(net) -> LoadFlowResult:
             id=uid,
             loading_percent=_f(net.res_line.at[idx, "loading_percent"]),
             p_mw=_f(net.res_line.at[idx, "p_from_mw"]),
+            q_mvar=_f(net.res_line.at[idx, "q_from_mvar"]),
             i_ka=_f(net.res_line.at[idx, "i_ka"]),
         )
         for uid, idx in _uuid_index(net, "line")

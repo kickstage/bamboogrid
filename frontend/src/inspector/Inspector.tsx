@@ -1,7 +1,6 @@
 import {
   Button,
   Divider,
-  Group,
   NumberInput,
   Select,
   Stack,
@@ -11,12 +10,15 @@ import {
 } from "@mantine/core";
 import { useEditor } from "../store";
 import { fixed } from "../format";
+import { busInjection } from "../power";
 import {
-  busInjection,
-  phaseAngleDeg,
-  powerFactor,
-  type BusInjection,
-} from "../power";
+  HEADERS,
+  ResultList,
+  VoltageLegend,
+  busInjectionRows,
+  nodeResultRows,
+  type ResultRow,
+} from "./results";
 import type {
   BusData,
   ExtGridData,
@@ -52,126 +54,6 @@ const TRAFO3W_STD_TYPES = [
   "63/25/38 MVA 110/20/10 kV",
   "63/25/38 MVA 110/10/10 kV",
 ];
-
-// Explains the busbar colors a load flow paints on (see voltageColor in
-// BusNode): how far each bus's solved voltage sits from nominal (1.0 p.u.).
-function VoltageLegend() {
-  const Row = ({ color, label }: { color: string; label: string }) => (
-    <Group gap={6} wrap="nowrap">
-      <span
-        style={{ width: 11, height: 11, borderRadius: 2, background: color, flex: "none" }}
-      />
-      <Text size="xs" c="dimmed">
-        {label}
-      </Text>
-    </Group>
-  );
-  return (
-    <Stack gap={4}>
-      <Text size="xs" fw={600} c="dimmed">
-        BUS VOLTAGE AFTER LOAD FLOW
-      </Text>
-      <Row color="#16a34a" label="Green — within 5% of nominal" />
-      <Row color="#d97706" label="Orange — 5–10% off nominal" />
-      <Row color="#dc2626" label="Red — more than 10% off" />
-    </Stack>
-  );
-}
-
-const HEADERS: Record<string, string> = {
-  bus: "BUS",
-  generator: "GENERATOR",
-  sgen: "STATIC GENERATOR",
-  extgrid: "EXTERNAL GRID",
-  load: "LOAD",
-  shunt: "SHUNT",
-  switch: "SWITCH",
-  trafo2w: "TRANSFORMER",
-  trafo3w: "3W TRANSFORMER",
-};
-
-// A quantity row in the load-flow result block: its symbol (the "sign", e.g. P,
-// Q, Vm) and its formatted value+unit. Unlike the compact on-canvas readouts,
-// the inspector shows every result with its label so it's unambiguous.
-type ResultRow = [label: string, value: string];
-
-// The labeled load-flow result block, rendered consistently for every element.
-function ResultList({ rows }: { rows: ResultRow[] }) {
-  if (rows.length === 0) return null;
-  return (
-    <>
-      <Divider my="xs" label="Load flow result" labelPosition="left" />
-      <Stack gap={2}>
-        {rows.map(([label, value]) => (
-          <Group key={label} justify="space-between" gap="xs" wrap="nowrap">
-            <Text size="xs" c="dimmed">
-              {label}
-            </Text>
-            <Text size="xs" ff="monospace" style={{ whiteSpace: "nowrap" }}>
-              {value}
-            </Text>
-          </Group>
-        ))}
-      </Stack>
-    </>
-  );
-}
-
-// Build the labeled result rows for a node, or [] if it has no solved result.
-function nodeResultRows(type: string | undefined, data: unknown): ResultRow[] {
-  if (type === "bus") {
-    const b = data as BusData;
-    if (b.vm_pu === undefined) return [];
-    return [
-      ["Vm", `${fixed(b.vm_pu, 4)} p.u.`],
-      ["Va", `${fixed(b.va_degree ?? 0, 2)}°`],
-    ];
-  }
-  if (type === "generator" || type === "sgen" || type === "extgrid") {
-    const g = data as GeneratorData;
-    if (g.res_p_mw === undefined) return [];
-    return [
-      ["P", `${fixed(g.res_p_mw, 4)} MW`],
-      ["Q", `${fixed(g.res_q_mvar ?? 0, 4)} Mvar`],
-    ];
-  }
-  if (type === "shunt") {
-    const sh = data as ShuntData;
-    if (sh.res_q_mvar === undefined) return [];
-    return [
-      ["P", `${fixed(sh.res_p_mw ?? 0, 4)} MW`],
-      ["Q", `${fixed(sh.res_q_mvar, 4)} Mvar`],
-    ];
-  }
-  if (type === "trafo2w" || type === "trafo3w") {
-    const t = data as Trafo2WData;
-    if (t.res_loading_percent === undefined) return [];
-    return [
-      ["Loading", `${fixed(t.res_loading_percent, 1)} %`],
-      ["P", `${fixed(t.res_p_mw ?? 0, 4)} MW`],
-    ];
-  }
-  return [];
-}
-
-// Derived figures for a solved bus from its net injection: the P/Q the bus
-// pushes into the network, and the power factor and power-factor angle they
-// imply.
-function busInjectionRows(inj: BusInjection): ResultRow[] {
-  const { p_mw, q_mvar } = inj;
-  const pf = powerFactor(p_mw, q_mvar);
-  return [
-    ["P injection", `${fixed(p_mw, 4)} MW`],
-    ["Q injection", `${fixed(q_mvar, 4)} Mvar`],
-    [
-      "Power factor",
-      pf.sense === "unity"
-        ? fixed(pf.value, 3)
-        : `${fixed(pf.value, 3)} ${pf.sense}`,
-    ],
-    ["Phase angle", `${fixed(phaseAngleDeg(p_mw, q_mvar), 1)}°`],
-  ];
-}
 
 export function Inspector() {
   const {
@@ -223,6 +105,7 @@ export function Inspector() {
             rows={[
               ["Loading", `${fixed(d.res_loading_percent, 1)} %`],
               ["P", `${fixed(d.res_p_mw ?? 0, 4)} MW`],
+              ["Q", `${fixed(d.res_q_mvar ?? 0, 4)} Mvar`],
               ...(d.res_i_ka !== undefined
                 ? ([["Current", `${fixed(d.res_i_ka * 1000, 1)} A`]] as ResultRow[])
                 : []),

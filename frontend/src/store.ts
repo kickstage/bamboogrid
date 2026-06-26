@@ -188,6 +188,9 @@ interface EditorState {
   fitSignal: number;
   // The server session whose authoritative net this editor mirrors.
   sessionId: string | null;
+  // When set, every mutating action is a no-op (the mobile read-only demo).
+  // Selection, view preferences, and load-flow results still apply.
+  readOnly: boolean;
 
   onNodesChange: (changes: NodeChange[]) => void;
   onEdgesChange: (changes: EdgeChange[]) => void;
@@ -214,6 +217,7 @@ interface EditorState {
   selectEdge: (id: string | null) => void;
   setShowResults: (show: boolean) => void;
   setVoltageUnit: (unit: VoltageUnit) => void;
+  setReadOnly: (readOnly: boolean) => void;
   applyResults: (result: LoadFlowResult) => void;
   loadNetwork: (network: Network, foreign?: ForeignElement[]) => void;
   // Bind this editor to a server session and hydrate it from a projection.
@@ -411,10 +415,12 @@ export const useEditor = create<EditorState>((set, get) => ({
   voltageUnit: initialVoltageUnit(),
   fitSignal: 0,
   sessionId: null,
+  readOnly: false,
 
   onNodesChange: (changes) => {
     const nodes = applyNodeChanges(changes, get().nodes) as ElementNode[];
     set({ nodes });
+    if (get().readOnly) return;
     // Sync layout for known elements: positions on drop, bus width on resize.
     // Batched in sync.ts so a drag/resize (many changes) sends once.
     for (const ch of changes) {
@@ -440,6 +446,7 @@ export const useEditor = create<EditorState>((set, get) => ({
     set({ edges: applyEdgeChanges(changes, get().edges) }),
 
   onConnect: (connection) => {
+    if (get().readOnly) return;
     // Element → bus attachment. (A bus → bus drag is intercepted by the canvas,
     // which opens the "add connection" menu instead — see addBranch actions.)
     // Each source port carries at most one wire: drop any existing wire from the
@@ -459,6 +466,7 @@ export const useEditor = create<EditorState>((set, get) => ({
   },
 
   addLineBetween: (c) => {
+    if (get().readOnly) return;
     const id = `line-${newId()}`;
     const data = DEFAULT_LINE();
     set((s) => ({
@@ -495,7 +503,8 @@ export const useEditor = create<EditorState>((set, get) => ({
     }
   },
 
-  addTransformerBetween: (c) =>
+  addTransformerBetween: (c) => {
+    if (get().readOnly) return;
     set((s) => {
       const a = s.nodes.find((n) => n.id === c.source);
       const b = s.nodes.find((n) => n.id === c.target);
@@ -546,9 +555,11 @@ export const useEditor = create<EditorState>((set, get) => ({
         selectedId: id,
         selectedEdgeId: null,
       };
-    }),
+    });
+  },
 
   addNode: (kind, position) => {
+    if (get().readOnly) return;
     const id = newId();
     const data = defaultData(kind);
     set((s) => ({
@@ -602,6 +613,7 @@ export const useEditor = create<EditorState>((set, get) => ({
     }),
 
   duplicateNode: (id, delta) => {
+    if (get().readOnly) return null;
     const n = get().nodes.find((x) => x.id === id);
     if (!n) return null;
     const node = makeCloneNode(
@@ -618,8 +630,8 @@ export const useEditor = create<EditorState>((set, get) => ({
   },
 
   pasteAt: (position) => {
-    const { clipboard } = get();
-    if (!clipboard) return;
+    const { clipboard, readOnly } = get();
+    if (readOnly || !clipboard) return;
     const node = makeCloneNode(clipboard, position);
     set((s) => ({
       nodes: [...s.nodes, node],
@@ -630,6 +642,7 @@ export const useEditor = create<EditorState>((set, get) => ({
   },
 
   updateNodeData: (id, patch) => {
+    if (get().readOnly) return;
     const node = get().nodes.find((n) => n.id === id);
     set((s) => ({
       nodes: s.nodes.map((n) =>
@@ -643,6 +656,7 @@ export const useEditor = create<EditorState>((set, get) => ({
   },
 
   updateEdgeData: (id, patch) => {
+    if (get().readOnly) return;
     set((s) => ({
       edges: s.edges.map((e) =>
         e.id === id ? { ...e, data: { ...e.data, ...patch } } : e,
@@ -653,6 +667,7 @@ export const useEditor = create<EditorState>((set, get) => ({
   },
 
   removeNode: (id) => {
+    if (get().readOnly) return;
     const node = get().nodes.find((n) => n.id === id);
     set((s) => ({
       nodes: s.nodes.filter((n) => n.id !== id),
@@ -669,6 +684,7 @@ export const useEditor = create<EditorState>((set, get) => ({
   },
 
   removeEdge: (id) => {
+    if (get().readOnly) return;
     const edge = get().edges.find((e) => e.id === id);
     set((s) => ({ edges: s.edges.filter((e) => e.id !== id) }));
     if (edge?.type === "line" && serverIds.has(id)) {
@@ -678,6 +694,7 @@ export const useEditor = create<EditorState>((set, get) => ({
   },
 
   setEdgeWaypoint: (id, point) => {
+    if (get().readOnly) return;
     const edge = get().edges.find((e) => e.id === id);
     set((s) => ({
       edges: s.edges.map((e) =>
@@ -709,6 +726,7 @@ export const useEditor = create<EditorState>((set, get) => ({
   select: (id) => set({ selectedId: id, selectedEdgeId: null }),
   selectEdge: (id) => set({ selectedEdgeId: id, selectedId: null }),
   setShowResults: (show) => set({ showResults: show }),
+  setReadOnly: (readOnly) => set({ readOnly }),
 
   setVoltageUnit: (unit) => {
     try {
@@ -744,6 +762,7 @@ export const useEditor = create<EditorState>((set, get) => ({
               ...(e.data as LineData),
               res_loading_percent: r?.loading_percent ?? undefined,
               res_p_mw: r?.p_mw ?? undefined,
+              res_q_mvar: r?.q_mvar ?? undefined,
               res_i_ka: r?.i_ka ?? undefined,
             },
           };
@@ -803,6 +822,7 @@ export const useEditor = create<EditorState>((set, get) => ({
                 ...(n.data as Trafo2WData),
                 res_loading_percent: r?.loading_percent ?? undefined,
                 res_p_mw: r?.p_mw ?? undefined,
+                res_q_mvar: r?.q_mvar ?? undefined,
               },
             } as ElementNode;
           }

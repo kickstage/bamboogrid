@@ -59,6 +59,19 @@ def create_session() -> SessionInfo:
         return SessionInfo(id=session.id, view=net_to_view(session.net))
 
 
+@app.post("/session/demo", response_model=SessionInfo)
+def create_demo_session() -> SessionInfo:
+    """Start a session pre-loaded with the IEEE 14-bus network (the mobile
+    read-only demo's default when no share link is opened)."""
+    import pandapower.networks as nw
+
+    net = nw.case14()
+    net.name = "IEEE 14-bus system"
+    session = store.create(net=net, name=net.name)
+    with session.lock:
+        return SessionInfo(id=session.id, view=net_to_view(session.net))
+
+
 @app.get("/session", response_model=ViewModel)
 def get_session(session: Session = Depends(current_session)) -> ViewModel:
     """The current projection — used to (re)hydrate the editor on load/refresh."""

@@ -34,6 +34,11 @@ export async function createSession(): Promise<SessionInfo> {
   return json(await fetch(`${BASE}/session`, { method: "POST" }));
 }
 
+// Start a session pre-loaded with the IEEE 14-bus network (mobile demo default).
+export async function createDemoSession(): Promise<SessionInfo> {
+  return json(await fetch(`${BASE}/session/demo`, { method: "POST" }));
+}
+
 // Fetch the current projection for a session (used to (re)hydrate the editor).
 export async function getView(id: string): Promise<ViewModel> {
   return json(await fetch(`${BASE}/session`, { headers: { [SESSION_HEADER]: id } }));

@@ -103,6 +103,7 @@ export type Trafo2WData = {
   // Filled in after a load flow.
   res_loading_percent?: number;
   res_p_mw?: number;
+  res_q_mvar?: number;
 };
 
 export type Trafo3WData = {
@@ -111,6 +112,7 @@ export type Trafo3WData = {
   params?: Trafo3WParams | null;
   res_loading_percent?: number;
   res_p_mw?: number;
+  res_q_mvar?: number;
 };
 
 // Line data lives on a React Flow *edge* (drawn bus → bus), not a node.
@@ -127,6 +129,7 @@ export type LineData = {
   // Filled in after a load flow.
   res_loading_percent?: number;
   res_p_mw?: number;
+  res_q_mvar?: number;
   res_i_ka?: number;
 };
 
@@ -356,12 +359,23 @@ export interface LoadFlowResult {
   res_ext_grid: { id: string; p_mw: number | null; q_mvar: number | null }[];
   res_load: { id: string; p_mw: number | null; q_mvar: number | null }[];
   res_shunt: { id: string; p_mw: number | null; q_mvar: number | null }[];
-  res_trafo: { id: string; loading_percent: number | null; p_mw: number | null }[];
-  res_trafo3w: { id: string; loading_percent: number | null; p_mw: number | null }[];
+  res_trafo: {
+    id: string;
+    loading_percent: number | null;
+    p_mw: number | null;
+    q_mvar: number | null;
+  }[];
+  res_trafo3w: {
+    id: string;
+    loading_percent: number | null;
+    p_mw: number | null;
+    q_mvar: number | null;
+  }[];
   res_line: {
     id: string;
     loading_percent: number | null;
     p_mw: number | null;
+    q_mvar: number | null;
     i_ka: number | null;
   }[];
 }

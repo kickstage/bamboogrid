@@ -84,6 +84,7 @@ export function Canvas() {
     copyNode,
     duplicateNode,
     pasteAt,
+    readOnly,
   } = useEditor();
   const { screenToFlowPosition, fitView } = useReactFlow();
   const colorScheme = useComputedColorScheme("light");
@@ -360,6 +361,10 @@ export function Canvas() {
         onConnectEnd={handleConnectEnd}
         isValidConnection={isValidConnection}
         connectionMode={ConnectionMode.Loose}
+        // Read-only (mobile demo): navigate and select, but no edits.
+        nodesDraggable={!readOnly}
+        nodesConnectable={!readOnly}
+        elementsSelectable
         onDrop={onDrop}
         onDragOver={onDragOver}
         onNodeClick={(_, node: Node) => select(node.id)}
@@ -367,7 +372,7 @@ export function Canvas() {
         // original (and its wires) in place. The clone spawns on top of the
         // original; handleNodesChange redirects the drag onto it.
         onNodeDragStart={(e, node: Node) => {
-          if (!(e.altKey || e.metaKey)) return;
+          if (readOnly || !(e.altKey || e.metaKey)) return;
           const cloneId = duplicateNode(node.id, { x: 0, y: 0 });
           if (cloneId) cloneDrag.current = { originalId: node.id, cloneId };
         }}
@@ -380,9 +385,10 @@ export function Canvas() {
         }}
         onNodeContextMenu={(e, node: Node) => {
           e.preventDefault();
+          select(node.id);
+          if (readOnly) return;
           setMenu(null);
           setPasteMenu(null);
-          select(node.id);
           setNodeMenu({
             x: e.clientX,
             y: e.clientY,
@@ -392,6 +398,7 @@ export function Canvas() {
         }}
         onPaneContextMenu={(e) => {
           e.preventDefault();
+          if (readOnly) return;
           setMenu(null);
           setNodeMenu(null);
           const me = e as React.MouseEvent;

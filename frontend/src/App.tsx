@@ -15,6 +15,8 @@ import { ReactFlowProvider } from "@xyflow/react";
 import { Canvas } from "./canvas/Canvas";
 import { Inspector } from "./inspector/Inspector";
 import { Palette } from "./palette/Palette";
+import { MobileApp } from "./mobile/MobileApp";
+import { useIsMobile } from "./mobile/useIsMobile";
 import { useEditor } from "./store";
 import { toast } from "./toast";
 import { flushPending } from "./sync";
@@ -133,6 +135,7 @@ export default function App() {
   const ppInputRef = useRef<HTMLInputElement>(null);
   const { setColorScheme } = useMantineColorScheme();
   const scheme = useComputedColorScheme("light");
+  const isMobile = useIsMobile();
 
   // Fixed-width checkmark gutter so menu items align whether ticked or not.
   const check = (on: boolean) => (
@@ -142,6 +145,9 @@ export default function App() {
   // On first load, reattach to a session (URL ?session wins, then the last one
   // used) or start a fresh one.
   useEffect(() => {
+    // Mobile renders the read-only demo (MobileApp), which runs its own
+    // bootstrap. Skip the desktop session bootstrap there.
+    if (isMobile) return;
     let cancelled = false;
     (async () => {
       const url = new URL(window.location.href);
@@ -188,7 +194,7 @@ export default function App() {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [isMobile]);
 
   // Copy a short share link. Opening it gives the recipient an editable copy of
   // this network, so they can't change the original.
@@ -283,6 +289,9 @@ export default function App() {
       setBusy(false);
     }
   };
+
+  // Phones/tablets get the read-only demo instead of the full editor.
+  if (isMobile) return <MobileApp />;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100vh" }}>
