@@ -46,7 +46,42 @@ export const DEFAULT_LINE = (): LineData => ({
 
 export type ElementNode = Node<ElementData>;
 
+// A detached snapshot of a node used for copy/paste and duplicate: its kind and
+// attributes, never its wires.
+export interface ClonePayload {
+  type: ElementKind;
+  data: ElementData;
+  width?: number;
+}
+
 const newId = () => crypto.randomUUID();
+
+// Load-flow result fields written back onto node data. A clone starts unsolved,
+// so these are dropped — they aren't user attributes and would be stale on a
+// detached copy. (vm_pu is a result on a bus but an input setpoint elsewhere, so
+// it's only stripped for buses.)
+function withoutResults(type: ElementKind, data: ElementData): ElementData {
+  const d = structuredClone(data) as Record<string, unknown>;
+  if (type === "bus") {
+    delete d.vm_pu;
+    delete d.va_degree;
+  } else {
+    delete d.res_p_mw;
+    delete d.res_q_mvar;
+    delete d.res_loading_percent;
+  }
+  return d as ElementData;
+}
+
+function makeCloneNode(payload: ClonePayload, position: XYPosition): ElementNode {
+  return {
+    id: newId(),
+    type: payload.type,
+    position,
+    data: withoutResults(payload.type, payload.data),
+    ...(payload.width !== undefined ? { width: payload.width } : {}),
+  };
+}
 
 function defaultData(kind: ElementKind): ElementData {
   switch (kind) {
@@ -119,6 +154,12 @@ interface EditorState {
   addLineBetween: (c: Connection) => void;
   addTransformerBetween: (c: Connection) => void;
   addNode: (kind: ElementKind, position: XYPosition) => void;
+  // Clone a node's attributes (results stripped) with none of its wires.
+  clipboard: ClonePayload | null;
+  copyNode: (id: string) => void;
+  // Returns the new node's id (or null if the source is gone).
+  duplicateNode: (id: string, delta: XYPosition) => string | null;
+  pasteAt: (position: XYPosition) => void;
   updateNodeData: (id: string, patch: Partial<ElementData>) => void;
   updateEdgeData: (id: string, patch: Partial<LineData>) => void;
   removeNode: (id: string) => void;
@@ -188,6 +229,7 @@ export const useEditor = create<EditorState>((set, get) => ({
   edges: [],
   selectedId: null,
   selectedEdgeId: null,
+  clipboard: null,
   message: "",
   showResults: true,
   fitSignal: 0,
@@ -278,6 +320,43 @@ export const useEditor = create<EditorState>((set, get) => ({
         },
       ],
     })),
+
+  copyNode: (id) =>
+    set((s) => {
+      const n = s.nodes.find((x) => x.id === id);
+      if (!n) return {};
+      const name = (n.data as { name?: string }).name ?? n.type;
+      return {
+        clipboard: {
+          type: n.type as ElementKind,
+          data: structuredClone(n.data),
+          width: n.width,
+        },
+        message: `Copied ${name}.`,
+      };
+    }),
+
+  duplicateNode: (id, delta) => {
+    const n = get().nodes.find((x) => x.id === id);
+    if (!n) return null;
+    const node = makeCloneNode(
+      { type: n.type as ElementKind, data: n.data, width: n.width },
+      { x: n.position.x + delta.x, y: n.position.y + delta.y },
+    );
+    set((s) => ({
+      nodes: [...s.nodes, node],
+      selectedId: node.id,
+      selectedEdgeId: null,
+    }));
+    return node.id;
+  },
+
+  pasteAt: (position) =>
+    set((s) => {
+      if (!s.clipboard) return {};
+      const node = makeCloneNode(s.clipboard, position);
+      return { nodes: [...s.nodes, node], selectedId: node.id, selectedEdgeId: null };
+    }),
 
   updateNodeData: (id, patch) =>
     set((s) => ({

@@ -16,6 +16,7 @@ import {
   type Edge,
   type FinalConnectionState,
   type Node,
+  type NodeChange,
   useReactFlow,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
@@ -26,7 +27,7 @@ import { useEditor } from "../store";
 import { busInjection, type BusInjection } from "../power";
 import { PowerTriangle } from "../diagrams/PowerTriangle";
 import { Waveforms } from "../diagrams/Waveforms";
-import { BusGraphMenu, type BusGraphKind } from "./BusGraphMenu";
+import { NodeContextMenu, type BusGraphKind } from "./NodeContextMenu";
 import type { BusData, ElementKind } from "../types";
 
 // The "add connection" menu shown after a bus → bus drag: the user explicitly
@@ -78,6 +79,11 @@ export function Canvas() {
     selectEdge,
     setMessage,
     fitSignal,
+    selectedId,
+    clipboard,
+    copyNode,
+    duplicateNode,
+    pasteAt,
   } = useEditor();
   const { screenToFlowPosition, fitView } = useReactFlow();
   const colorScheme = useComputedColorScheme("light");
@@ -86,20 +92,31 @@ export function Canvas() {
   // connect-end (which carries the drop position).
   const pendingConn = useRef<Connection | null>(null);
   const [menu, setMenu] = useState<BranchMenu | null>(null);
-  // Right-click-a-bus graph menu, and the diagram it opens.
-  const [busMenu, setBusMenu] = useState<{ x: number; y: number; busId: string } | null>(
-    null,
-  );
+  // Right-click-an-element menu (duplicate/copy, plus the bus graph submenu), the
+  // diagram it opens, and the right-click-empty-pane paste menu.
+  const [nodeMenu, setNodeMenu] = useState<{
+    x: number;
+    y: number;
+    nodeId: string;
+    isBus: boolean;
+  } | null>(null);
+  const [pasteMenu, setPasteMenu] = useState<{ x: number; y: number } | null>(null);
   const [graph, setGraph] = useState<{ kind: BusGraphKind; inj: BusInjection } | null>(
     null,
   );
   // Only graph a bus once a load flow has solved it (vm_pu set); before that the
   // injection would be built from inputs alone and the diagrams would mislead.
   const busSolved =
-    busMenu !== null &&
-    (nodes.find((n) => n.id === busMenu.busId)?.data as BusData | undefined)
+    nodeMenu?.isBus === true &&
+    (nodes.find((n) => n.id === nodeMenu.nodeId)?.data as BusData | undefined)
       ?.vm_pu !== undefined;
-  const busMenuInj = busSolved ? busInjection(busMenu!.busId, nodes, edges) : null;
+  const nodeMenuInj = busSolved ? busInjection(nodeMenu!.nodeId, nodes, edges) : null;
+  // Last cursor position over the pane (screen coords) — where Cmd/Ctrl+V drops.
+  const pointer = useRef<{ x: number; y: number } | null>(null);
+  // An in-progress modifier-drag: the grabbed node spawned a detached clone, and
+  // its drag is redirected onto that clone so the original stays put with its
+  // wires.
+  const cloneDrag = useRef<{ originalId: string; cloneId: string } | null>(null);
 
   // After a network is loaded (import / open), bring it into view.
   useEffect(() => {
@@ -110,20 +127,75 @@ export function Canvas() {
 
   // Close the open floating menus on Escape.
   useEffect(() => {
-    if (!menu && !busMenu) return;
+    if (!menu && !nodeMenu && !pasteMenu) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
       setMenu(null);
-      setBusMenu(null);
+      setNodeMenu(null);
+      setPasteMenu(null);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [menu, busMenu]);
+  }, [menu, nodeMenu, pasteMenu]);
+
+  // Cmd/Ctrl+C copies the selected element; Cmd/Ctrl+V pastes a clone at the
+  // cursor (or offset, if the pointer hasn't been over the pane). Skipped while a
+  // form field is focused so normal text copy/paste keeps working.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey)) return;
+      const el = document.activeElement;
+      const inField =
+        el instanceof HTMLElement &&
+        (el.tagName === "INPUT" ||
+          el.tagName === "TEXTAREA" ||
+          el.tagName === "SELECT" ||
+          el.isContentEditable);
+      if (inField) return;
+      const key = e.key.toLowerCase();
+      if (key === "c" && selectedId) {
+        e.preventDefault();
+        copyNode(selectedId);
+      } else if (key === "v" && clipboard) {
+        e.preventDefault();
+        const at = pointer.current
+          ? screenToFlowPosition(pointer.current)
+          : screenToFlowPosition({ x: window.innerWidth / 2, y: window.innerHeight / 2 });
+        pasteAt(at);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [selectedId, clipboard, copyNode, pasteAt, screenToFlowPosition]);
 
   const onDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     e.dataTransfer.dropEffect = "move";
   }, []);
+
+  // During a modifier-drag, rewrite the grabbed node's position changes onto its
+  // clone so the clone follows the cursor while the original (with its wires)
+  // stays where it is.
+  const handleNodesChange = useCallback(
+    (changes: NodeChange[]) => {
+      const cd = cloneDrag.current;
+      if (cd) {
+        let ended = false;
+        changes = changes.map((ch) => {
+          if (ch.type === "position" && ch.id === cd.originalId) {
+            if (ch.dragging === false) ended = true;
+            return { ...ch, id: cd.cloneId };
+          }
+          return ch;
+        });
+        // Clear only after redirecting the final (dragging:false) change, so the
+        // drop never leaks through to the original.
+        if (ended) cloneDrag.current = null;
+      }
+      onNodesChange(changes);
+    },
+    [onNodesChange],
+  );
 
   const onDrop = useCallback(
     (e: React.DragEvent) => {
@@ -242,16 +314,19 @@ export function Canvas() {
   return (
     <div
       style={{ width: "100%", height: "100%", position: "relative" }}
-      // Suppress the native context menu canvas-wide; only the bus right-click
-      // menu (opened via onNodeContextMenu) should appear.
+      // Suppress the native context menu canvas-wide; only our own right-click
+      // menus should appear.
       onContextMenu={(e) => e.preventDefault()}
+      onMouseMove={(e) => {
+        pointer.current = { x: e.clientX, y: e.clientY };
+      }}
     >
       <ReactFlow
         nodes={nodes}
         edges={edges}
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
-        onNodesChange={onNodesChange}
+        onNodesChange={handleNodesChange}
         onEdgesChange={onEdgesChange}
         onConnect={handleConnect}
         onConnectEnd={handleConnectEnd}
@@ -260,11 +335,39 @@ export function Canvas() {
         onDrop={onDrop}
         onDragOver={onDragOver}
         onNodeClick={(_, node: Node) => select(node.id)}
+        // Alt/Cmd-drag a node to drag a detached clone of it, leaving the
+        // original (and its wires) in place. The clone spawns on top of the
+        // original; handleNodesChange redirects the drag onto it.
+        onNodeDragStart={(e, node: Node) => {
+          if (!(e.altKey || e.metaKey)) return;
+          const cloneId = duplicateNode(node.id, { x: 0, y: 0 });
+          if (cloneId) cloneDrag.current = { originalId: node.id, cloneId };
+        }}
+        onNodeDragStop={() => {
+          // Defer: the final position change may arrive right after this, and it
+          // still needs redirecting onto the clone.
+          setTimeout(() => {
+            cloneDrag.current = null;
+          }, 0);
+        }}
         onNodeContextMenu={(e, node: Node) => {
-          if (node.type !== "bus") return;
           e.preventDefault();
           setMenu(null);
-          setBusMenu({ x: e.clientX, y: e.clientY, busId: node.id });
+          setPasteMenu(null);
+          select(node.id);
+          setNodeMenu({
+            x: e.clientX,
+            y: e.clientY,
+            nodeId: node.id,
+            isBus: node.type === "bus",
+          });
+        }}
+        onPaneContextMenu={(e) => {
+          e.preventDefault();
+          setMenu(null);
+          setNodeMenu(null);
+          const me = e as React.MouseEvent;
+          setPasteMenu({ x: me.clientX, y: me.clientY });
         }}
         onEdgeClick={(_, edge: Edge) =>
           edge.type === "line" ? selectEdge(edge.id) : select(null)
@@ -272,6 +375,8 @@ export function Canvas() {
         onPaneClick={() => select(null)}
         colorMode={colorScheme}
         defaultEdgeOptions={{ type: "wire" }}
+        // Cmd is reserved for clone-drag, so don't let it engage multi-selection.
+        multiSelectionKeyCode={null}
         deleteKeyCode={["Backspace", "Delete"]}
         minZoom={0.05}
         maxZoom={4}
@@ -318,17 +423,68 @@ export function Canvas() {
         </>
       )}
 
-      {busMenu && (
-        <BusGraphMenu
-          x={busMenu.x}
-          y={busMenu.y}
-          hasInjection={busMenuInj !== null}
-          onPick={(kind) => {
-            if (busMenuInj) setGraph({ kind, inj: busMenuInj });
-            setBusMenu(null);
+      {nodeMenu && (
+        <NodeContextMenu
+          x={nodeMenu.x}
+          y={nodeMenu.y}
+          isBus={nodeMenu.isBus}
+          hasInjection={nodeMenuInj !== null}
+          onDuplicate={() => {
+            duplicateNode(nodeMenu.nodeId, { x: 24, y: 24 });
+            setNodeMenu(null);
           }}
-          onClose={() => setBusMenu(null)}
+          onCopy={() => {
+            copyNode(nodeMenu.nodeId);
+            setNodeMenu(null);
+          }}
+          onGraph={(kind) => {
+            if (nodeMenuInj) setGraph({ kind, inj: nodeMenuInj });
+            setNodeMenu(null);
+          }}
+          onClose={() => setNodeMenu(null)}
         />
+      )}
+
+      {pasteMenu && (
+        <>
+          {/* Click-away backdrop. */}
+          <div
+            onClick={() => setPasteMenu(null)}
+            style={{ position: "fixed", inset: 0, zIndex: 10 }}
+          />
+          <Paper
+            shadow="md"
+            withBorder
+            p={4}
+            style={{
+              position: "fixed",
+              left: pasteMenu.x,
+              top: pasteMenu.y,
+              zIndex: 11,
+              minWidth: 140,
+            }}
+          >
+            <Button
+              variant="subtle"
+              size="xs"
+              fullWidth
+              justify="flex-start"
+              c="white"
+              disabled={!clipboard}
+              onClick={() => {
+                pasteAt(screenToFlowPosition({ x: pasteMenu.x, y: pasteMenu.y }));
+                setPasteMenu(null);
+              }}
+            >
+              Paste
+            </Button>
+            {!clipboard && (
+              <Text size="xs" c="dimmed" px="xs" py={2}>
+                Nothing copied yet
+              </Text>
+            )}
+          </Paper>
+        </>
       )}
 
       <Modal
