@@ -31,11 +31,20 @@ spec:
               containerPort: 8000
               protocol: TCP
           env:
-            - name: BG_SESSION_DIR
-              value: /data
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.database.urlSecret.name | default (printf "%s-db-app" (include "bamboogrid.fullname" .)) }}
+                  key: {{ .Values.database.urlSecret.key }}
             {{- if .Values.session.ttlSeconds }}
             - name: BG_SESSION_TTL_S
               value: {{ .Values.session.ttlSeconds | quote }}
+            {{- end }}
+            {{- if .Values.tracing.enabled }}
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: {{ .Values.tracing.endpoint | quote }}
+            - name: OTEL_SERVICE_NAME
+              value: {{ .Values.tracing.serviceName | quote }}
             {{- end }}
           livenessProbe:
             httpGet:
@@ -54,18 +63,9 @@ spec:
           volumeMounts:
             - name: tmp
               mountPath: /tmp
-            - name: data
-              mountPath: /data
       volumes:
         - name: tmp
           emptyDir: {}
-        - name: data
-          {{- if .Values.persistence.enabled }}
-          persistentVolumeClaim:
-            claimName: {{ include "bamboogrid.fullname" . }}-data
-          {{- else }}
-          emptyDir: {}
-          {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
 # --- Stage 1: build the SPA ---
-FROM node:20-alpine AS frontend
+FROM node:24-alpine AS frontend
 WORKDIR /frontend
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci
@@ -9,7 +9,7 @@ COPY frontend/ ./
 RUN npm run build
 
 # --- Stage 2: runtime ---
-FROM python:3.12-slim AS runtime
+FROM python:3.14-slim AS runtime
 ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     STATIC_DIR=/app/static
@@ -20,8 +20,10 @@ RUN pip install ./backend
 
 COPY --from=frontend /frontend/dist ./static/
 
-RUN useradd --create-home --uid 10001 app
-USER app
+RUN groupadd --gid 10001 app \
+    && useradd --create-home --uid 10001 --gid 10001 app
+# Numeric so Kubernetes' runAsNonRoot check passes without a passwd lookup.
+USER 10001:10001
 
 WORKDIR /app/backend
 EXPOSE 8000

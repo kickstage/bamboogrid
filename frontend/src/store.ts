@@ -1448,4 +1448,5 @@ configureSync({
   onError: (message) => toast.error(message),
   onHistory: (canUndo, canRedo) =>
     useEditor.getState().setHistory(canUndo, canRedo),
+  onConflict: () => void useEditor.getState().resyncFromServer(),
 });

@@ -1,4 +1,4 @@
-replicaCount: 1
+replicaCount: 2
 
 image:
   repository: ghcr.io/kickstage/bamboogrid
@@ -19,10 +19,15 @@ service:
   type: ClusterIP
   port: 8000
 
+# With more than one replica a session is pinned to the pod that holds its live
+# net via consistent hashing on the X-Session-Id header. This needs the ingress
+# enabled and an nginx ingress controller; requests without the header (session
+# creation, share open, health) fall back to round-robin.
 ingress:
-  enabled: false
+  enabled: true
   className: ""
-  annotations: {}
+  annotations:
+    nginx.ingress.kubernetes.io/upstream-hash-by: "$http_x_session_id"
   hosts:
     - host: bamboogrid.local
       paths:
@@ -38,25 +43,44 @@ resources:
     cpu: "1"
     memory: 1Gi
 
-# Sessions are held in an SQLite database on a persistent volume so they survive
-# pod restarts. SQLite is a single writer, so keep replicaCount at 1.
-persistence:
+# Sessions are stored in a shared PostgreSQL database, provisioned here as a
+# CloudNativePG Cluster (the cnpg operator must be installed in the cluster).
+# Disable to bring your own database via the `database` block below.
+postgres:
   enabled: true
-  storageClass: ""  # "" uses the cluster default StorageClass
-  accessModes:
-    - ReadWriteOnce
-  size: 1Gi
+  instances: 2
+  storage:
+    size: 5Gi
+    storageClass: ""  # "" uses the cluster default StorageClass
+  database: bamboogrid
+  owner: bamboogrid
+
+# Connection secret the app reads as DATABASE_URL. Defaults to the cnpg-generated
+# "<fullname>-db-app" secret; set name to point at an external database secret.
+database:
+  urlSecret:
+    name: ""
+    key: uri
 
 session:
   # Idle time before a session is purged from the database (seconds). 30 days.
   # Quoted so Helm doesn't render it in scientific notation.
   ttlSeconds: "2592000"
 
+# OpenTelemetry tracing. When enabled, the backend exports spans to the OTLP
+# (HTTP) endpoint; the path suffix (/v1/traces) is added automatically.
+tracing:
+  enabled: false
+  endpoint: "http://otel-collector:4318"
+  serviceName: bamboogrid-backend
+
 podSecurityContext:
   runAsNonRoot: true
   runAsUser: 10001
-  # Group-own the mounted volume so the non-root user can write the database.
+  runAsGroup: 10001
   fsGroup: 10001
+  seccompProfile:
+    type: RuntimeDefault
 
 securityContext:
   allowPrivilegeEscalation: false

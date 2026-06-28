@@ -7,7 +7,7 @@
 // a component dropped from the palette only becomes a server element once it is
 // wired to a bus (it lives only in the browser until then).
 
-import { sendCommands } from "./api";
+import { ConflictError, sendCommands } from "./api";
 import type { Command } from "./types";
 
 export const serverIds = new Set<string>();
@@ -17,16 +17,20 @@ let timer: ReturnType<typeof setTimeout> | undefined;
 let sessionId: () => string | null = () => null;
 let onError: (message: string) => void = () => {};
 let onHistory: (canUndo: boolean, canRedo: boolean) => void = () => {};
+let onConflict: () => void = () => {};
 
 export function configureSync(opts: {
   sessionId: () => string | null;
   onError: (message: string) => void;
   // Called after each flush with the session's resulting undo/redo availability.
   onHistory: (canUndo: boolean, canRedo: boolean) => void;
+  // Called when the server rejected a flush as stale (HTTP 409): resync.
+  onConflict: () => void;
 }): void {
   sessionId = opts.sessionId;
   onError = opts.onError;
   onHistory = opts.onHistory;
+  onConflict = opts.onConflict;
 }
 
 export function enqueue(cmd: Command): void {
@@ -51,6 +55,10 @@ export async function flushPending(): Promise<void> {
     const { can_undo, can_redo } = await sendCommands(id, batch);
     onHistory(can_undo, can_redo);
   } catch (err) {
+    if (err instanceof ConflictError) {
+      onConflict();
+      return;
+    }
     onError(`Sync failed: ${(err as Error).message}`);
   }
 }

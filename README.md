@@ -42,7 +42,7 @@ bamboogrid/
 ```
 
 The **server-side pandapower `net` is the source of truth**, held per session and
-persisted in SQLite. The browser never holds the full net: it receives a
+persisted in PostgreSQL. The browser never holds the full net: it receives a
 projection (modeled elements + layout + read-only foreign elements) and mutates
 the authoritative net through commands. Elements and attributes the editor
 doesn't model yet are therefore preserved and still influence the solve.

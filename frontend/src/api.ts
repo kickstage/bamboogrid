@@ -8,6 +8,10 @@ import type {
 
 const BASE = "";
 
+// A write lost the server's optimistic-version race (HTTP 409): the session was
+// edited on another pod. Callers resync from the server rather than show an error.
+export class ConflictError extends Error {}
+
 // FastAPI error bodies are `{"detail": "..."}`; surface that human-readable
 // message rather than the raw JSON wrapper. Falls back to the status text.
 async function errorMessage(res: Response): Promise<string> {
@@ -67,6 +71,7 @@ export async function sendCommands(
     headers: { ...JSON_HEADERS, [SESSION_HEADER]: id },
     body: JSON.stringify(cmds),
   });
+  if (res.status === 409) throw new ConflictError(await errorMessage(res));
   if (!res.ok) throw new Error(await errorMessage(res));
   return res.json() as Promise<HistoryState>;
 }

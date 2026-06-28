@@ -1,7 +1,21 @@
+import pytest
+
 from app.commands import apply_commands
 from app.projection import net_to_view
 from app.schema import Command
-from app.session import store
+from app.session import ConflictError, store
+
+
+def _add_bus(session, bus_id: str) -> None:
+    apply_commands(
+        session.net,
+        [
+            Command(
+                op="add_bus",
+                payload={"id": bus_id, "name": bus_id, "vn_kv": 0.4, "x": 0, "y": 0, "width": 220},
+            )
+        ],
+    )
 
 
 def test_session_rehydrates_from_database():
@@ -17,7 +31,7 @@ def test_session_rehydrates_from_database():
     )
     store.record(session)
 
-    # Drop the in-memory cache: the session must come back from SQLite.
+    # Drop the in-memory cache: the session must come back from the database.
     store._live.clear()
     rehydrated = store.get(session.id)
     assert rehydrated.id == session.id
@@ -79,3 +93,20 @@ def test_line_waypoint_persists_across_rehydrate():
     line = next(ln for ln in net_to_view(again.net).network.lines if ln.id == "l1")
     assert line.waypoint is not None
     assert (line.waypoint.x, line.waypoint.y) == (150.0, 80.0)
+
+
+def test_stale_write_raises_conflict():
+    # Stand in for two pods editing the same session: one advances the row, then
+    # the other (still holding the original cached version) tries to persist.
+    session = store.create()
+
+    store._live.clear()
+    other = store.get(session.id)  # a fresh load = a second pod's cache
+    _add_bus(other, "bOther")
+    store.record(other)  # row version is now ahead of `session`
+
+    _add_bus(session, "bStale")
+    with pytest.raises(ConflictError):
+        store.record(session)
+    # The stale cache is dropped so the next access rehydrates the current state.
+    assert session.id not in store._live
