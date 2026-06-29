@@ -2,6 +2,9 @@
 
 # --- Stage 1: build the SPA ---
 FROM node:24-alpine AS frontend
+# Version shown in the footer; set from the image tag in CI, "dev" otherwise.
+ARG APP_VERSION=dev
+ENV APP_VERSION=$APP_VERSION
 WORKDIR /frontend
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci

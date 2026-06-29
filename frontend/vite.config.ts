@@ -15,4 +15,8 @@ const proxy = Object.fromEntries(
 export default defineConfig({
   plugins: [react()],
   server: { port: 5173, proxy },
+  // Baked in at build time from the image tag (see Dockerfile/CI); "dev" locally.
+  define: {
+    __APP_VERSION__: JSON.stringify(process.env.APP_VERSION || "dev"),
+  },
 });

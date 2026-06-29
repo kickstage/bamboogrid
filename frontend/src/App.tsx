@@ -600,6 +600,10 @@ export default function App() {
         >
           pandapower
         </Anchor>
+        {" · "}
+        <Text component="span" inherit c="dimmed">
+          {__APP_VERSION__}
+        </Text>
       </Text>
 
       <SummaryModal opened={summaryOpen} onClose={() => setSummaryOpen(false)} />
