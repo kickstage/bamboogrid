@@ -172,6 +172,11 @@ export default function App() {
     </Text>
   );
 
+  // Desktop menu-bar behaviour: once a menu is open, hovering a sibling button
+  // switches to it without an extra click.
+  const hoverSwitch = (menu: NonNullable<typeof openMenu>) => () =>
+    setOpenMenu((cur) => (cur ? menu : cur));
+
   // On first load, reattach to a session (URL ?session wins, then the last one
   // used) or start a fresh one.
   useEffect(() => {
@@ -344,7 +349,12 @@ export default function App() {
               onChange={(o) => setOpenMenu(o ? "file" : null)}
             >
               <Menu.Target>
-                <Button variant="subtle" color="gray" size="xs">
+                <Button
+                  variant="subtle"
+                  color="gray"
+                  size="xs"
+                  onMouseEnter={hoverSwitch("file")}
+                >
                   File
                 </Button>
               </Menu.Target>
@@ -378,7 +388,12 @@ export default function App() {
               onChange={(o) => setOpenMenu(o ? "edit" : null)}
             >
               <Menu.Target>
-                <Button variant="subtle" color="gray" size="xs">
+                <Button
+                  variant="subtle"
+                  color="gray"
+                  size="xs"
+                  onMouseEnter={hoverSwitch("edit")}
+                >
                   Edit
                 </Button>
               </Menu.Target>
@@ -416,7 +431,12 @@ export default function App() {
               onChange={(o) => setOpenMenu(o ? "study" : null)}
             >
               <Menu.Target>
-                <Button variant="subtle" color="gray" size="xs">
+                <Button
+                  variant="subtle"
+                  color="gray"
+                  size="xs"
+                  onMouseEnter={hoverSwitch("study")}
+                >
                   Study
                 </Button>
               </Menu.Target>
@@ -437,7 +457,12 @@ export default function App() {
               onChange={(o) => setOpenMenu(o ? "view" : null)}
             >
               <Menu.Target>
-                <Button variant="subtle" color="gray" size="xs">
+                <Button
+                  variant="subtle"
+                  color="gray"
+                  size="xs"
+                  onMouseEnter={hoverSwitch("view")}
+                >
                   View
                 </Button>
               </Menu.Target>
