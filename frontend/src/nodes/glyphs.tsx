@@ -59,7 +59,7 @@ export function SgenGlyph({ size = 52, stroke = "currentColor" }: GlyphProps) {
   );
 }
 
-// pandapower/ext_grid.svg — a circle with a wavy line, marking the connection
+// pandapower/ext_grid.svg — a square with a wavy line, marking the connection
 // to an external network (the slack reference).
 export function ExtGridGlyph({ size = 52, stroke = "currentColor" }: GlyphProps) {
   return (
@@ -70,7 +70,7 @@ export function ExtGridGlyph({ size = 52, stroke = "currentColor" }: GlyphProps)
       aria-hidden
       style={{ display: "block", margin: "0 auto" }}
     >
-      <circle cx={60} cy={42} r={24} fill="none" stroke={stroke} strokeWidth={3} />
+      <rect x={36} y={18} width={48} height={48} fill="none" stroke={stroke} strokeWidth={3} />
       <path d="M42 42 C50 26,70 58,78 42" fill="none" stroke={stroke} strokeWidth={3} />
     </svg>
   );

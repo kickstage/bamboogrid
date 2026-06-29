@@ -7,6 +7,7 @@ import {
   Switch,
   Text,
   TextInput,
+  Tooltip,
 } from "@mantine/core";
 import { useEffect, useState } from "react";
 import { fetchStdTypes, type StdTrafoTypes } from "../api";
@@ -241,16 +242,57 @@ export function Inspector() {
         onChange={(e) => update({ name: e.currentTarget.value })}
       />
 
-      {node.type === "bus" && (
-        <NumberInput
-          label="Nominal voltage (kV)"
-          value={(node.data as BusData).vn_kv}
-          min={0}
-          step={0.01}
-          decimalScale={3}
-          onChange={(v) => update({ vn_kv: Number(v) || 0 })}
-        />
-      )}
+      {node.type === "bus" &&
+        (() => {
+          // A line — or a bus–bus switch — joins two buses at one voltage level,
+          // so while either is attached we lock the nominal voltage to keep both
+          // ends consistent.
+          const lineConnected = edges.some(
+            (e) =>
+              e.type === "line" && (e.source === node.id || e.target === node.id),
+          );
+          // Switch nodes wired to this bus (switch = wire source, bus = target)…
+          const switchIds = new Set(
+            edges
+              .filter(
+                (e) =>
+                  e.target === node.id &&
+                  nodes.find((n) => n.id === e.source)?.type === "switch",
+              )
+              .map((e) => e.source),
+          );
+          // …that also reach a second bus.
+          const switchConnected = edges.some(
+            (e) =>
+              switchIds.has(e.source) &&
+              e.target !== node.id &&
+              nodes.find((n) => n.id === e.target)?.type === "bus",
+          );
+          const locked = lineConnected || switchConnected;
+          return (
+            <Tooltip
+              label="Connected buses share one nominal voltage. Remove the connection to change it."
+              disabled={!locked}
+              color="yellow"
+              styles={{ tooltip: { color: "var(--mantine-color-black)" } }}
+              multiline
+              w={220}
+              withArrow
+            >
+              <div>
+                <NumberInput
+                  label="Nominal voltage (kV)"
+                  value={(node.data as BusData).vn_kv}
+                  min={0}
+                  step={0.01}
+                  decimalScale={3}
+                  disabled={locked}
+                  onChange={(v) => update({ vn_kv: Number(v) || 0 })}
+                />
+              </div>
+            </Tooltip>
+          );
+        })()}
 
       {node.type === "generator" && (
         <>
