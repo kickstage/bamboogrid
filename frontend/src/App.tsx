@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from "react";
 import {
   Anchor,
   Button,
-  Collapse,
   Group,
   Menu,
   Paper,
@@ -14,6 +13,7 @@ import {
 } from "@mantine/core";
 import { ReactFlowProvider } from "@xyflow/react";
 
+import { Submenu } from "./ui/Submenu";
 import { Canvas } from "./canvas/Canvas";
 import { Inspector } from "./inspector/Inspector";
 import { Palette } from "./palette/Palette";
@@ -157,9 +157,6 @@ export default function App() {
     "file" | "edit" | "view" | "study" | null
   >(null);
   const [summaryOpen, setSummaryOpen] = useState(false);
-  // Whether the File ▸ Open example sub-list is expanded (collapsed by default
-  // so the examples don't crowd the dropdown).
-  const [examplesOpen, setExamplesOpen] = useState(false);
   const [leftW, setLeftW] = useState(() => readWidth(PANELS.left));
   const [rightW, setRightW] = useState(() => readWidth(PANELS.right));
   const ppInputRef = useRef<HTMLInputElement>(null);
@@ -396,41 +393,33 @@ export default function App() {
                   New network
                 </Menu.Item>
                 {scenarios.length > 0 && (
-                  <>
-                    <Menu.Item
-                      closeMenuOnClick={false}
-                      onClick={() => setExamplesOpen((o) => !o)}
-                      disabled={busy}
-                      rightSection={
-                        <Text
-                          component="span"
-                          size="sm"
-                          c="dimmed"
-                          style={{
-                            display: "inline-block",
-                            transform: examplesOpen ? "rotate(90deg)" : "none",
-                            transition: "transform 150ms",
-                          }}
-                        >
-                          ›
-                        </Text>
-                      }
-                    >
-                      Open example
-                    </Menu.Item>
-                    <Collapse in={examplesOpen}>
-                      {scenarios.map((s) => (
-                        <Menu.Item
-                          key={s.id}
-                          pl="lg"
-                          onClick={() => onOpenScenario(s)}
-                          disabled={busy}
-                        >
-                          {s.label}
-                        </Menu.Item>
-                      ))}
-                    </Collapse>
-                  </>
+                  <Submenu
+                    minWidth={200}
+                    disabled={busy}
+                    trigger={() => (
+                      <Menu.Item
+                        closeMenuOnClick={false}
+                        disabled={busy}
+                        rightSection={
+                          <Text component="span" size="sm" c="dimmed">
+                            ›
+                          </Text>
+                        }
+                      >
+                        Open example
+                      </Menu.Item>
+                    )}
+                  >
+                    {scenarios.map((s) => (
+                      <Menu.Item
+                        key={s.id}
+                        onClick={() => onOpenScenario(s)}
+                        disabled={busy}
+                      >
+                        {s.label}
+                      </Menu.Item>
+                    ))}
+                  </Submenu>
                 )}
                 <Menu.Divider />
                 <Menu.Item
