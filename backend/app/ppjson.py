@@ -123,6 +123,42 @@ def _trafo3w_params(row) -> Trafo3WParams:
     )
 
 
+# The editable electrical fields of each transformer kind — the ones the
+# inspector's "Advanced" expander exposes (and the subset of a std_type a picked
+# preset fills). Tap-changer columns are intentionally excluded: they're carried
+# through unchanged rather than edited here.
+_STD_FIELDS_2W = [
+    "sn_mva", "vn_hv_kv", "vn_lv_kv",
+    "vk_percent", "vkr_percent", "pfe_kw", "i0_percent", "shift_degree",
+]
+_STD_FIELDS_3W = [
+    "sn_hv_mva", "sn_mv_mva", "sn_lv_mva",
+    "vn_hv_kv", "vn_mv_kv", "vn_lv_kv",
+    "vk_hv_percent", "vk_mv_percent", "vk_lv_percent",
+    "vkr_hv_percent", "vkr_mv_percent", "vkr_lv_percent",
+    "pfe_kw", "i0_percent", "shift_mv_degree", "shift_lv_degree",
+]
+
+
+def std_trafo_types(table: str) -> dict[str, dict[str, float]]:
+    """Each library ``trafo``/``trafo3w`` std_type mapped to its editable
+    parameter set, so the inspector can expand a chosen preset into editable
+    values. Built from a throwaway empty net (pandapower's default catalog);
+    independent of any session."""
+    net = pp.create_empty_network()
+    df = pp.available_std_types(net, table)
+    fields = _STD_FIELDS_3W if table == "trafo3w" else _STD_FIELDS_2W
+    out: dict[str, dict[str, float]] = {}
+    for name in df.index:
+        row = df.loc[name]
+        out[str(name)] = {
+            f: float(row[f])
+            for f in fields
+            if f in df.columns and pd.notna(row[f])
+        }
+    return out
+
+
 # Cap imported networks for now: beyond this, both the solver round-trip and
 # the React Flow canvas start to crawl. Lifted once rendering/perf is addressed.
 MAX_IMPORT_BUSES = 100
@@ -422,9 +458,12 @@ def net_to_network(net) -> Network:
             )
         )
 
-    # A transformer with a recognized std_type keeps using it; one with a null or
-    # foreign std_type (e.g. case14, built from raw parameters) instead carries
-    # explicit params so it solves correctly.
+    # Every transformer is projected with its explicit electrical ``params`` (read
+    # straight from the net columns), so they're always visible and editable in
+    # the inspector's "Advanced" expander. ``std_type`` is just the preset label:
+    # kept when it names a type we carry, blanked otherwise (a custom/imported
+    # transformer, e.g. case14's raw-parameter trafos). Either way ``params`` is
+    # the source of truth the solver builds from.
     trafo_std = set(pp.available_std_types(net, "trafo").index)
     trafo3w_std = set(pp.available_std_types(net, "trafo3w").index)
 
@@ -432,15 +471,7 @@ def net_to_network(net) -> Network:
     for t in net.trafo.index:
         lay = _layout(d_trafo, t)
         std_raw = net.trafo.at[t, "std_type"]
-        std_name = std_raw if isinstance(std_raw, str) and std_raw else ""
-        params = None
-        if std_name not in trafo_std:
-            # A type we don't carry: keep the exact electrical parameters and
-            # leave std_type empty. The inspector then shows "Custom (imported)"
-            # rather than a misleading default, and the params (not a standard
-            # type) drive the solve until the user picks one.
-            params = _trafo2w_params(net.trafo.loc[t])
-            std_name = ""
+        std_name = std_raw if isinstance(std_raw, str) and std_raw in trafo_std else ""
         transformers2w.append(
             Transformer2W(
                 id=str(lay["uuid"]) if lay is not None else uuid.uuid4().hex,
@@ -448,7 +479,7 @@ def net_to_network(net) -> Network:
                 hv_bus=bus_uuid[int(net.trafo.at[t, "hv_bus"])],
                 lv_bus=bus_uuid[int(net.trafo.at[t, "lv_bus"])],
                 std_type=std_name,
-                params=params,
+                params=_trafo2w_params(net.trafo.loc[t]),
                 port_hv=_col(lay, "port_hv"),
                 port_lv=_col(lay, "port_lv"),
                 x=_pos(lay, "trafo", t)[0],
@@ -460,12 +491,7 @@ def net_to_network(net) -> Network:
     for t in net.trafo3w.index:
         lay = _layout(d_trafo3w, t)
         std_raw = net.trafo3w.at[t, "std_type"]
-        std_name = std_raw if isinstance(std_raw, str) and std_raw else ""
-        params3 = None
-        if std_name not in trafo3w_std:
-            # See the 2W note: keep exact params, leave std_type empty.
-            params3 = _trafo3w_params(net.trafo3w.loc[t])
-            std_name = ""
+        std_name = std_raw if isinstance(std_raw, str) and std_raw in trafo3w_std else ""
         transformers3w.append(
             Transformer3W(
                 id=str(lay["uuid"]) if lay is not None else uuid.uuid4().hex,
@@ -474,7 +500,7 @@ def net_to_network(net) -> Network:
                 mv_bus=bus_uuid[int(net.trafo3w.at[t, "mv_bus"])],
                 lv_bus=bus_uuid[int(net.trafo3w.at[t, "lv_bus"])],
                 std_type=std_name,
-                params=params3,
+                params=_trafo3w_params(net.trafo3w.loc[t]),
                 port_hv=_col(lay, "port_hv"),
                 port_mv=_col(lay, "port_mv"),
                 port_lv=_col(lay, "port_lv"),

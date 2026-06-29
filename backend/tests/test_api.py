@@ -336,3 +336,72 @@ def test_open_unknown_share_is_404(client):
 
 def test_share_missing_session_is_404(client):
     assert client.post("/session/share", headers=auth("nope")).status_code == 404
+
+
+# --- transformer params / std-types ----------------------------------------
+
+
+def _two_bus_trafo(client, sid: str, std_type: str = "0.25 MVA 20/0.4 kV") -> None:
+    """A 20 kV bus and a 0.4 kV bus joined by a std_type 2W transformer."""
+    cmds = [
+        {"op": "add_bus", "payload": {"id": "b1", "name": "HV", "vn_kv": 20.0, "x": 0, "y": 0, "width": 220}},
+        {"op": "add_bus", "payload": {"id": "b2", "name": "LV", "vn_kv": 0.4, "x": 0, "y": 200, "width": 220}},
+        {"op": "add_transformer", "payload": {"id": "t1", "hv_bus": "b1", "lv_bus": "b2", "std_type": std_type, "port_hv": "", "port_lv": ""}},
+    ]
+    assert client.post("/session/commands", json=cmds, headers=auth(sid)).status_code == 200
+
+
+def _trafo(client, sid: str) -> dict:
+    return client.get("/session", headers=auth(sid)).json()["network"]["transformers2w"][0]
+
+
+def test_std_types_endpoint_returns_param_sets(client):
+    types = client.get("/std-types/trafo")
+    assert types.status_code == 200
+    body = types.json()
+    assert "0.25 MVA 20/0.4 kV" in body
+    assert body["0.25 MVA 20/0.4 kV"]["sn_mva"] == pytest.approx(0.25)
+    assert "vk_percent" in body["0.25 MVA 20/0.4 kV"]
+    assert client.get("/std-types/trafo3w").status_code == 200
+    assert client.get("/std-types/nope").status_code == 404
+
+
+def test_std_type_transformer_projects_params(client):
+    sid = new_session(client)
+    _two_bus_trafo(client, sid)
+    t = _trafo(client, sid)
+    # The std_type label is kept AND the explicit params are always projected.
+    assert t["std_type"] == "0.25 MVA 20/0.4 kV"
+    assert t["params"] is not None
+    assert t["params"]["sn_mva"] == pytest.approx(0.25)
+
+
+def test_editing_a_param_makes_transformer_custom(client):
+    sid = new_session(client)
+    _two_bus_trafo(client, sid)
+    params = _trafo(client, sid)["params"]
+    params["vk_percent"] = 9.9
+    patch = {"op": "update", "payload": {"id": "t1", "kind": "trafo2w", "patch": {"std_type": "", "params": params}}}
+    assert client.post("/session/commands", json=[patch], headers=auth(sid)).status_code == 200
+    t = _trafo(client, sid)
+    assert t["std_type"] == ""  # dropped the preset label → custom
+    assert t["params"]["vk_percent"] == pytest.approx(9.9)
+    # The edit is preserved through a load flow (it's the solver's source of truth).
+    run = client.post("/session/run-loadflow", headers=auth(sid))
+    assert run.status_code == 200
+    assert _trafo(client, sid)["params"]["vk_percent"] == pytest.approx(9.9)
+
+
+def test_picking_std_type_refills_params(client):
+    sid = new_session(client)
+    _two_bus_trafo(client, sid)
+    # Become custom first.
+    params = _trafo(client, sid)["params"]
+    params["vk_percent"] = 9.9
+    client.post("/session/commands", json=[{"op": "update", "payload": {"id": "t1", "kind": "trafo2w", "patch": {"std_type": "", "params": params}}}], headers=auth(sid))
+    # Picking a named type refills the params from the catalog and restores the label.
+    client.post("/session/commands", json=[{"op": "update", "payload": {"id": "t1", "kind": "trafo2w", "patch": {"std_type": "0.4 MVA 20/0.4 kV"}}}], headers=auth(sid))
+    t = _trafo(client, sid)
+    assert t["std_type"] == "0.4 MVA 20/0.4 kV"
+    assert t["params"]["sn_mva"] == pytest.approx(0.4)
+    assert t["params"]["vk_percent"] != pytest.approx(9.9)

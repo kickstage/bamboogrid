@@ -1,4 +1,5 @@
 import {
+  Accordion,
   Divider,
   NumberInput,
   Select,
@@ -7,6 +8,8 @@ import {
   Text,
   TextInput,
 } from "@mantine/core";
+import { useEffect, useState } from "react";
+import { fetchStdTypes, type StdTrafoTypes } from "../api";
 import { useEditor } from "../store";
 import { fixed } from "../format";
 import { busInjection } from "../power";
@@ -39,8 +42,77 @@ import type {
   ShuntData,
   SwitchData,
   Trafo2WData,
+  Trafo2WParams,
   Trafo3WData,
+  Trafo3WParams,
 } from "../types";
+
+// One editable transformer parameter: which field, how to label and step it.
+type ParamField = { key: string; label: string; step: number; dp: number };
+
+const TRAFO2W_FIELDS: ParamField[] = [
+  { key: "sn_mva", label: "Rated power (MVA)", step: 0.1, dp: 4 },
+  { key: "vn_hv_kv", label: "HV nominal voltage (kV)", step: 1, dp: 3 },
+  { key: "vn_lv_kv", label: "LV nominal voltage (kV)", step: 0.1, dp: 3 },
+  { key: "vk_percent", label: "Short-circuit voltage vk (%)", step: 0.1, dp: 3 },
+  { key: "vkr_percent", label: "Real part vkr (%)", step: 0.1, dp: 4 },
+  { key: "pfe_kw", label: "Iron losses (kW)", step: 0.1, dp: 3 },
+  { key: "i0_percent", label: "No-load current i0 (%)", step: 0.01, dp: 4 },
+  { key: "shift_degree", label: "Phase shift (deg)", step: 30, dp: 1 },
+];
+
+const TRAFO3W_FIELDS: ParamField[] = [
+  { key: "sn_hv_mva", label: "HV rated power (MVA)", step: 0.1, dp: 4 },
+  { key: "sn_mv_mva", label: "MV rated power (MVA)", step: 0.1, dp: 4 },
+  { key: "sn_lv_mva", label: "LV rated power (MVA)", step: 0.1, dp: 4 },
+  { key: "vn_hv_kv", label: "HV nominal voltage (kV)", step: 1, dp: 3 },
+  { key: "vn_mv_kv", label: "MV nominal voltage (kV)", step: 1, dp: 3 },
+  { key: "vn_lv_kv", label: "LV nominal voltage (kV)", step: 0.1, dp: 3 },
+  { key: "vk_hv_percent", label: "HV short-circuit voltage vk (%)", step: 0.1, dp: 3 },
+  { key: "vk_mv_percent", label: "MV short-circuit voltage vk (%)", step: 0.1, dp: 3 },
+  { key: "vk_lv_percent", label: "LV short-circuit voltage vk (%)", step: 0.1, dp: 3 },
+  { key: "vkr_hv_percent", label: "HV real part vkr (%)", step: 0.1, dp: 4 },
+  { key: "vkr_mv_percent", label: "MV real part vkr (%)", step: 0.1, dp: 4 },
+  { key: "vkr_lv_percent", label: "LV real part vkr (%)", step: 0.1, dp: 4 },
+  { key: "pfe_kw", label: "Iron losses (kW)", step: 0.1, dp: 3 },
+  { key: "i0_percent", label: "No-load current i0 (%)", step: 0.01, dp: 4 },
+  { key: "shift_mv_degree", label: "MV phase shift (deg)", step: 30, dp: 1 },
+  { key: "shift_lv_degree", label: "LV phase shift (deg)", step: 30, dp: 1 },
+];
+
+// The "Advanced" expander: editable NumberInputs for each transformer parameter.
+// A std_type only fills these — editing any one makes the transformer custom.
+function AdvancedParams({
+  fields,
+  params,
+  onChange,
+}: {
+  fields: ParamField[];
+  params: Record<string, number>;
+  onChange: (key: string, value: number) => void;
+}) {
+  return (
+    <Accordion variant="separated" chevronPosition="right" px={0}>
+      <Accordion.Item value="advanced">
+        <Accordion.Control>Advanced parameters</Accordion.Control>
+        <Accordion.Panel>
+          <Stack gap="xs">
+            {fields.map((f) => (
+              <NumberInput
+                key={f.key}
+                label={f.label}
+                value={params[f.key] ?? 0}
+                step={f.step}
+                decimalScale={f.dp}
+                onChange={(v) => onChange(f.key, Number(v) || 0)}
+              />
+            ))}
+          </Stack>
+        </Accordion.Panel>
+      </Accordion.Item>
+    </Accordion>
+  );
+}
 
 export function Inspector() {
   const {
@@ -52,6 +124,17 @@ export function Inspector() {
     updateEdgeData,
     studyMode,
   } = useEditor();
+
+  // pandapower's std transformer catalog, fetched once (cached in api.ts). Used
+  // to expand a picked std_type into editable params and to show a std-type
+  // transformer's values before it's been re-projected with explicit params.
+  const [trafo2wStd, setTrafo2wStd] = useState<StdTrafoTypes>();
+  const [trafo3wStd, setTrafo3wStd] = useState<StdTrafoTypes>();
+  useEffect(() => {
+    fetchStdTypes("trafo").then(setTrafo2wStd).catch(() => {});
+    fetchStdTypes("trafo3w").then(setTrafo3wStd).catch(() => {});
+  }, []);
+
   const node = nodes.find((n) => n.id === selectedId);
   const lineEdge = edges.find((e) => e.id === selectedEdgeId && e.type === "line");
 
@@ -351,25 +434,38 @@ export function Inspector() {
           const matching = haveBoth
             ? matchingTrafo2wTypes(volts.hv!, volts.lv!)
             : trafo2wNames();
+          const isCustom = !d.std_type;
+          // Params are the source of truth; a just-picked std type not yet
+          // re-projected falls back to the fetched catalog values for display.
+          const params =
+            d.params ??
+            (d.std_type
+              ? (trafo2wStd?.[d.std_type] as Trafo2WParams | undefined)
+              : undefined);
           const mismatch =
             haveBoth &&
-            (d.params
-              ? !(
-                  kvEqual(d.params.vn_hv_kv, volts.hv!) &&
-                  kvEqual(d.params.vn_lv_kv, volts.lv!)
+            (isCustom
+              ? !!params &&
+                !(
+                  kvEqual(params.vn_hv_kv, volts.hv!) &&
+                  kvEqual(params.vn_lv_kv, volts.lv!)
                 )
-              : !!d.std_type && !matching.includes(d.std_type));
+              : !matching.includes(d.std_type));
+          const pickStd = (v: string | null) => {
+            if (!v) return;
+            const filled = trafo2wStd?.[v] as Trafo2WParams | undefined;
+            update({ std_type: v, params: filled ? { ...filled } : d.params });
+          };
+          const editParam = (key: string, value: number) => {
+            if (!params) return;
+            // Editing any field makes the transformer custom (drops the preset).
+            update({ std_type: "", params: { ...params, [key]: value } });
+          };
           return (
             <>
               <Text size="xs" c="dimmed">
                 Connected buses: HV {volts.hv ?? "?"} kV / LV {volts.lv ?? "?"} kV
               </Text>
-              {d.params && (
-                <Text size="xs" c="dimmed">
-                  Custom parameters ({d.params.sn_mva} MVA, {d.params.vn_hv_kv}/
-                  {d.params.vn_lv_kv} kV). Choosing a standard type replaces them.
-                </Text>
-              )}
               {mismatch && (
                 <Text size="xs" c="orange">
                   Rated voltages don't match the connected buses (HV {volts.hv} kV
@@ -383,16 +479,21 @@ export function Inspector() {
                 placeholder={
                   matching.length === 0
                     ? "No standard type for these voltages"
-                    : d.params
+                    : isCustom
                       ? "Custom"
                       : undefined
                 }
-                // Picking a standard type discards any explicit params so the
-                // chosen type drives the solve.
-                onChange={(v) => v && update({ std_type: v, params: null })}
+                onChange={pickStd}
                 allowDeselect={false}
                 searchable
               />
+              {params && (
+                <AdvancedParams
+                  fields={TRAFO2W_FIELDS}
+                  params={params}
+                  onChange={editParam}
+                />
+              )}
             </>
           );
         })()}
@@ -406,28 +507,37 @@ export function Inspector() {
           const matching = haveAll
             ? matchingTrafo3wTypes(volts.hv!, volts.mv!, volts.lv!)
             : trafo3wNames();
+          const isCustom = !d.std_type;
+          const params =
+            d.params ??
+            (d.std_type
+              ? (trafo3wStd?.[d.std_type] as Trafo3WParams | undefined)
+              : undefined);
           const mismatch =
             haveAll &&
-            (d.params
-              ? !(
-                  kvEqual(d.params.vn_hv_kv, volts.hv!) &&
-                  kvEqual(d.params.vn_mv_kv, volts.mv!) &&
-                  kvEqual(d.params.vn_lv_kv, volts.lv!)
+            (isCustom
+              ? !!params &&
+                !(
+                  kvEqual(params.vn_hv_kv, volts.hv!) &&
+                  kvEqual(params.vn_mv_kv, volts.mv!) &&
+                  kvEqual(params.vn_lv_kv, volts.lv!)
                 )
-              : !!d.std_type && !matching.includes(d.std_type));
+              : !matching.includes(d.std_type));
+          const pickStd = (v: string | null) => {
+            if (!v) return;
+            const filled = trafo3wStd?.[v] as Trafo3WParams | undefined;
+            update({ std_type: v, params: filled ? { ...filled } : d.params });
+          };
+          const editParam = (key: string, value: number) => {
+            if (!params) return;
+            update({ std_type: "", params: { ...params, [key]: value } });
+          };
           return (
             <>
               <Text size="xs" c="dimmed">
                 Connected buses: HV {volts.hv ?? "?"} kV / MV {volts.mv ?? "?"} kV
                 / LV {volts.lv ?? "?"} kV
               </Text>
-              {d.params && (
-                <Text size="xs" c="dimmed">
-                  Custom parameters ({d.params.sn_hv_mva}/{d.params.sn_mv_mva}/
-                  {d.params.sn_lv_mva} MVA). Choosing a standard type replaces
-                  them.
-                </Text>
-              )}
               {mismatch && (
                 <Text size="xs" c="orange">
                   Rated voltages don't match the connected buses (HV {volts.hv} kV
@@ -441,13 +551,20 @@ export function Inspector() {
                 placeholder={
                   matching.length === 0
                     ? "No standard type for these voltages"
-                    : d.params
+                    : isCustom
                       ? "Custom"
                       : undefined
                 }
-                onChange={(v) => v && update({ std_type: v, params: null })}
+                onChange={pickStd}
                 allowDeselect={false}
               />
+              {params && (
+                <AdvancedParams
+                  fields={TRAFO3W_FIELDS}
+                  params={params}
+                  onChange={editParam}
+                />
+              )}
             </>
           );
         })()}

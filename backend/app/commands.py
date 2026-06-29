@@ -301,16 +301,24 @@ def _update(net, p: dict) -> None:
     idx = _index_of(net, table, p["id"])
     patch = dict(p.get("patch", {}))
 
-    # Switching a transformer to a (different) named std_type re-derives its
-    # electrical columns in place, so the uuid and layout row are kept.
-    std_type = patch.pop("std_type", None)
-    if std_type is not None and kind in ("trafo2w", "trafo3w"):
-        std = _trafo_std(net, table, std_type)
-        params = pp.load_std_type(net, std, table)
-        for col, value in params.items():
-            if col in net[table].columns:
-                net[table].at[idx, col] = value
-        net[table].at[idx, "std_type"] = std
+    if kind in ("trafo2w", "trafo3w"):
+        # A transformer is ultimately described by its electrical params; std_type
+        # is just a preset label. Picking a (different) named type re-derives the
+        # electrical columns in place; editing the params directly makes it custom
+        # (drops the label). Either way the uuid and layout row are kept.
+        std_type = patch.pop("std_type", None)
+        params = patch.pop("params", None)
+        if std_type:
+            std = _trafo_std(net, table, std_type)
+            for col, value in pp.load_std_type(net, std, table).items():
+                if col in net[table].columns:
+                    net[table].at[idx, col] = value
+            net[table].at[idx, "std_type"] = std
+        elif params:
+            for col, value in params.items():
+                if value is not None and col in net[table].columns:
+                    net[table].at[idx, col] = value
+            net[table].at[idx, "std_type"] = None
 
     columns = set(net[table].columns)
     for key, value in patch.items():

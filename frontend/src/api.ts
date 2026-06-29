@@ -54,6 +54,22 @@ export async function getView(id: string): Promise<ViewModel> {
   return json(await fetch(`${BASE}/session`, { headers: { [SESSION_HEADER]: id } }));
 }
 
+// The library transformer types keyed by name → their editable parameter set.
+export type StdTrafoTypes = Record<string, Record<string, number>>;
+
+const stdTypeCache: Partial<Record<"trafo" | "trafo3w", Promise<StdTrafoTypes>>> = {};
+
+// Fetch (once, cached) pandapower's std transformer catalog, so the inspector can
+// expand a chosen std_type into editable params. Session-independent static data.
+export function fetchStdTypes(table: "trafo" | "trafo3w"): Promise<StdTrafoTypes> {
+  if (!stdTypeCache[table]) {
+    stdTypeCache[table] = fetch(`${BASE}/std-types/${table}`).then((r) =>
+      json<StdTrafoTypes>(r),
+    );
+  }
+  return stdTypeCache[table];
+}
+
 // The undo/redo availability a mutating call reports back.
 export interface HistoryState {
   can_undo: boolean;

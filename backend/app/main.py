@@ -17,7 +17,7 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from .commands import CommandError, apply_commands
-from .ppjson import MAX_IMPORT_BUSES
+from .ppjson import MAX_IMPORT_BUSES, std_trafo_types
 from .projection import net_to_view
 from .schema import (
     Command,
@@ -79,6 +79,16 @@ def _view(session: Session) -> ViewModel:
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.get("/std-types/{table}")
+def get_std_types(table: str) -> dict[str, dict[str, float]]:
+    """The library transformer types and their editable parameters. The inspector
+    fetches this (once, cached) to expand a chosen std_type into editable params.
+    Session-independent — it's pandapower's static catalog."""
+    if table not in ("trafo", "trafo3w"):
+        raise HTTPException(status_code=404, detail="Unknown std-type table.")
+    return std_trafo_types(table)
 
 
 @app.post("/session", response_model=SessionInfo)
