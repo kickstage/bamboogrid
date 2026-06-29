@@ -1,10 +1,10 @@
-import { Handle, Position, type NodeProps, useUpdateNodeInternals } from "@xyflow/react";
-import { useEffect } from "react";
+import { Handle, Position, type NodeProps } from "@xyflow/react";
 import type { ShuntData } from "../types";
 import { ShuntGlyph } from "./glyphs";
 import { Readout, Value } from "./Readout";
 import { signed } from "../format";
 import { useEditor } from "../store";
+import { useBusBelow } from "./useBusBelow";
 
 export function ShuntNode({ id, data, selected, positionAbsoluteY }: NodeProps) {
   const d = data as ShuntData;
@@ -12,19 +12,7 @@ export function ShuntNode({ id, data, selected, positionAbsoluteY }: NodeProps) 
   const hasResult = showResults && d.res_q_mvar !== undefined;
   // Orient the shunt away from its bus: when the bus is below, flip so the
   // connection handle faces down (toward the bus) and the glyph points up.
-  const busBelow = useEditor((s) => {
-    const wire = s.edges.find((e) => e.source === id);
-    if (!wire) return false;
-    const bus = s.nodes.find((n) => n.id === wire.target);
-    return bus ? bus.position.y > (positionAbsoluteY ?? 0) : false;
-  });
-  // Moving the handle (Top↔Bottom) changes the node's handle layout; React Flow
-  // must re-measure or the wire detaches from the old spot and a ghost handle is
-  // left behind.
-  const updateNodeInternals = useUpdateNodeInternals();
-  useEffect(() => {
-    updateNodeInternals(id);
-  }, [busBelow, id, updateNodeInternals]);
+  const busBelow = useBusBelow(id, positionAbsoluteY);
 
   const handle = (position: Position) => (
     <Handle type="source" position={position} style={{ background: "currentColor" }} />

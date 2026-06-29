@@ -295,6 +295,9 @@ class Network(BaseModel):
     transformers3w: list[Transformer3W] = Field(default_factory=list)
     lines: list[Line] = Field(default_factory=list)
     shunts: list[Shunt] = Field(default_factory=list)
+    # Set when positions are only the coarse graph fallback; the client should
+    # recompute a proper layout (ELK) and persist it, which clears the flag.
+    needs_layout: bool = False
 
 
 # --- Load-flow result types ------------------------------------------------

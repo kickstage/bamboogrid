@@ -4,14 +4,22 @@ import { ExtGridGlyph } from "./glyphs";
 import { Readout, Value } from "./Readout";
 import { signed } from "../format";
 import { useEditor } from "../store";
+import { useBusBelow } from "./useBusBelow";
 
-export function ExtGridNode({ data, selected }: NodeProps) {
+export function ExtGridNode({ id, data, selected, positionAbsoluteY }: NodeProps) {
   const d = data as ExtGridData;
   const showResults = useEditor((s) => s.showResults);
   const hasResult = showResults && d.res_p_mw !== undefined;
-  return (
-    <div style={{ width: 64, textAlign: "center", color: "var(--mantine-color-text)" }}>
-      <ExtGridGlyph size={39} stroke={selected ? "#0ea5e9" : "currentColor"} />
+  // Face the bus: handle toward it, label on the far side.
+  const busBelow = useBusBelow(id, positionAbsoluteY);
+  const handle = (position: Position) => (
+    <Handle type="source" position={position} style={{ background: "currentColor" }} />
+  );
+  const glyph = (
+    <ExtGridGlyph size={39} stroke={selected ? "#0ea5e9" : "currentColor"} />
+  );
+  const label = (
+    <>
       <div style={{ fontSize: 10, fontWeight: 600 }}>{d.name}</div>
       <Value>{d.vm_pu} p.u. · slack</Value>
       {hasResult && (
@@ -20,7 +28,23 @@ export function ExtGridNode({ data, selected }: NodeProps) {
           <div>{signed(d.res_q_mvar ?? 0, 3)} Mvar</div>
         </Readout>
       )}
-      <Handle type="source" position={Position.Bottom} style={{ background: "currentColor" }} />
+    </>
+  );
+  return (
+    <div style={{ width: 64, textAlign: "center", color: "var(--mantine-color-text)" }}>
+      {busBelow ? (
+        <>
+          {label}
+          {glyph}
+          {handle(Position.Bottom)}
+        </>
+      ) : (
+        <>
+          {handle(Position.Top)}
+          {glyph}
+          {label}
+        </>
+      )}
     </div>
   );
 }

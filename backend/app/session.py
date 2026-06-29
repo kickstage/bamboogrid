@@ -56,7 +56,7 @@ class ConflictError(Exception):
     elsewhere (another pod) since this cache loaded it."""
 
 
-def _set_meta(net, session_id: str, name: str) -> None:
+def _set_meta(net, session_id: str, name: str, needs_layout: bool = False) -> None:
     net["name"] = name
     net["diagram_meta"] = pd.DataFrame(
         [
@@ -65,6 +65,7 @@ def _set_meta(net, session_id: str, name: str) -> None:
                 "coordinate_space": "screen-px-y-down",
                 "network_id": session_id,
                 "network_name": name,
+                "needs_layout": bool(needs_layout),
             }
         ]
     )
@@ -223,8 +224,8 @@ class SessionStore:
         session_id = uuid.uuid4().hex
         if net is None:
             net = pp.create_empty_network(name=name)
-        ensure_diagram_tables(net)
-        _set_meta(net, session_id, name)
+        needs_layout = ensure_diagram_tables(net)
+        _set_meta(net, session_id, name, needs_layout)
         session = Session(id=session_id, net=net)
         with self._guard:
             self._live[session_id] = session
@@ -266,10 +267,10 @@ class SessionStore:
     def replace_net(self, session: Session, net, name: str) -> None:
         """Swap in a freshly imported net as the session's authoritative state.
 
-        An import is a new baseline: it resets the undo history (the prior network
+        An import is a new baseline: it resets the undo history (the         prior network
         is not reachable via undo), which also bounds memory."""
-        ensure_diagram_tables(net)
-        _set_meta(net, session.id, name)
+        needs_layout = ensure_diagram_tables(net)
+        _set_meta(net, session.id, name, needs_layout)
         session.net = net
         session.history.reset(self._update(session, pp.to_json(session.net)))
 

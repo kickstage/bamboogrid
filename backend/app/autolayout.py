@@ -167,6 +167,7 @@ def _place_components(net, bus_xy: dict[int, Coord]) -> dict[str, dict[int, Coor
     # a node's width (~64 px) so stacked elements don't overlap; GAP keeps them
     # clear of the bus bar and its labels.
     GAP, STEP = 150.0, 120.0
+    widths = _bus_widths(net)
     above: dict[int, int] = {}
     below: dict[int, int] = {}
 
@@ -190,8 +191,17 @@ def _place_components(net, bus_xy: dict[int, Coord]) -> dict[str, dict[int, Coor
         "line": {},
     }
 
+    # Centroid of the buses' bar *centers* (not their left edges): two wide bars
+    # sitting side by side on a row leave their left-edge midpoint on top of the
+    # left bar, so a branch placed there would overlap it.
     def centroid(*buses: int) -> Coord:
-        pts = [bus_xy.get(b, (0.0, 0.0)) for b in buses]
+        pts = [
+            (
+                bus_xy.get(b, (0.0, 0.0))[0] + widths.get(b, BUS_DEFAULT_WIDTH) / 2,
+                bus_xy.get(b, (0.0, 0.0))[1],
+            )
+            for b in buses
+        ]
         return (sum(p[0] for p in pts) / len(pts), sum(p[1] for p in pts) / len(pts))
 
     for gi in net.gen.index:
@@ -225,9 +235,13 @@ def _place_components(net, bus_xy: dict[int, Coord]) -> dict[str, dict[int, Coor
                     return (x + dx, y)
         return (x, y)
 
+    # Branch body widths (mirror the node glyphs) so a body is centered on the
+    # centroid rather than hung from its left edge.
+    BODY_W = {"trafo": 40.0, "trafo3w": 48.0, "switch": 64.0}
+
     def place_body(table: str, idx: int, *buses: int, dy: float = 0.0) -> None:
         cx, cy = centroid(*buses)
-        pos = free_spot(cx, cy + dy)
+        pos = free_spot(cx - BODY_W.get(table, 0.0) / 2, cy + dy)
         occupied.add((round(pos[0] / CELL), round(pos[1] / CELL)))
         result[table][idx] = pos
 

@@ -348,6 +348,11 @@ def _set_layout(net, p: dict) -> None:
         row["waypoint_json"] = _waypoint_json(p["waypoint"])
     if row:
         _set_diagram(net, table, idx, row)
+    # Any explicit layout write means the diagram is now positioned: clear the
+    # "recompute layout" signal so a reload keeps these coordinates.
+    meta = net.get("diagram_meta")
+    if meta is not None and len(meta) and "needs_layout" in meta.columns:
+        meta.iloc[0, meta.columns.get_loc("needs_layout")] = False
 
 
 _HANDLERS = {

@@ -215,7 +215,7 @@ export default function App() {
           try {
             const { id, view } = await openShare(shareToken);
             if (cancelled) return;
-            attachSession(id, view);
+            await attachSession(id, view);
             rememberSession(id);
             toast.success("Opened an editable copy of a shared network.");
             return;
@@ -229,7 +229,7 @@ export default function App() {
           try {
             const view = await getView(candidate);
             if (cancelled) return;
-            attachSession(candidate, view);
+            await attachSession(candidate, view);
             rememberSession(candidate);
             return;
           } catch {
@@ -238,7 +238,7 @@ export default function App() {
         }
         const { id, view } = await createSession();
         if (cancelled) return;
-        attachSession(id, view);
+        await attachSession(id, view);
         rememberSession(id);
       } catch (err) {
         if (!cancelled)
@@ -305,7 +305,7 @@ export default function App() {
     try {
       await flushPending();
       const view = await importPandapower(sessionId, await file.text());
-      attachSession(sessionId, view);
+      await attachSession(sessionId, view);
       toast.success(`Imported "${file.name}".`);
     } catch (err) {
       toast.error(`Import failed: ${(err as Error).message}`);
@@ -325,7 +325,7 @@ export default function App() {
     setBusy(true);
     try {
       const { id, view } = await createSession();
-      attachSession(id, view);
+      await attachSession(id, view);
       rememberSession(id);
       toast.success("Started a new network.");
     } catch (err) {
@@ -346,7 +346,7 @@ export default function App() {
     setLoadingMsg(`Opening "${scenario.label}"…`);
     try {
       const { id, view } = await createScenarioSession(scenario.id);
-      attachSession(id, view);
+      await attachSession(id, view);
       rememberSession(id);
       toast.success(`Opened "${scenario.label}".`);
     } catch (err) {

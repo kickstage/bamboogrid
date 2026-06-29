@@ -340,6 +340,9 @@ export interface Network {
   transformers3w: Transformer3W[];
   lines: Line[];
   shunts: Shunt[];
+  // Positions are the coarse server fallback; the client recomputes (ELK) and
+  // persists a proper layout, which clears this.
+  needs_layout?: boolean;
 }
 
 // A pandapower element the editor doesn't model yet, surfaced read-only on the

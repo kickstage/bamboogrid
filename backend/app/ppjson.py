@@ -171,17 +171,23 @@ MAX_IMPORT_BUSES = 100
 _COMPONENT_DIAGRAMS = ("gen", "sgen", "ext_grid", "load")
 
 
-def ensure_diagram_tables(net) -> None:
+def ensure_diagram_tables(net) -> bool:
     """Attach diagram_* layout tables (carrying a stable ``uuid`` per row) for
     every modeled element that lacks one, mutating ``net`` in place.
 
     Run once when a net becomes session state: commands address elements by their
     stable uuid, so every modeled row needs one. A foreign net with no layout
-    gets one seeded from its ``geo`` columns when present (else an auto graph
+    gets one seeded from its ``geo`` columns when present (else a coarse graph
     layout); our own exports already carry these tables and are left untouched.
+
+    Returns ``True`` when the seed was the coarse graph fallback (no geo, no
+    existing layout) — the signal for the client to recompute a proper layout
+    (ELK) over the real node sizes. A geo seed carries real coordinates and is
+    left alone.
     """
     seed: dict[str, dict[int, tuple[float, float]]] | None = None
     line_waypoints: dict[int, tuple[float, float]] = {}
+    needs_layout = False
     if net.get("diagram_bus") is None:
         geo = geo_layout(net)
         if geo is not None:
@@ -189,6 +195,7 @@ def ensure_diagram_tables(net) -> None:
             line_waypoints = geo.line_waypoints
         else:
             seed = auto_layout(net)
+            needs_layout = True
 
     def _xy(table: str, idx: int) -> tuple[float, float]:
         return seed.get(table, {}).get(idx, (0.0, 0.0)) if seed else (0.0, 0.0)
@@ -302,6 +309,7 @@ def ensure_diagram_tables(net) -> None:
             ],
             index=list(net.line.index),
         )
+    return needs_layout
 
 
 def net_to_network(net) -> Network:
@@ -327,10 +335,12 @@ def net_to_network(net) -> Network:
 
     network_id = uuid.uuid4().hex
     network_name = net.name or "Imported network"
+    needs_layout = False
     if d_meta is not None and len(d_meta):
         row = d_meta.iloc[0]
         network_id = str(row.get("network_id") or network_id)
         network_name = str(row.get("network_name") or network_name)
+        needs_layout = bool(row.get("needs_layout") or False)
 
     # A foreign net (no editor diagram tables) gets an auto-generated layout so
     # everything doesn't pile at the origin.
@@ -588,4 +598,5 @@ def net_to_network(net) -> Network:
         transformers3w=transformers3w,
         lines=lines,
         shunts=shunts,
+        needs_layout=needs_layout,
     )

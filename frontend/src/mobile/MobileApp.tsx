@@ -26,7 +26,7 @@ export function MobileApp() {
         try {
           const { id, view } = await openShare(token);
           if (cancelled) return;
-          attachSession(id, view);
+          await attachSession(id, view);
           setEntry("share");
           setNotice(true);
           return;
@@ -38,7 +38,7 @@ export function MobileApp() {
       try {
         const { id, view } = await createDemoSession();
         if (cancelled) return;
-        attachSession(id, view);
+        await attachSession(id, view);
         setEntry("demo");
         setNotice(true);
       } catch (err) {

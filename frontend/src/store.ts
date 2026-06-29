@@ -52,6 +52,7 @@ function initialVoltageUnit(): VoltageUnit {
   }
 }
 import { getView, redo as redoApi, undo as undoApi } from "./api";
+import { elkLayout } from "./elkLayout";
 import { toast } from "./toast";
 import {
   connectedTrafoVoltages,
@@ -296,7 +297,7 @@ interface EditorState {
     opts?: { fit?: boolean },
   ) => void;
   // Bind this editor to a server session and hydrate it from a projection.
-  attachSession: (id: string, view: ViewModel) => void;
+  attachSession: (id: string, view: ViewModel) => Promise<void>;
   // Update the undo/redo availability (driven by server responses).
   setHistory: (canUndo: boolean, canRedo: boolean) => void;
   // Revert/replay one edit step on the server, re-hydrating the projection.
@@ -1518,9 +1519,36 @@ export const useEditor = create<EditorState>((set, get) => ({
     });
   },
 
-  attachSession: (id, view) => {
+  attachSession: async (id, view) => {
     set({ sessionId: id, canUndo: view.can_undo, canRedo: view.can_redo });
-    get().loadNetwork(view.network, view.foreign);
+    // A foreign import arrives with only the coarse server fallback layout.
+    // Recompute a proper one with ELK over the real node sizes, then persist it
+    // so the baseline (and any later edit) builds on these coordinates.
+    let network = view.network;
+    let persist = false;
+    if (network.needs_layout && !get().readOnly) {
+      try {
+        network = await elkLayout(network);
+        persist = true;
+      } catch (err) {
+        console.error("ELK layout failed; keeping server layout", err);
+      }
+    }
+    get().loadNetwork(network, view.foreign);
+    if (persist) {
+      for (const n of get().nodes) {
+        if (!serverIds.has(n.id) || n.type === "foreign") continue;
+        const payload: Record<string, unknown> = {
+          id: n.id,
+          kind: n.type,
+          x: n.position.x,
+          y: n.position.y,
+        };
+        if (n.type === "bus" && n.width !== undefined) payload.width = n.width;
+        enqueue({ op: "set_layout", payload });
+      }
+      void flushPending();
+    }
   },
 
   setHistory: (canUndo, canRedo) => set({ canUndo, canRedo }),

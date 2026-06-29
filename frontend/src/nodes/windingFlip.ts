@@ -53,19 +53,28 @@ export function windingFlip(
   return false;
 }
 
-// A bus-bus switch has terminal "a" (left) and "b" (right). `true` means swap
-// them so "a" sits on the right, keeping the wires from crossing when a's bus is
-// to the right of b's.
-export function switchFlip(
+// Orientation for a bus-bus switch. The glyph rotates to lie along the axis
+// separating its two buses: horizontal when the buses sit side by side, vertical
+// when one is above the other. `flip` swaps the "a"/"b" terminals so each faces
+// its own bus (a on the right when horizontal, or on the bottom when vertical),
+// keeping the wires from crossing. Unknown ends fall back to the switch body.
+export function switchLayout(
   nodes: WNode[],
   edges: WEdge[],
   id: string,
   selfX: number,
-): boolean {
-  const a = busCoord(nodes, edges, id, "a", "x");
-  const b = busCoord(nodes, edges, id, "b", "x");
-  if (a !== null && b !== null) return a > b;
-  if (a !== null) return a > selfX;
-  if (b !== null) return b < selfX;
-  return false;
+  selfY: number,
+): { vertical: boolean; flip: boolean } {
+  const ax = busCoord(nodes, edges, id, "a", "x");
+  const ay = busCoord(nodes, edges, id, "a", "y");
+  const bx = busCoord(nodes, edges, id, "b", "x");
+  const by = busCoord(nodes, edges, id, "b", "y");
+  if (ax === null && ay === null && bx === null && by === null)
+    return { vertical: false, flip: false };
+  const aX = ax ?? selfX;
+  const aY = ay ?? selfY;
+  const bX = bx ?? selfX;
+  const bY = by ?? selfY;
+  const vertical = Math.abs(aY - bY) > Math.abs(aX - bX);
+  return { vertical, flip: vertical ? aY > bY : aX > bX };
 }
