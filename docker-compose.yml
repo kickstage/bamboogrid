@@ -1,0 +1,51 @@
+# Local dev with hot reload: `docker compose up --build`, then open
+# http://localhost:8000. Production is the Dockerfile image, deployed via k8s.
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: bamboogrid
+      POSTGRES_PASSWORD: bamboogrid
+      POSTGRES_DB: bamboogrid
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bamboogrid -d bamboogrid"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  backend:
+    # Reuse the prod image but run with --reload over the bind-mounted source.
+    # STATIC_DIR=/no-static stops it serving the stale baked-in SPA; the app is
+    # served by Vite (frontend service) instead.
+    build: .
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    environment:
+      DATABASE_URL: postgresql://bamboogrid:bamboogrid@db:5432/bamboogrid
+      STATIC_DIR: /no-static
+    volumes:
+      - ./backend:/app/backend
+    ports:
+      - "8001:8000"  # API / Swagger at http://localhost:8001/docs
+    depends_on:
+      db:
+        condition: service_healthy
+
+  frontend:
+    # The Vite dev server (the app, on :8000) proxies API calls to the backend.
+    image: node:24-alpine
+    working_dir: /frontend
+    command: sh -c "npm install && npm run dev -- --host 0.0.0.0 --port 8000"
+    environment:
+      VITE_PROXY_TARGET: http://backend:8000
+    volumes:
+      - ./frontend:/frontend
+      - /frontend/node_modules  # don't let the host bind clobber node_modules
+    ports:
+      - "8000:8000"
+    depends_on:
+      - backend
+
+volumes:
+  pgdata:

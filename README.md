@@ -100,9 +100,31 @@ npm run build       # tsc + vite build
 The whole app ships as a **single container**: the FastAPI backend serves the
 built SPA as static files, so UI and API share one origin on port 8000.
 
+### Local development with Docker Compose (hot reload)
+
+For a one-command local dev environment — the app, with hot reload, plus its
+PostgreSQL database — use Compose:
+
+```bash
+docker compose up --build
+```
+
+Open <http://localhost:8000> — that's the app, served by the **Vite dev server**
+(with HMR), which proxies API calls to the backend, so the whole app lives on one
+URL just like the production bundle. The backend runs **auto-reloading**
+(`uvicorn --reload`) and is also exposed directly on <http://localhost:8001> for
+the API / Swagger (<http://localhost:8001/docs>). Both `./frontend` and
+`./backend` are bind-mounted, so edits are picked up live, no rebuild. Postgres
+state persists in the `pgdata` volume; `docker compose down -v` also drops it.
+
+> This compose file is for local dev only. Production is the single image below,
+> deployed via Helm/k8s — not Compose.
+
+### Building the production image
+
 ```bash
 docker build -t bamboogrid .
-docker run --rm -p 8000:8000 bamboogrid
+docker run --rm -p 8000:8000 -e DATABASE_URL=postgresql://… bamboogrid
 ```
 
 Open <http://localhost:8000>.
