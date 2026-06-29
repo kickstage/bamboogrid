@@ -3,11 +3,15 @@ import {
   Anchor,
   Button,
   Group,
+  Loader,
+  LoadingOverlay,
   Menu,
   Paper,
   SegmentedControl,
+  Stack,
   Text,
   Title,
+  Tooltip,
   useMantineColorScheme,
   useComputedColorScheme,
 } from "@mantine/core";
@@ -150,6 +154,9 @@ export default function App() {
     setSearchOpen,
   } = useEditor();
   const [busy, setBusy] = useState(false);
+  // A blocking message shown over the canvas while a network is being built
+  // server-side (opening an example / importing), which can take a moment.
+  const [loadingMsg, setLoadingMsg] = useState<string | null>(null);
   // React Flow's d3-zoom handlers stop pointer events from reaching the
   // document, so Mantine's outside-click never closes these menus over the
   // canvas. We control them and close on a capture-phase press of the canvas.
@@ -198,23 +205,26 @@ export default function App() {
       const url = new URL(window.location.href);
       // A share token always wins: clone it into a fresh copy to edit.
       const shareToken = url.searchParams.get("s");
-      if (shareToken) {
-        try {
-          const { id, view } = await openShare(shareToken);
-          if (cancelled) return;
-          attachSession(id, view);
-          rememberSession(id);
-          toast.success("Opened an editable copy of a shared network.");
-          return;
-        } catch (err) {
-          if (cancelled) return;
-          toast.error(`Could not open shared link: ${(err as Error).message}`);
-          // Fall through to a normal/fresh session.
-        }
-      }
       const candidate =
         url.searchParams.get("session") || localStorage.getItem(SESSION_KEY);
+      // Cover the canvas while we pull an existing network off the server.
+      if (shareToken) setLoadingMsg("Opening shared network…");
+      else if (candidate) setLoadingMsg("Loading network…");
       try {
+        if (shareToken) {
+          try {
+            const { id, view } = await openShare(shareToken);
+            if (cancelled) return;
+            attachSession(id, view);
+            rememberSession(id);
+            toast.success("Opened an editable copy of a shared network.");
+            return;
+          } catch (err) {
+            if (cancelled) return;
+            toast.error(`Could not open shared link: ${(err as Error).message}`);
+            // Fall through to a normal/fresh session.
+          }
+        }
         if (candidate) {
           try {
             const view = await getView(candidate);
@@ -233,6 +243,8 @@ export default function App() {
       } catch (err) {
         if (!cancelled)
           toast.error(`Could not start session: ${(err as Error).message}`);
+      } finally {
+        if (!cancelled) setLoadingMsg(null);
       }
     })();
     return () => {
@@ -289,6 +301,7 @@ export default function App() {
     e.target.value = "";
     if (!file || !sessionId) return;
     setBusy(true);
+    setLoadingMsg(`Importing "${file.name}"…`);
     try {
       await flushPending();
       const view = await importPandapower(sessionId, await file.text());
@@ -298,6 +311,7 @@ export default function App() {
       toast.error(`Import failed: ${(err as Error).message}`);
     } finally {
       setBusy(false);
+      setLoadingMsg(null);
     }
   };
 
@@ -329,6 +343,7 @@ export default function App() {
     if (!empty && !window.confirm(`Replace the editor with "${scenario.label}"?`))
       return;
     setBusy(true);
+    setLoadingMsg(`Opening "${scenario.label}"…`);
     try {
       const { id, view } = await createScenarioSession(scenario.id);
       attachSession(id, view);
@@ -338,11 +353,12 @@ export default function App() {
       toast.error(`Could not open example: ${(err as Error).message}`);
     } finally {
       setBusy(false);
+      setLoadingMsg(null);
     }
   };
 
   const onRun = async () => {
-    if (!sessionId) return;
+    if (!sessionId || busy) return;
     setBusy(true);
     try {
       await flushPending();
@@ -357,6 +373,22 @@ export default function App() {
       setBusy(false);
     }
   };
+
+  // Cmd/Ctrl+R runs the active study, replacing the browser's reload — the network
+  // lives server-side, so a reload offers nothing here. The ref keeps the listener
+  // pinned to the latest onRun closure without re-binding on every render.
+  const onRunRef = useRef(onRun);
+  onRunRef.current = onRun;
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "r") {
+        e.preventDefault();
+        void onRunRef.current();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   // Phones/tablets get the read-only demo instead of the full editor.
   if (isMobile) return <MobileApp />;
@@ -580,9 +612,13 @@ export default function App() {
                 { label: "Short circuit", value: "shortcircuit" },
               ]}
             />
-            <Button size="xs" onClick={onRun} loading={busy}>
-              Run
-            </Button>
+            <Tooltip
+              label={`Run ${/Mac/i.test(navigator.platform) ? "⌘R" : "Ctrl+R"}`}
+            >
+              <Button size="xs" onClick={onRun} loading={busy}>
+                Run
+              </Button>
+            </Tooltip>
           </Group>
         </Group>
       </Paper>
@@ -611,9 +647,22 @@ export default function App() {
           set={setLeftW}
         />
         <div
-          style={{ flex: 1, minWidth: 0 }}
+          style={{ flex: 1, minWidth: 0, position: "relative" }}
           onPointerDownCapture={() => setOpenMenu(null)}
         >
+          <LoadingOverlay
+            visible={loadingMsg !== null}
+            zIndex={5}
+            overlayProps={{ blur: 1 }}
+            loaderProps={{
+              children: (
+                <Stack align="center" gap="xs">
+                  <Loader />
+                  <Text size="sm">{loadingMsg}</Text>
+                </Stack>
+              ),
+            }}
+          />
           <ReactFlowProvider>
             <Canvas />
           </ReactFlowProvider>

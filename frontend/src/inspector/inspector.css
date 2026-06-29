@@ -1,0 +1,7 @@
+/* The advanced-params disclosure is intentionally borderless and full-width, so
+   the control's default hover fill reads as a stray bar. Drop it; the chevron
+   and pointer cursor are enough of an affordance. (styles= can't target :hover.)
+   The compound selector outranks Mantine's own rule regardless of load order. */
+.mantine-Accordion-control.advancedControl:hover {
+  background-color: transparent;
+}

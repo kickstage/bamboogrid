@@ -20,6 +20,7 @@ import {
   useReactFlow,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
+import "./handles.css";
 
 import { edgeTypes } from "../edges";
 import { nodeTypes } from "../nodes";

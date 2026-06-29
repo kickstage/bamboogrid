@@ -1,0 +1,19 @@
+/* Overrides for React Flow connection handles (loaded after its base style).
+   The default ~6px dot is hard to grab, and on small symbols (transformers) a
+   node's label can paint over the dot and swallow the click. */
+
+.react-flow__handle {
+  width: 8px;
+  height: 8px;
+  /* Sit above node labels so an overlapping label can't steal the click. */
+  z-index: 1;
+}
+
+/* A transparent ring that enlarges only the hit area, leaving the dot compact.
+   Kept modest so the 3W transformer's two close bottom ports stay distinct. */
+.react-flow__handle::after {
+  content: "";
+  position: absolute;
+  inset: -4px;
+  border-radius: 50%;
+}

@@ -386,10 +386,13 @@ class PowerBalance(BaseModel):
 
 class Extreme(BaseModel):
     """A single worst-case quantity (e.g. lowest bus voltage, most-loaded line)
-    with the name of the element it occurs on."""
+    with the element it occurs on, resolved to its editor identity so the UI can
+    select it (see DiagnosticElement for the ``id``/``kind`` convention)."""
 
     value: float
     label: str = ""
+    id: str = ""
+    kind: str = ""
 
 
 class Counts(BaseModel):

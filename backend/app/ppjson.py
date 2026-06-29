@@ -12,7 +12,11 @@ diagram layout lives in separate custom tables with a ``diagram_`` prefix:
 These extra tables are isolated from the core frames (so we never touch
 pandapower's schemas), are ignored by the solver, and round-trip through
 ``to_json``/``from_json``. Coordinates are editor canvas pixels (y-down) — not
-geographic — so they go here, never in pandapower's ``geo`` column.
+geographic — and live only here; we never write pandapower's ``geo`` columns.
+
+When a net arrives without our diagram tables, its native ``geo`` columns (if
+present) seed the initial layout (``geo_layout``); otherwise a graph auto-layout
+is used. Once our diagram tables exist they are the sole source of truth.
 
 ``ensure_diagram_tables`` adds these tables (with stable uuids) to any net that
 lacks them; ``net_to_network`` projects the modeled subset back to the editor.
@@ -26,7 +30,7 @@ import uuid
 import pandapower as pp
 import pandas as pd
 
-from .autolayout import auto_layout
+from .autolayout import auto_layout, geo_layout
 from .schema import (
     Bus,
     ExtGrid,
@@ -173,13 +177,21 @@ def ensure_diagram_tables(net) -> None:
 
     Run once when a net becomes session state: commands address elements by their
     stable uuid, so every modeled row needs one. A foreign net with no layout
-    gets an auto-generated one; our own exports already carry these tables and
-    are left untouched.
+    gets one seeded from its ``geo`` columns when present (else an auto graph
+    layout); our own exports already carry these tables and are left untouched.
     """
-    auto = auto_layout(net) if net.get("diagram_bus") is None else None
+    seed: dict[str, dict[int, tuple[float, float]]] | None = None
+    line_waypoints: dict[int, tuple[float, float]] = {}
+    if net.get("diagram_bus") is None:
+        geo = geo_layout(net)
+        if geo is not None:
+            seed = geo.positions
+            line_waypoints = geo.line_waypoints
+        else:
+            seed = auto_layout(net)
 
     def _xy(table: str, idx: int) -> tuple[float, float]:
-        return auto.get(table, {}).get(idx, (0.0, 0.0)) if auto else (0.0, 0.0)
+        return seed.get(table, {}).get(idx, (0.0, 0.0)) if seed else (0.0, 0.0)
 
     if net.get("diagram_bus") is None and len(net.bus):
         net["diagram_bus"] = pd.DataFrame(
@@ -212,8 +224,13 @@ def ensure_diagram_tables(net) -> None:
     if net.get("diagram_shunt") is None and len(net.shunt):
         net["diagram_shunt"] = pd.DataFrame(
             [
-                {"uuid": uuid.uuid4().hex, "x": 0.0, "y": 0.0, "port": ""}
-                for _ in net.shunt.index
+                {
+                    "uuid": uuid.uuid4().hex,
+                    "x": _xy("shunt", i)[0],
+                    "y": _xy("shunt", i)[1],
+                    "port": "",
+                }
+                for i in net.shunt.index
             ],
             index=list(net.shunt.index),
         )
@@ -273,7 +290,13 @@ def ensure_diagram_tables(net) -> None:
                     "y": _xy("line", i)[1],
                     "port_from": "",
                     "port_to": "",
-                    "waypoint_json": "",
+                    "waypoint_json": (
+                        json.dumps(
+                            {"x": line_waypoints[i][0], "y": line_waypoints[i][1]}
+                        )
+                        if i in line_waypoints
+                        else ""
+                    ),
                 }
                 for i in net.line.index
             ],

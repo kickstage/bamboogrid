@@ -168,12 +168,21 @@ def _topology(net) -> dict[str, int]:
     return {"islands": islands, "unsupplied_buses": unsupplied}
 
 
+def _extreme(net, table: str, idx, value: float) -> Extreme:
+    """An Extreme carrying the element's editor identity (id/kind) when modeled, so
+    the UI can reveal it; falls back to just the name otherwise."""
+    el = _resolve_element(net, table, int(idx))
+    if el is not None:
+        return Extreme(value=value, label=el.label, id=el.id, kind=el.kind)
+    return Extreme(value=value, label=_name(net, table, idx))
+
+
 def _extreme_voltage(net, *, lowest: bool) -> Extreme | None:
     vm = net.res_bus["vm_pu"].dropna()
     if vm.empty:
         return None
     idx = vm.idxmin() if lowest else vm.idxmax()
-    return Extreme(value=float(vm.at[idx]), label=_name(net, "bus", idx))
+    return _extreme(net, "bus", idx, float(vm.at[idx]))
 
 
 def _max_loading(net, table: str) -> Extreme | None:
@@ -184,7 +193,7 @@ def _max_loading(net, table: str) -> Extreme | None:
     if loading.empty:
         return None
     idx = loading.idxmax()
-    return Extreme(value=float(loading.at[idx]), label=_name(net, table, idx))
+    return _extreme(net, table, idx, float(loading.at[idx]))
 
 
 def _balance(net) -> PowerBalance:

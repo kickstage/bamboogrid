@@ -386,6 +386,9 @@ export interface PowerBalance {
 export interface Extreme {
   value: number;
   label: string;
+  // Editor identity of the element, so it can be revealed (see DiagnosticElement).
+  id: string;
+  kind: string;
 }
 
 export interface SummaryCounts {

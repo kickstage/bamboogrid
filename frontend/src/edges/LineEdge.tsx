@@ -61,6 +61,7 @@ export function LineEdge({
   style,
 }: EdgeProps) {
   const setEdgeWaypoint = useEditor((s) => s.setEdgeWaypoint);
+  const selectEdge = useEditor((s) => s.selectEdge);
   const showResults = useEditor((s) => s.showResults);
   const { screenToFlowPosition } = useReactFlow();
 
@@ -124,6 +125,11 @@ export function LineEdge({
       <EdgeLabelRenderer>
         {label && (
           <div
+            className="nodrag nopan"
+            onClick={(e) => {
+              e.stopPropagation();
+              selectEdge(id);
+            }}
             style={{
               position: "absolute",
               transform: `translate(-50%, -50%) translate(${dotX}px, ${dotY - 14}px)`,
@@ -133,7 +139,8 @@ export function LineEdge({
               background: "var(--mantine-color-body)",
               padding: "0 3px",
               borderRadius: 3,
-              pointerEvents: "none",
+              pointerEvents: "all",
+              cursor: "pointer",
               whiteSpace: "nowrap",
             }}
           >

@@ -9,13 +9,15 @@ import {
   TextInput,
   Tooltip,
 } from "@mantine/core";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
+import "./inspector.css";
 import { fetchStdTypes, type StdTrafoTypes } from "../api";
 import { useEditor } from "../store";
 import { fixed } from "../format";
 import { busInjection } from "../power";
 import {
   connectedTrafoVoltages,
+  formatTrafoVoltages,
   kvEqual,
   matchingTrafo2wTypes,
   matchingTrafo3wTypes,
@@ -48,65 +50,152 @@ import type {
   Trafo3WParams,
 } from "../types";
 
+// A physical-quantity symbol with an upright subscript, e.g. S_N or v_kr, so the
+// advanced labels read in the usual scientific notation.
+function Sym({ children, sub }: { children: ReactNode; sub: ReactNode }) {
+  return (
+    <>
+      <em>{children}</em>
+      <sub>{sub}</sub>
+    </>
+  );
+}
+
 // One editable transformer parameter: which field, how to label and step it.
-type ParamField = { key: string; label: string; step: number; dp: number };
+type ParamField = { key: string; label: ReactNode; step: number; dp: number };
+// Advanced parameters grouped by what they describe (see pandapower's trafo
+// model), each shown under a small heading.
+type ParamGroup = { title: string; fields: ParamField[] };
 
-const TRAFO2W_FIELDS: ParamField[] = [
-  { key: "sn_mva", label: "Rated power (MVA)", step: 0.1, dp: 4 },
-  { key: "vn_hv_kv", label: "HV nominal voltage (kV)", step: 1, dp: 3 },
-  { key: "vn_lv_kv", label: "LV nominal voltage (kV)", step: 0.1, dp: 3 },
-  { key: "vk_percent", label: "Short-circuit voltage vk (%)", step: 0.1, dp: 3 },
-  { key: "vkr_percent", label: "Real part vkr (%)", step: 0.1, dp: 4 },
-  { key: "pfe_kw", label: "Iron losses (kW)", step: 0.1, dp: 3 },
-  { key: "i0_percent", label: "No-load current i0 (%)", step: 0.01, dp: 4 },
-  { key: "shift_degree", label: "Phase shift (deg)", step: 30, dp: 1 },
+const TRAFO2W_GROUPS: ParamGroup[] = [
+  {
+    title: "Ratings",
+    fields: [
+      { key: "sn_mva", label: <>Rated power <Sym sub="N">S</Sym> (MVA)</>, step: 0.1, dp: 4 },
+      { key: "vn_hv_kv", label: <>HV rated voltage <Sym sub="N">V</Sym> (kV)</>, step: 1, dp: 3 },
+      { key: "vn_lv_kv", label: <>LV rated voltage <Sym sub="N">V</Sym> (kV)</>, step: 0.1, dp: 3 },
+    ],
+  },
+  {
+    title: "Short-circuit voltage",
+    fields: [
+      { key: "vk_percent", label: <><Sym sub="k">v</Sym> (%)</>, step: 0.1, dp: 3 },
+      { key: "vkr_percent", label: <>Real part <Sym sub="kr">v</Sym> (%)</>, step: 0.1, dp: 4 },
+    ],
+  },
+  {
+    title: "No-load (magnetising)",
+    fields: [
+      { key: "pfe_kw", label: <>Iron losses <Sym sub="Fe">P</Sym> (kW)</>, step: 0.1, dp: 3 },
+      { key: "i0_percent", label: <>No-load current <Sym sub="0">i</Sym> (%)</>, step: 0.01, dp: 4 },
+    ],
+  },
+  {
+    title: "Phase shift",
+    fields: [
+      { key: "shift_degree", label: <>Phase shift <em>θ</em> (deg)</>, step: 30, dp: 1 },
+    ],
+  },
 ];
 
-const TRAFO3W_FIELDS: ParamField[] = [
-  { key: "sn_hv_mva", label: "HV rated power (MVA)", step: 0.1, dp: 4 },
-  { key: "sn_mv_mva", label: "MV rated power (MVA)", step: 0.1, dp: 4 },
-  { key: "sn_lv_mva", label: "LV rated power (MVA)", step: 0.1, dp: 4 },
-  { key: "vn_hv_kv", label: "HV nominal voltage (kV)", step: 1, dp: 3 },
-  { key: "vn_mv_kv", label: "MV nominal voltage (kV)", step: 1, dp: 3 },
-  { key: "vn_lv_kv", label: "LV nominal voltage (kV)", step: 0.1, dp: 3 },
-  { key: "vk_hv_percent", label: "HV short-circuit voltage vk (%)", step: 0.1, dp: 3 },
-  { key: "vk_mv_percent", label: "MV short-circuit voltage vk (%)", step: 0.1, dp: 3 },
-  { key: "vk_lv_percent", label: "LV short-circuit voltage vk (%)", step: 0.1, dp: 3 },
-  { key: "vkr_hv_percent", label: "HV real part vkr (%)", step: 0.1, dp: 4 },
-  { key: "vkr_mv_percent", label: "MV real part vkr (%)", step: 0.1, dp: 4 },
-  { key: "vkr_lv_percent", label: "LV real part vkr (%)", step: 0.1, dp: 4 },
-  { key: "pfe_kw", label: "Iron losses (kW)", step: 0.1, dp: 3 },
-  { key: "i0_percent", label: "No-load current i0 (%)", step: 0.01, dp: 4 },
-  { key: "shift_mv_degree", label: "MV phase shift (deg)", step: 30, dp: 1 },
-  { key: "shift_lv_degree", label: "LV phase shift (deg)", step: 30, dp: 1 },
+const TRAFO3W_GROUPS: ParamGroup[] = [
+  {
+    title: "Rated power",
+    fields: [
+      { key: "sn_hv_mva", label: <>HV <Sym sub="N">S</Sym> (MVA)</>, step: 0.1, dp: 4 },
+      { key: "sn_mv_mva", label: <>MV <Sym sub="N">S</Sym> (MVA)</>, step: 0.1, dp: 4 },
+      { key: "sn_lv_mva", label: <>LV <Sym sub="N">S</Sym> (MVA)</>, step: 0.1, dp: 4 },
+    ],
+  },
+  {
+    title: "Rated voltage",
+    fields: [
+      { key: "vn_hv_kv", label: <>HV <Sym sub="N">V</Sym> (kV)</>, step: 1, dp: 3 },
+      { key: "vn_mv_kv", label: <>MV <Sym sub="N">V</Sym> (kV)</>, step: 1, dp: 3 },
+      { key: "vn_lv_kv", label: <>LV <Sym sub="N">V</Sym> (kV)</>, step: 0.1, dp: 3 },
+    ],
+  },
+  {
+    title: "Short-circuit voltage",
+    fields: [
+      { key: "vk_hv_percent", label: <>HV <Sym sub="k">v</Sym> (%)</>, step: 0.1, dp: 3 },
+      { key: "vk_mv_percent", label: <>MV <Sym sub="k">v</Sym> (%)</>, step: 0.1, dp: 3 },
+      { key: "vk_lv_percent", label: <>LV <Sym sub="k">v</Sym> (%)</>, step: 0.1, dp: 3 },
+      { key: "vkr_hv_percent", label: <>HV real part <Sym sub="kr">v</Sym> (%)</>, step: 0.1, dp: 4 },
+      { key: "vkr_mv_percent", label: <>MV real part <Sym sub="kr">v</Sym> (%)</>, step: 0.1, dp: 4 },
+      { key: "vkr_lv_percent", label: <>LV real part <Sym sub="kr">v</Sym> (%)</>, step: 0.1, dp: 4 },
+    ],
+  },
+  {
+    title: "No-load (magnetising)",
+    fields: [
+      { key: "pfe_kw", label: <>Iron losses <Sym sub="Fe">P</Sym> (kW)</>, step: 0.1, dp: 3 },
+      { key: "i0_percent", label: <>No-load current <Sym sub="0">i</Sym> (%)</>, step: 0.01, dp: 4 },
+    ],
+  },
+  {
+    title: "Phase shift",
+    fields: [
+      { key: "shift_mv_degree", label: <>MV phase shift <em>θ</em> (deg)</>, step: 30, dp: 1 },
+      { key: "shift_lv_degree", label: <>LV phase shift <em>θ</em> (deg)</>, step: 30, dp: 1 },
+    ],
+  },
 ];
 
-// The "Advanced" expander: editable NumberInputs for each transformer parameter.
-// A std_type only fills these — editing any one makes the transformer custom.
+const TRAFO2W_KEYS = TRAFO2W_GROUPS.flatMap((g) => g.fields.map((f) => f.key));
+const TRAFO3W_KEYS = TRAFO3W_GROUPS.flatMap((g) => g.fields.map((f) => f.key));
+
+// Sentinel shown in the Standard type dropdown for hand-entered parameters.
+const CUSTOM_TYPE = "Custom";
+
+// Blank advanced inputs for a fresh custom transformer. null leaves each field
+// empty; the backend skips nulls (keeping the prior electrical columns) while
+// still dropping the std_type label, so the trafo reads as custom.
+const emptyParams = (keys: string[]): Record<string, null> =>
+  Object.fromEntries(keys.map((k) => [k, null]));
+
+// The "Advanced" expander: editable NumberInputs grouped by purpose. Rendered
+// without the Accordion's separated card so the inputs span the full panel
+// width. A std_type only fills these — editing any one makes the trafo custom.
 function AdvancedParams({
-  fields,
+  groups,
   params,
   onChange,
 }: {
-  fields: ParamField[];
-  params: Record<string, number>;
+  groups: ParamGroup[];
+  params: Record<string, number | null>;
   onChange: (key: string, value: number) => void;
 }) {
   return (
-    <Accordion variant="separated" chevronPosition="right" px={0}>
+    <Accordion
+      chevronPosition="right"
+      classNames={{ control: "advancedControl" }}
+      styles={{
+        item: { border: "none" },
+        control: { paddingInline: 0 },
+        content: { paddingInline: 0 },
+      }}
+    >
       <Accordion.Item value="advanced">
         <Accordion.Control>Advanced parameters</Accordion.Control>
         <Accordion.Panel>
-          <Stack gap="xs">
-            {fields.map((f) => (
-              <NumberInput
-                key={f.key}
-                label={f.label}
-                value={params[f.key] ?? 0}
-                step={f.step}
-                decimalScale={f.dp}
-                onChange={(v) => onChange(f.key, Number(v) || 0)}
-              />
+          <Stack gap="md">
+            {groups.map((g) => (
+              <Stack gap="xs" key={g.title}>
+                <Text size="xs" fw={700} c="dimmed" tt="uppercase">
+                  {g.title}
+                </Text>
+                {g.fields.map((f) => (
+                  <NumberInput
+                    key={f.key}
+                    label={f.label}
+                    value={params[f.key] ?? ""}
+                    step={f.step}
+                    decimalScale={f.dp}
+                    onChange={(v) => onChange(f.key, Number(v) || 0)}
+                  />
+                ))}
+              </Stack>
             ))}
           </Stack>
         </Accordion.Panel>
@@ -488,50 +577,70 @@ export function Inspector() {
             haveBoth &&
             (isCustom
               ? !!params &&
+                params.vn_hv_kv != null &&
+                params.vn_lv_kv != null &&
                 !(
                   kvEqual(params.vn_hv_kv, volts.hv!) &&
                   kvEqual(params.vn_lv_kv, volts.lv!)
                 )
               : !matching.includes(d.std_type));
-          const pickStd = (v: string | null) => {
-            if (!v) return;
-            const filled = trafo2wStd?.[v] as Trafo2WParams | undefined;
-            update({ std_type: v, params: filled ? { ...filled } : d.params });
-          };
           const editParam = (key: string, value: number) => {
             if (!params) return;
             // Editing any field makes the transformer custom (drops the preset).
             update({ std_type: "", params: { ...params, [key]: value } });
           };
+          // Custom blanks the inputs; a named type fills them — overwriting any
+          // hand-entered values, so confirm before leaving a custom transformer.
+          const onTypeChange = (v: string | null) => {
+            if (!v) return;
+            if (v === CUSTOM_TYPE) {
+              if (!isCustom)
+                update({ std_type: "", params: emptyParams(TRAFO2W_KEYS) });
+              return;
+            }
+            if (
+              isCustom &&
+              !window.confirm(
+                "Switching to a standard type replaces your custom values. Continue?",
+              )
+            )
+              return;
+            const filled = trafo2wStd?.[v] as Trafo2WParams | undefined;
+            update({ std_type: v, params: filled ? { ...filled } : d.params });
+          };
           return (
             <>
               <Text size="xs" c="dimmed">
-                Connected buses: HV {volts.hv ?? "?"} kV / LV {volts.lv ?? "?"} kV
+                Connected buses: {formatTrafoVoltages(volts, ["hv", "lv"])}
               </Text>
               {mismatch && (
                 <Text size="xs" c="orange">
-                  Rated voltages don't match the connected buses (HV {volts.hv} kV
-                  / LV {volts.lv} kV).
+                  Rated voltages don't match the connected buses (
+                  {formatTrafoVoltages(volts, ["hv", "lv"])}).
                 </Text>
               )}
               <Select
                 label="Standard type"
-                data={matching}
-                value={matching.includes(d.std_type) ? d.std_type : null}
+                data={[...matching, CUSTOM_TYPE]}
+                value={
+                  isCustom
+                    ? CUSTOM_TYPE
+                    : matching.includes(d.std_type)
+                      ? d.std_type
+                      : null
+                }
                 placeholder={
                   matching.length === 0
                     ? "No standard type for these voltages"
-                    : isCustom
-                      ? "Custom"
-                      : undefined
+                    : undefined
                 }
-                onChange={pickStd}
+                onChange={onTypeChange}
                 allowDeselect={false}
                 searchable
               />
               {params && (
                 <AdvancedParams
-                  fields={TRAFO2W_FIELDS}
+                  groups={TRAFO2W_GROUPS}
                   params={params}
                   onChange={editParam}
                 />
@@ -559,50 +668,70 @@ export function Inspector() {
             haveAll &&
             (isCustom
               ? !!params &&
+                params.vn_hv_kv != null &&
+                params.vn_mv_kv != null &&
+                params.vn_lv_kv != null &&
                 !(
                   kvEqual(params.vn_hv_kv, volts.hv!) &&
                   kvEqual(params.vn_mv_kv, volts.mv!) &&
                   kvEqual(params.vn_lv_kv, volts.lv!)
                 )
               : !matching.includes(d.std_type));
-          const pickStd = (v: string | null) => {
-            if (!v) return;
-            const filled = trafo3wStd?.[v] as Trafo3WParams | undefined;
-            update({ std_type: v, params: filled ? { ...filled } : d.params });
-          };
           const editParam = (key: string, value: number) => {
             if (!params) return;
             update({ std_type: "", params: { ...params, [key]: value } });
           };
+          // Custom blanks the inputs; a named type fills them — overwriting any
+          // hand-entered values, so confirm before leaving a custom transformer.
+          const onTypeChange = (v: string | null) => {
+            if (!v) return;
+            if (v === CUSTOM_TYPE) {
+              if (!isCustom)
+                update({ std_type: "", params: emptyParams(TRAFO3W_KEYS) });
+              return;
+            }
+            if (
+              isCustom &&
+              !window.confirm(
+                "Switching to a standard type replaces your custom values. Continue?",
+              )
+            )
+              return;
+            const filled = trafo3wStd?.[v] as Trafo3WParams | undefined;
+            update({ std_type: v, params: filled ? { ...filled } : d.params });
+          };
           return (
             <>
               <Text size="xs" c="dimmed">
-                Connected buses: HV {volts.hv ?? "?"} kV / MV {volts.mv ?? "?"} kV
-                / LV {volts.lv ?? "?"} kV
+                Connected buses: {formatTrafoVoltages(volts, ["hv", "mv", "lv"])}
               </Text>
               {mismatch && (
                 <Text size="xs" c="orange">
-                  Rated voltages don't match the connected buses (HV {volts.hv} kV
-                  / MV {volts.mv} kV / LV {volts.lv} kV).
+                  Rated voltages don't match the connected buses (
+                  {formatTrafoVoltages(volts, ["hv", "mv", "lv"])}).
                 </Text>
               )}
               <Select
                 label="Standard type"
-                data={matching}
-                value={matching.includes(d.std_type) ? d.std_type : null}
+                data={[...matching, CUSTOM_TYPE]}
+                value={
+                  isCustom
+                    ? CUSTOM_TYPE
+                    : matching.includes(d.std_type)
+                      ? d.std_type
+                      : null
+                }
                 placeholder={
                   matching.length === 0
                     ? "No standard type for these voltages"
-                    : isCustom
-                      ? "Custom"
-                      : undefined
+                    : undefined
                 }
-                onChange={pickStd}
+                onChange={onTypeChange}
                 allowDeselect={false}
               />
               {params && (
                 <AdvancedParams
-                  fields={TRAFO3W_FIELDS}
+                  groups={TRAFO3W_GROUPS}
                   params={params}
                   onChange={editParam}
                 />

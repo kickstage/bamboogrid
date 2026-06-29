@@ -43,13 +43,33 @@ function Row({ label, value }: { label: string; value: React.ReactNode }) {
   );
 }
 
-function extreme(e: Extreme | null, unit: string, digits: number): React.ReactNode {
+function extreme(
+  e: Extreme | null,
+  unit: string,
+  digits: number,
+  onReveal: (id: string) => void,
+): React.ReactNode {
   if (!e) return "—";
   return (
-    <>
-      {fixed(e.value, digits)} {unit}
-      {e.label ? <Text span c="dimmed"> · {e.label}</Text> : null}
-    </>
+    <Group gap={6} justify="flex-end" wrap="nowrap">
+      <span>
+        {fixed(e.value, digits)} {unit}
+      </span>
+      {e.id ? (
+        <Button
+          size="compact-xs"
+          variant="default"
+          onClick={() => onReveal(e.id)}
+          title="Show in editor"
+        >
+          {e.label}
+        </Button>
+      ) : e.label ? (
+        <Text span c="dimmed">
+          · {e.label}
+        </Text>
+      ) : null}
+    </Group>
   );
 }
 
@@ -57,7 +77,13 @@ function pq(p: number, q: number): string {
   return `${fixed(p, 3)} MW · ${fixed(q, 3)} Mvar`;
 }
 
-function SummaryTab({ s }: { s: NetworkSummary }) {
+function SummaryTab({
+  s,
+  onReveal,
+}: {
+  s: NetworkSummary;
+  onReveal: (id: string) => void;
+}) {
   const c: SummaryCounts = s.counts;
   return (
     <Stack gap="md" mt="md">
@@ -79,10 +105,13 @@ function SummaryTab({ s }: { s: NetworkSummary }) {
           <Divider label="Voltage & loading" labelPosition="left" mb={4} />
           <Table withRowBorders={false} verticalSpacing={2}>
             <Table.Tbody>
-              <Row label="Min voltage" value={extreme(s.min_voltage, "p.u.", 4)} />
-              <Row label="Max voltage" value={extreme(s.max_voltage, "p.u.", 4)} />
-              <Row label="Peak line loading" value={extreme(s.max_line_loading, "%", 1)} />
-              <Row label="Peak transformer loading" value={extreme(s.max_trafo_loading, "%", 1)} />
+              <Row label="Min voltage" value={extreme(s.min_voltage, "p.u.", 4, onReveal)} />
+              <Row label="Max voltage" value={extreme(s.max_voltage, "p.u.", 4, onReveal)} />
+              <Row label="Peak line loading" value={extreme(s.max_line_loading, "%", 1, onReveal)} />
+              <Row
+                label="Peak transformer loading"
+                value={extreme(s.max_trafo_loading, "%", 1, onReveal)}
+              />
             </Table.Tbody>
           </Table>
         </div>
@@ -261,7 +290,7 @@ export function SummaryModal({
               </Tabs.Tab>
             </Tabs.List>
             <Tabs.Panel value="summary">
-              <SummaryTab s={summary} />
+              <SummaryTab s={summary} onReveal={reveal} />
             </Tabs.Panel>
             <Tabs.Panel value="diagnostics">
               <DiagnosticsTab items={summary.diagnostics} onReveal={reveal} />

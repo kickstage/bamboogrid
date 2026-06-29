@@ -11,7 +11,12 @@ import {
   type XYPosition,
 } from "@xyflow/react";
 
-import { BUS_DEFAULT_WIDTH, widthForPorts } from "./nodes/BusNode";
+import {
+  BUS_DEFAULT_WIDTH,
+  PORT_MARGIN,
+  PORT_SPACING,
+  widthForPorts,
+} from "./nodes/BusNode";
 import type {
   BusData,
   ElementData,
@@ -923,7 +928,17 @@ export const useEditor = create<EditorState>((set, get) => ({
   select: (id) =>
     set({ selectedId: id, selectedEdgeId: null, searchHighlightId: null }),
   selectEdge: (id) =>
-    set({ selectedEdgeId: id, selectedId: null, searchHighlightId: null }),
+    set((s) => ({
+      selectedEdgeId: id,
+      selectedId: null,
+      searchHighlightId: null,
+      // Mirror the edge's selected flag so selecting via the label (which bypasses
+      // React Flow's own edge-click selection) still shows the routing dot.
+      edges: s.edges.map((e) =>
+        e.selected !== (e.id === id) ? { ...e, selected: e.id === id } : e,
+      ),
+      nodes: s.nodes.map((n) => (n.selected ? { ...n, selected: false } : n)),
+    })),
 
   selectOnly: (id) =>
     set((s) => ({
@@ -1144,13 +1159,27 @@ export const useEditor = create<EditorState>((set, get) => ({
     // Spread elements that carry no explicit port (e.g. a plain pandapower
     // import) across distinct bus ports so they don't all snap to the first
     // handle. Files we exported keep their stored ports and aren't counted.
-    const portCount = new Map<string, number>();
-    const busPort = (busId: string, explicit?: string): string | undefined => {
-      if (explicit) return explicit;
-      const i = portCount.get(busId) ?? 0;
-      portCount.set(busId, i + 1);
-      return `p${i}`;
+    // Bus ports are assigned by geometry, not insertion order: each element claims
+    // the bus slot nearest its own position so wires don't cross. We queue requests
+    // now (with the connecting terminal's x) and resolve them per bus below; an
+    // explicit (stored) port from our own files is honored as-is.
+    type PortField = "sourceHandle" | "targetHandle";
+    type PortReq = { busId: string; edge: Edge; field: PortField; x: number };
+    const portReqs: PortReq[] = [];
+    const connect = (
+      edge: Edge,
+      field: PortField,
+      busId: string,
+      explicit: string | undefined | null,
+      x: number,
+    ) => {
+      if (explicit) edge[field] = explicit;
+      else portReqs.push({ busId, edge, field, x });
     };
+    // Stub elements (source/load/shunt) tracked so the lone ones can be straightened
+    // onto their assigned port after layout.
+    const STUB_HALF = 32; // element nodes are 64 px wide with a centered handle
+    const stubEdges: { id: string; busId: string; edge: Edge; explicit: boolean }[] = [];
     for (const b of network.buses) {
       nodes.push({
         id: b.id,
@@ -1160,6 +1189,11 @@ export const useEditor = create<EditorState>((set, get) => ({
         width: b.width ?? BUS_DEFAULT_WIDTH,
       });
     }
+    const busById = new Map(nodes.filter((n) => n.type === "bus").map((n) => [n.id, n]));
+    const busCenter = (id: string): number => {
+      const b = busById.get(id);
+      return b ? b.position.x + (b.width ?? BUS_DEFAULT_WIDTH) / 2 : 0;
+    };
     for (const g of network.generators) {
       nodes.push({
         id: g.id,
@@ -1176,15 +1210,18 @@ export const useEditor = create<EditorState>((set, get) => ({
           cos_phi: g.cos_phi,
         },
       });
-      if (g.bus_id)
-        edges.push({
+      if (g.bus_id) {
+        const edge: Edge = {
           id: `${g.id}->${g.bus_id}`,
           source: g.id,
           target: g.bus_id,
-          targetHandle: busPort(g.bus_id, g.port),
           type: "wire",
           data: g.waypoint ? { waypoint: g.waypoint } : undefined,
-        });
+        };
+        edges.push(edge);
+        connect(edge, "targetHandle", g.bus_id, g.port, g.x + STUB_HALF);
+        stubEdges.push({ id: g.id, busId: g.bus_id, edge, explicit: !!g.port });
+      }
     }
     for (const sg of network.sgens ?? []) {
       nodes.push({
@@ -1193,15 +1230,18 @@ export const useEditor = create<EditorState>((set, get) => ({
         position: { x: sg.x, y: sg.y },
         data: { name: sg.name, p_mw: sg.p_mw, q_mvar: sg.q_mvar },
       });
-      if (sg.bus_id)
-        edges.push({
+      if (sg.bus_id) {
+        const edge: Edge = {
           id: `${sg.id}->${sg.bus_id}`,
           source: sg.id,
           target: sg.bus_id,
-          targetHandle: busPort(sg.bus_id, sg.port),
           type: "wire",
           data: sg.waypoint ? { waypoint: sg.waypoint } : undefined,
-        });
+        };
+        edges.push(edge);
+        connect(edge, "targetHandle", sg.bus_id, sg.port, sg.x + STUB_HALF);
+        stubEdges.push({ id: sg.id, busId: sg.bus_id, edge, explicit: !!sg.port });
+      }
     }
     for (const eg of network.ext_grids ?? []) {
       nodes.push({
@@ -1216,15 +1256,18 @@ export const useEditor = create<EditorState>((set, get) => ({
           rx_max: eg.rx_max,
         },
       });
-      if (eg.bus_id)
-        edges.push({
+      if (eg.bus_id) {
+        const edge: Edge = {
           id: `${eg.id}->${eg.bus_id}`,
           source: eg.id,
           target: eg.bus_id,
-          targetHandle: busPort(eg.bus_id, eg.port),
           type: "wire",
           data: eg.waypoint ? { waypoint: eg.waypoint } : undefined,
-        });
+        };
+        edges.push(edge);
+        connect(edge, "targetHandle", eg.bus_id, eg.port, eg.x + STUB_HALF);
+        stubEdges.push({ id: eg.id, busId: eg.bus_id, edge, explicit: !!eg.port });
+      }
     }
     for (const l of network.loads) {
       nodes.push({
@@ -1233,15 +1276,18 @@ export const useEditor = create<EditorState>((set, get) => ({
         position: { x: l.x, y: l.y },
         data: { name: l.name, p_mw: l.p_mw, q_mvar: l.q_mvar },
       });
-      if (l.bus_id)
-        edges.push({
+      if (l.bus_id) {
+        const edge: Edge = {
           id: `${l.id}->${l.bus_id}`,
           source: l.id,
           target: l.bus_id,
-          targetHandle: busPort(l.bus_id, l.port),
           type: "wire",
           data: l.waypoint ? { waypoint: l.waypoint } : undefined,
-        });
+        };
+        edges.push(edge);
+        connect(edge, "targetHandle", l.bus_id, l.port, l.x + STUB_HALF);
+        stubEdges.push({ id: l.id, busId: l.bus_id, edge, explicit: !!l.port });
+      }
     }
     for (const sh of network.shunts ?? []) {
       nodes.push({
@@ -1256,14 +1302,17 @@ export const useEditor = create<EditorState>((set, get) => ({
           step: sh.step,
         },
       });
-      if (sh.bus_id)
-        edges.push({
+      if (sh.bus_id) {
+        const edge: Edge = {
           id: `${sh.id}->${sh.bus_id}`,
           source: sh.id,
           target: sh.bus_id,
-          targetHandle: busPort(sh.bus_id, sh.port),
           type: "wire",
-        });
+        };
+        edges.push(edge);
+        connect(edge, "targetHandle", sh.bus_id, sh.port, sh.x + STUB_HALF);
+        stubEdges.push({ id: sh.id, busId: sh.bus_id, edge, explicit: !!sh.port });
+      }
     }
     for (const s of network.switches ?? []) {
       nodes.push({
@@ -1272,39 +1321,48 @@ export const useEditor = create<EditorState>((set, get) => ({
         position: { x: s.x, y: s.y },
         data: { name: s.name, closed: s.closed },
       });
-      if (s.bus_a)
-        edges.push({
+      if (s.bus_a) {
+        const edge: Edge = {
           id: `${s.id}:a->${s.bus_a}`,
           source: s.id,
           sourceHandle: "a",
           target: s.bus_a,
-          targetHandle: busPort(s.bus_a, s.port_a),
           type: "wire",
-        });
-      if (s.bus_b)
-        edges.push({
+        };
+        edges.push(edge);
+        connect(edge, "targetHandle", s.bus_a, s.port_a, s.x + 32);
+      }
+      if (s.bus_b) {
+        const edge: Edge = {
           id: `${s.id}:b->${s.bus_b}`,
           source: s.id,
           sourceHandle: "b",
           target: s.bus_b,
-          targetHandle: busPort(s.bus_b, s.port_b),
           type: "wire",
-        });
+        };
+        edges.push(edge);
+        connect(edge, "targetHandle", s.bus_b, s.port_b, s.x + 32);
+      }
     }
-    // Helper: a transformer winding wire (source handle "hv"/"mv"/"lv" → bus).
+    // Helper: a transformer winding wire (source handle "hv"/"mv"/"lv" → bus). The
+    // handles sit at the node's horizontal center, so `centerX` is the terminal x.
     const windingEdge = (
       trafoId: string,
       handle: string,
       busId: string,
-      port?: string,
-    ) => ({
-      id: `${trafoId}:${handle}->${busId}`,
-      source: trafoId,
-      sourceHandle: handle,
-      target: busId,
-      targetHandle: busPort(busId, port),
-      type: "wire" as const,
-    });
+      port: string | undefined,
+      centerX: number,
+    ) => {
+      const edge: Edge = {
+        id: `${trafoId}:${handle}->${busId}`,
+        source: trafoId,
+        sourceHandle: handle,
+        target: busId,
+        type: "wire",
+      };
+      edges.push(edge);
+      connect(edge, "targetHandle", busId, port, centerX);
+    };
     for (const t of network.transformers2w ?? []) {
       nodes.push({
         id: t.id,
@@ -1312,8 +1370,9 @@ export const useEditor = create<EditorState>((set, get) => ({
         position: { x: t.x, y: t.y },
         data: { name: t.name, std_type: t.std_type, params: t.params ?? null },
       });
-      if (t.hv_bus) edges.push(windingEdge(t.id, "hv", t.hv_bus, t.port_hv));
-      if (t.lv_bus) edges.push(windingEdge(t.id, "lv", t.lv_bus, t.port_lv));
+      const cx = t.x + 20; // trafo2w node is 40 px wide
+      if (t.hv_bus) windingEdge(t.id, "hv", t.hv_bus, t.port_hv, cx);
+      if (t.lv_bus) windingEdge(t.id, "lv", t.lv_bus, t.port_lv, cx);
     }
     for (const t of network.transformers3w ?? []) {
       nodes.push({
@@ -1322,20 +1381,19 @@ export const useEditor = create<EditorState>((set, get) => ({
         position: { x: t.x, y: t.y },
         data: { name: t.name, std_type: t.std_type, params: t.params ?? null },
       });
-      if (t.hv_bus) edges.push(windingEdge(t.id, "hv", t.hv_bus, t.port_hv));
-      if (t.mv_bus) edges.push(windingEdge(t.id, "mv", t.mv_bus, t.port_mv));
-      if (t.lv_bus) edges.push(windingEdge(t.id, "lv", t.lv_bus, t.port_lv));
+      const cx = t.x + 24; // trafo3w node is 48 px wide
+      if (t.hv_bus) windingEdge(t.id, "hv", t.hv_bus, t.port_hv, cx);
+      if (t.mv_bus) windingEdge(t.id, "mv", t.mv_bus, t.port_mv, cx);
+      if (t.lv_bus) windingEdge(t.id, "lv", t.lv_bus, t.port_lv, cx);
     }
     // Lines are bus → bus edges (no node body); they carry their electrical
     // params as edge data so they round-trip and solve.
     for (const l of network.lines ?? []) {
       if (!l.from_bus || !l.to_bus) continue;
-      edges.push({
+      const edge: Edge = {
         id: l.id,
         source: l.from_bus,
-        sourceHandle: busPort(l.from_bus, l.port_from),
         target: l.to_bus,
-        targetHandle: busPort(l.to_bus, l.port_to),
         type: "line",
         data: {
           name: l.name,
@@ -1347,18 +1405,65 @@ export const useEditor = create<EditorState>((set, get) => ({
           std_type: l.std_type,
           waypoint: l.waypoint ?? undefined,
         } satisfies LineData,
-      });
+      };
+      edges.push(edge);
+      // Each end faces the other bus (or the bend waypoint, if any) so the line
+      // attaches on the side it leaves toward.
+      const fromX = l.waypoint ? l.waypoint.x : busCenter(l.to_bus);
+      const toX = l.waypoint ? l.waypoint.x : busCenter(l.from_bus);
+      connect(edge, "sourceHandle", l.from_bus, l.port_from, fromX);
+      connect(edge, "targetHandle", l.to_bus, l.port_to, toX);
     }
-    // Grow each bus to actually expose the ports we auto-assigned above.
-    for (const n of nodes) {
-      if (n.type === "bus") {
-        const count = portCount.get(n.id);
-        if (count)
-          n.width = Math.max(
-            n.width ?? BUS_DEFAULT_WIDTH,
-            widthForPorts(count),
-          );
-      }
+    // Resolve queued bus ports: per bus, sort requests left→right and hand out
+    // slots p0..pk in that order. Monotonic assignment keeps same-bus wires in
+    // x-order so they never cross, and each element lands on the slot nearest its
+    // own position. Each bus is then grown to expose exactly those k ports.
+    const portCount = new Map<string, number>();
+    const reqsByBus = new Map<string, PortReq[]>();
+    for (const r of portReqs) {
+      const g = reqsByBus.get(r.busId);
+      if (g) g.push(r);
+      else reqsByBus.set(r.busId, [r]);
+    }
+    for (const [busId, reqs] of reqsByBus) {
+      reqs.sort((a, b) => a.x - b.x);
+      reqs.forEach((r, i) => {
+        r.edge[r.field] = `p${i}`;
+      });
+      portCount.set(busId, reqs.length);
+    }
+    for (const bus of busById.values()) {
+      const count = portCount.get(bus.id);
+      if (count)
+        bus.width = Math.max(bus.width ?? BUS_DEFAULT_WIDTH, widthForPorts(count));
+    }
+    // Straighten lone stubs: when a source/load/shunt is the only element on its
+    // side of a bus, snap it directly under/over its assigned port so the wire is a
+    // straight drop. Several on one side stay spread (adjacent 40 px ports overlap).
+    const nodeById = new Map(nodes.map((n) => [n.id, n]));
+    const sideGroups = new Map<string, typeof stubEdges>();
+    for (const se of stubEdges) {
+      if (se.explicit) continue;
+      const bus = busById.get(se.busId);
+      const node = nodeById.get(se.id);
+      if (!bus || !node) continue;
+      const side = node.position.y < bus.position.y ? "up" : "down";
+      const key = `${se.busId}|${side}`;
+      const grp = sideGroups.get(key);
+      if (grp) grp.push(se);
+      else sideGroups.set(key, [se]);
+    }
+    for (const grp of sideGroups.values()) {
+      if (grp.length !== 1) continue;
+      const se = grp[0];
+      const bus = busById.get(se.busId)!;
+      const node = nodeById.get(se.id)!;
+      const handle = se.edge.targetHandle;
+      if (!handle) continue;
+      const i = Number(handle.slice(1));
+      if (!Number.isFinite(i)) continue;
+      const portX = bus.position.x + PORT_MARGIN + i * PORT_SPACING;
+      node.position = { ...node.position, x: portX - STUB_HALF };
     }
     // Everything in the projection already lives on the server.
     resetServerIds([

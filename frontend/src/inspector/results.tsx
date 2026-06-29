@@ -1,4 +1,4 @@
-import { Divider, Group, Stack, Text } from "@mantine/core";
+import { Group, Stack, Text } from "@mantine/core";
 import { fixed } from "../format";
 import { phaseAngleDeg, powerFactor, type BusInjection } from "../power";
 import type { BusData, GeneratorData, ShuntData, Trafo2WData } from "../types";
@@ -29,8 +29,10 @@ export function ResultList({
 }) {
   if (rows.length === 0) return null;
   return (
-    <>
-      <Divider my="xs" label={label} labelPosition="left" />
+    <Stack gap={4} mt="md">
+      <Text size="xs" fw={600} c="dimmed" tt="uppercase">
+        {label}
+      </Text>
       <Stack gap={2}>
         {rows.map(([label, value]) => (
           <Group key={label} justify="space-between" gap="xs" wrap="nowrap">
@@ -43,7 +45,7 @@ export function ResultList({
           </Group>
         ))}
       </Stack>
-    </>
+    </Stack>
   );
 }
 

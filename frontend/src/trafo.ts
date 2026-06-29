@@ -120,6 +120,17 @@ export function defaultTrafo3wParams(
   };
 }
 
+// A transformer winding: the single source of truth for both the canvas port
+// tags and the inspector readouts, so the displayed label always tracks the
+// handle id it belongs to.
+export type Winding = "hv" | "mv" | "lv";
+
+export const WINDING_LABEL: Record<Winding, string> = {
+  hv: "HV",
+  mv: "MV",
+  lv: "LV",
+};
+
 type NodeLike = { id: string; type?: string; data: unknown };
 
 // Nominal voltages of the buses wired to a transformer node, by winding. Wires
@@ -138,4 +149,15 @@ export function connectedTrafoVoltages(
     if (bus) out[handle] = (bus.data as BusData).vn_kv;
   }
   return out;
+}
+
+// Render the connected-bus voltages as "HV 110 kV / LV 20 kV" for the given
+// windings, falling back to "?" for any side that isn't wired yet.
+export function formatTrafoVoltages(
+  volts: { hv?: number; mv?: number; lv?: number },
+  windings: Winding[],
+): string {
+  return windings
+    .map((w) => `${WINDING_LABEL[w]} ${volts[w] ?? "?"} kV`)
+    .join(" / ");
 }
