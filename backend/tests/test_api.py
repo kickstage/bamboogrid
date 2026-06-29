@@ -392,6 +392,25 @@ def test_editing_a_param_makes_transformer_custom(client):
     assert _trafo(client, sid)["params"]["vk_percent"] == pytest.approx(9.9)
 
 
+def test_scenarios_list_includes_known_cases(client):
+    body = client.get("/scenarios").json()
+    ids = {s["id"] for s in body}
+    assert {"case9", "case14"} <= ids
+    assert all(s["label"] for s in body)
+
+
+def test_open_scenario_builds_session(client):
+    res = client.post("/session/scenario/case9")
+    assert res.status_code == 200
+    network = res.json()["view"]["network"]
+    assert len(network["buses"]) == 9
+    assert network["name"] == "IEEE 9-bus"
+
+
+def test_open_unknown_scenario_is_404(client):
+    assert client.post("/session/scenario/not-a-case").status_code == 404
+
+
 def test_picking_std_type_refills_params(client):
     sid = new_session(client)
     _two_bus_trafo(client, sid)

@@ -18,6 +18,7 @@ from fastapi.staticfiles import StaticFiles
 
 from .commands import CommandError, apply_commands
 from .ppjson import MAX_IMPORT_BUSES, std_trafo_types
+from .scenarios import build_scenario, list_scenarios
 from .projection import net_to_view
 from .schema import (
     Command,
@@ -102,12 +103,29 @@ def create_session() -> SessionInfo:
 @app.post("/session/demo", response_model=SessionInfo)
 def create_demo_session() -> SessionInfo:
     """Start a session pre-loaded with the IEEE 14-bus network (the mobile
-    read-only demo's default when no share link is opened)."""
-    import pandapower.networks as nw
-
+    read-only demo's default when no share link is opened) — the same built-in
+    example offered under File ▸ Open example."""
     with tracer.start_as_current_span("session.create_demo"):
-        net = nw.case14()
-        net.name = "IEEE 14-bus system"
+        net = build_scenario("case14")
+        session = store.create(net=net, name=net.name)
+        with session.lock:
+            return SessionInfo(id=session.id, view=_view(session))
+
+
+@app.get("/scenarios")
+def get_scenarios() -> list[dict[str, str]]:
+    """The curated pandapower example networks for File ▸ Open example."""
+    return list_scenarios()
+
+
+@app.post("/session/scenario/{scenario_id}", response_model=SessionInfo)
+def create_scenario_session(scenario_id: str) -> SessionInfo:
+    """Start a session from a built-in pandapower example, built on demand."""
+    with tracer.start_as_current_span("session.create_scenario") as span:
+        span.set_attribute("scenario.id", scenario_id)
+        net = build_scenario(scenario_id)
+        if net is None:
+            raise HTTPException(status_code=404, detail="Unknown scenario.")
         session = store.create(net=net, name=net.name)
         with session.lock:
             return SessionInfo(id=session.id, view=_view(session))

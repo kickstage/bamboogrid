@@ -49,6 +49,22 @@ export async function createDemoSession(): Promise<SessionInfo> {
   return json(await fetch(`${BASE}/session/demo`, { method: "POST" }));
 }
 
+// A built-in pandapower example network offered under File ▸ Open example.
+export interface Scenario {
+  id: string;
+  label: string;
+}
+
+// The curated example-network catalog (built on demand server-side).
+export async function fetchScenarios(): Promise<Scenario[]> {
+  return json(await fetch(`${BASE}/scenarios`));
+}
+
+// Start a session from a built-in example network, generated on demand.
+export async function createScenarioSession(id: string): Promise<SessionInfo> {
+  return json(await fetch(`${BASE}/session/scenario/${id}`, { method: "POST" }));
+}
+
 // Fetch the current projection for a session (used to (re)hydrate the editor).
 export async function getView(id: string): Promise<ViewModel> {
   return json(await fetch(`${BASE}/session`, { headers: { [SESSION_HEADER]: id } }));

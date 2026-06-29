@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   Anchor,
   Button,
+  Collapse,
   Group,
   Menu,
   Paper,
@@ -23,13 +24,16 @@ import { useEditor } from "./store";
 import { toast } from "./toast";
 import { flushPending } from "./sync";
 import {
+  createScenarioSession,
   createSession,
   exportPandapower,
+  fetchScenarios,
   getView,
   importPandapower,
   openShare,
   runLoadFlow,
   runShortCircuit,
+  type Scenario,
   shareSession,
 } from "./api";
 
@@ -153,9 +157,18 @@ export default function App() {
     "file" | "edit" | "view" | "study" | null
   >(null);
   const [summaryOpen, setSummaryOpen] = useState(false);
+  // Whether the File ▸ Open example sub-list is expanded (collapsed by default
+  // so the examples don't crowd the dropdown).
+  const [examplesOpen, setExamplesOpen] = useState(false);
   const [leftW, setLeftW] = useState(() => readWidth(PANELS.left));
   const [rightW, setRightW] = useState(() => readWidth(PANELS.right));
   const ppInputRef = useRef<HTMLInputElement>(null);
+  // Curated example networks for File ▸ Open example (fetched once, built on
+  // demand server-side from pandapower).
+  const [scenarios, setScenarios] = useState<Scenario[]>([]);
+  useEffect(() => {
+    fetchScenarios().then(setScenarios).catch(() => {});
+  }, []);
   const { setColorScheme } = useMantineColorScheme();
   const scheme = useComputedColorScheme("light");
   const isMobile = useIsMobile();
@@ -311,6 +324,26 @@ export default function App() {
     }
   };
 
+  // Replace the canvas with a built-in pandapower example (a fresh session).
+  // Destructive, so confirm first unless the canvas is already empty.
+  const onOpenScenario = async (scenario: Scenario) => {
+    const { nodes, edges } = useEditor.getState();
+    const empty = nodes.length === 0 && edges.length === 0;
+    if (!empty && !window.confirm(`Replace the editor with "${scenario.label}"?`))
+      return;
+    setBusy(true);
+    try {
+      const { id, view } = await createScenarioSession(scenario.id);
+      attachSession(id, view);
+      rememberSession(id);
+      toast.success(`Opened "${scenario.label}".`);
+    } catch (err) {
+      toast.error(`Could not open example: ${(err as Error).message}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const onRun = async () => {
     if (!sessionId) return;
     setBusy(true);
@@ -362,6 +395,43 @@ export default function App() {
                 <Menu.Item onClick={onReset} disabled={busy}>
                   New network
                 </Menu.Item>
+                {scenarios.length > 0 && (
+                  <>
+                    <Menu.Item
+                      closeMenuOnClick={false}
+                      onClick={() => setExamplesOpen((o) => !o)}
+                      disabled={busy}
+                      rightSection={
+                        <Text
+                          component="span"
+                          size="sm"
+                          c="dimmed"
+                          style={{
+                            display: "inline-block",
+                            transform: examplesOpen ? "rotate(90deg)" : "none",
+                            transition: "transform 150ms",
+                          }}
+                        >
+                          ›
+                        </Text>
+                      }
+                    >
+                      Open example
+                    </Menu.Item>
+                    <Collapse in={examplesOpen}>
+                      {scenarios.map((s) => (
+                        <Menu.Item
+                          key={s.id}
+                          pl="lg"
+                          onClick={() => onOpenScenario(s)}
+                          disabled={busy}
+                        >
+                          {s.label}
+                        </Menu.Item>
+                      ))}
+                    </Collapse>
+                  </>
+                )}
                 <Menu.Divider />
                 <Menu.Item
                   onClick={() => ppInputRef.current?.click()}

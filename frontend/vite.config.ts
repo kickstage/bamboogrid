@@ -9,7 +9,7 @@ import react from "@vitejs/plugin-react";
 // resolves "localhost" to IPv6 (::1) first → ECONNREFUSED ::1:8000.
 const target = process.env.VITE_PROXY_TARGET ?? "http://127.0.0.1:8000";
 const proxy = Object.fromEntries(
-  ["/session", "/share", "/health", "/std-types"].map((p) => [
+  ["/session", "/share", "/health", "/std-types", "/scenarios"].map((p) => [
     p,
     { target, changeOrigin: true },
   ]),
