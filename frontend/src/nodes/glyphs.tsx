@@ -119,6 +119,8 @@ export function ShuntGlyph({ size = 50, stroke = "currentColor" }: GlyphProps) {
 }
 
 // A simple square switch sign with short leads: filled = closed, hollow = open.
+// This glyph's viewBox is rendered at a larger scale than the others (~1.6× on
+// canvas), so its stroke is set thinner to match their rendered outline weight.
 export function SwitchGlyph({
   size = 48,
   stroke = "currentColor",
@@ -132,8 +134,8 @@ export function SwitchGlyph({
       aria-hidden
       style={{ display: "block", margin: "0 auto" }}
     >
-      <line x1={0} y1={10} x2={12} y2={10} stroke={stroke} strokeWidth={2} />
-      <line x1={28} y1={10} x2={40} y2={10} stroke={stroke} strokeWidth={2} />
+      <line x1={0} y1={10} x2={12} y2={10} stroke={stroke} strokeWidth={1.2} />
+      <line x1={28} y1={10} x2={40} y2={10} stroke={stroke} strokeWidth={1.2} />
       <rect
         x={12}
         y={2}
@@ -142,7 +144,7 @@ export function SwitchGlyph({
         rx={2}
         fill={closed ? stroke : "none"}
         stroke={stroke}
-        strokeWidth={2}
+        strokeWidth={1.2}
       />
     </svg>
   );

@@ -28,7 +28,7 @@ export function LoadNode({ id, data, selected, positionAbsoluteY }: NodeProps) {
   );
   const glyph = (
     <div style={busBelow ? { transform: "scaleY(-1)" } : undefined}>
-      <LoadGlyph size={50} stroke={selected ? "#0ea5e9" : "currentColor"} />
+      <LoadGlyph size={38} stroke={selected ? "#0ea5e9" : "currentColor"} />
     </div>
   );
   const label = (

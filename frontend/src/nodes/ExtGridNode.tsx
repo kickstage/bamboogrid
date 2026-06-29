@@ -11,7 +11,7 @@ export function ExtGridNode({ data, selected }: NodeProps) {
   const hasResult = showResults && d.res_p_mw !== undefined;
   return (
     <div style={{ width: 64, textAlign: "center", color: "var(--mantine-color-text)" }}>
-      <ExtGridGlyph size={52} stroke={selected ? "#0ea5e9" : "currentColor"} />
+      <ExtGridGlyph size={39} stroke={selected ? "#0ea5e9" : "currentColor"} />
       <div style={{ fontSize: 10, fontWeight: 600 }}>{d.name}</div>
       <Value>{d.vm_pu} p.u. · slack</Value>
       {hasResult && (
