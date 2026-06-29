@@ -1,4 +1,11 @@
-import { Handle, NodeResizer, Position, type NodeProps } from "@xyflow/react";
+import {
+  Handle,
+  NodeResizer,
+  Position,
+  type NodeProps,
+  useUpdateNodeInternals,
+} from "@xyflow/react";
+import { useEffect } from "react";
 import type { BusData } from "../types";
 import { Readout, Value } from "./Readout";
 import { fixed } from "../format";
@@ -46,12 +53,19 @@ function faultColor(ikss?: number, max?: number): string {
   return `rgb(${c[0]}, ${c[1]}, ${c[2]})`;
 }
 
-export function BusNode({ data, selected, width }: NodeProps) {
+// Vertical center of the busbar within the node (svg rect at y=7, height 6), so
+// the port handles sit on the bar rather than floating above the node.
+const BAR_CENTER = 10;
+
+export function BusNode({ id, data, selected, width, positionAbsoluteY }: NodeProps) {
   const d = data as BusData;
   const showResults = useEditor((s) => s.showResults);
   const voltageUnit = useEditor((s) => s.voltageUnit);
   const studyMode = useEditor((s) => s.studyMode);
   const scMaxIkss = useEditor((s) => s.scMaxIkss);
+  // Node graph, to orient each port toward the element wired to it.
+  const nodes = useEditor((s) => s.nodes);
+  const edges = useEditor((s) => s.edges);
   const isSc = studyMode === "shortcircuit";
   const hasResult = showResults && (isSc ? d.ikss_ka !== undefined : d.vm_pu !== undefined);
   let color = "currentColor";
@@ -70,6 +84,42 @@ export function BusNode({ data, selected, width }: NodeProps) {
   };
 
   const faultReadout = () => `${fixed(d.ikss_ka!, 2)} kA Ik″`;
+
+  // A port handle faces the element wired to it: Bottom when that element sits
+  // below the bus, Top otherwise. This keeps wires from below attaching cleanly
+  // to the bar instead of looping over the top. `otherId` is the element at the
+  // far end of the port's wire (the source for an attached element, the target
+  // for a bus→bus line drawn from here).
+  const selfY = positionAbsoluteY ?? 0;
+  const sideFor = (otherId?: string): Position => {
+    const other = otherId ? nodes.find((n) => n.id === otherId) : undefined;
+    return other && other.position.y > selfY ? Position.Bottom : Position.Top;
+  };
+  // Per-port handle sides (target = attached element, source = a bus→bus line
+  // drawn from here), computed once so render and the re-measure effect agree.
+  const portSides = ports.map((_, i) => {
+    const pid = `p${i}`;
+    const attached = edges.find((e) => e.target === id && e.targetHandle === pid);
+    const line = edges.find((e) => e.source === id && e.sourceHandle === pid);
+    return { target: sideFor(attached?.source), source: sideFor(line?.target) };
+  });
+  // When a port flips Top↔Bottom (an element dragged across the bar), React Flow
+  // must re-measure or wires keep their stale stub direction.
+  const updateNodeInternals = useUpdateNodeInternals();
+  const sideSig = portSides.map((s) => `${s.target}${s.source}`).join("|");
+  useEffect(() => {
+    updateNodeInternals(id);
+  }, [sideSig, id, updateNodeInternals]);
+
+  // Sit on the bar (fixed top), and normalize the transform so Top and Bottom
+  // handles share the same vertical center.
+  const onBar = (left: number) => ({
+    left: `${left}px`,
+    top: BAR_CENTER,
+    bottom: "auto",
+    transform: "translate(-50%, -50%)",
+    background: color,
+  });
 
   return (
     <div
@@ -97,14 +147,14 @@ export function BusNode({ data, selected, width }: NodeProps) {
           <Handle
             id={`p${i}`}
             type="target"
-            position={Position.Top}
-            style={{ left: `${left}px`, background: color }}
+            position={portSides[i].target}
+            style={onBar(left)}
           />
           <Handle
             id={`p${i}`}
             type="source"
-            position={Position.Top}
-            style={{ left: `${left}px`, background: color }}
+            position={portSides[i].source}
+            style={onBar(left)}
           />
         </span>
       ))}
