@@ -562,12 +562,25 @@ export const useEditor = create<EditorState>((set, get) => ({
   canRedo: false,
 
   onNodesChange: (changes) => {
-    const nodes = applyNodeChanges(changes, get().nodes) as ElementNode[];
+    // React Flow measures every node on mount and reports it as a `dimensions`
+    // change with no `resizing` flag. Mirroring those back into our state would
+    // replace the nodes array once per node (~130× for a large import), and React
+    // Flow re-renders its whole node tree on each `nodes` reference change — an
+    // O(n²) storm that made opening a network take seconds. React Flow keeps
+    // measured sizes in its own internal lookup and we never read them back, so we
+    // drop measurement-only changes and apply the rest (position, select,
+    // add/remove, and user resizes, which carry a `resizing` flag so a dragged bus
+    // edge still updates live).
+    const applied = changes.filter(
+      (ch) => !(ch.type === "dimensions" && ch.resizing === undefined),
+    );
+    if (applied.length === 0) return;
+    const nodes = applyNodeChanges(applied, get().nodes) as ElementNode[];
     set({ nodes });
     if (get().readOnly) return;
     // Sync layout for known elements: positions on drop, bus width on resize.
     // Batched in sync.ts so a drag/resize (many changes) sends once.
-    for (const ch of changes) {
+    for (const ch of applied) {
       if (ch.type === "position" && ch.dragging === false) {
         const n = nodes.find((x) => x.id === ch.id);
         if (n?.type && serverIds.has(n.id) && n.type !== "foreign")
