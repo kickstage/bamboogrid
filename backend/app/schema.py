@@ -12,6 +12,8 @@ reference; an Sgen is a PQ ``sgen`` injection.
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 
@@ -326,6 +328,51 @@ class Network(BaseModel):
     # Set when positions are only the coarse graph fallback; the client should
     # recompute a proper layout (ELK) and persist it, which clears the flag.
     needs_layout: bool = False
+
+
+# --- Load-flow settings ----------------------------------------------------
+
+
+class LoadFlowSettings(BaseModel):
+    """User-configurable pandapower ``runpp`` options for a session.
+
+    Stored on the net as pandapower's native ``user_pf_options`` so they round-trip
+    through save/share/import and are picked up automatically by ``runpp`` (see
+    ``solve.run_powerflow``). Defaults mirror pandapower's own ``runpp`` defaults.
+
+    ``distributed_slack`` is intentionally not exposed: it's derived automatically
+    from the topology (see ``solve._use_distributed_slack``) because the wrong
+    value breaks degenerate single-reference nets."""
+
+    # Power-flow algorithm: Newton-Raphson and variants, backward/forward sweep,
+    # Gauss-Seidel, and the fast-decoupled methods.
+    algorithm: Literal["nr", "iwamoto_nr", "bfsw", "gs", "fdbx", "fdxb"] = "nr"
+    # Voltage initialisation strategy ("auto" picks dc for transmission, flat
+    # otherwise; "results" warm-starts from the previous solve).
+    init: Literal["auto", "flat", "dc", "results"] = "auto"
+    # Maximum solver iterations. ``None`` lets pandapower choose per algorithm.
+    max_iteration: int | None = Field(default=None, ge=1, le=1000)
+    # Convergence tolerance on the power mismatch [MVA].
+    tolerance_mva: float = Field(default=1e-8, gt=0)
+    # Whether to compute voltage angles (needed for meshed/transmission nets).
+    calculate_voltage_angles: bool = True
+    # Transformer equivalent circuit and how loading % is referenced.
+    trafo_model: Literal["t", "pi"] = "t"
+    trafo_loading: Literal["current", "power"] = "current"
+    # Respect generator P/Q capability limits (curtails to the limits).
+    enforce_q_lims: bool = False
+    enforce_p_lims: bool = False
+    # Model loads whose power depends on the solved bus voltage (ZIP loads).
+    voltage_depend_loads: bool = True
+    # Correct line resistance for conductor temperature. When enabled, the
+    # ``line_temperature_degree_celsius`` below is applied uniformly to every line
+    # (the editor models a single ambient temperature rather than per-line values).
+    consider_line_temperature: bool = False
+    # Operating temperature [°C] used when ``consider_line_temperature`` is on. The
+    # 20 °C default is pandapower's reference, i.e. no correction.
+    line_temperature_degree_celsius: float = Field(default=20.0, ge=-50, le=250)
+    # Pre-check connectivity and de-energise unsupplied areas before solving.
+    check_connectivity: bool = True
 
 
 # --- Load-flow result types ------------------------------------------------

@@ -17,6 +17,7 @@ from .schema import (
     GenResult,
     LineResult,
     LoadFlowResult,
+    LoadFlowSettings,
     LoadResult,
     TrafoResult,
 )
@@ -68,10 +69,67 @@ def _use_distributed_slack(net) -> bool:
     return any(c > 1 for c in counts.values())
 
 
+# The runpp options the editor exposes, in the order they appear in the UI. Kept
+# here so the read/write helpers stay in sync with the settings model.
+_SETTING_KEYS = (
+    "algorithm",
+    "init",
+    "tolerance_mva",
+    "calculate_voltage_angles",
+    "trafo_model",
+    "trafo_loading",
+    "enforce_q_lims",
+    "enforce_p_lims",
+    "voltage_depend_loads",
+    "consider_line_temperature",
+    "line_temperature_degree_celsius",
+    "check_connectivity",
+)
+
+
+def get_loadflow_settings(net) -> LoadFlowSettings:
+    """Read the session's load-flow settings from the net's ``user_pf_options``,
+    falling back to the model defaults (which mirror pandapower's) for anything
+    not set."""
+    opts = net.get("user_pf_options") or {}
+    fields = {k: opts[k] for k in _SETTING_KEYS if k in opts}
+    # ``max_iteration`` is "auto" (or absent) unless an explicit integer is stored.
+    max_iter = opts.get("max_iteration")
+    if isinstance(max_iter, bool) or not isinstance(max_iter, int):
+        max_iter = None
+    return LoadFlowSettings(max_iteration=max_iter, **fields)
+
+
+def set_loadflow_settings(net, settings: LoadFlowSettings) -> None:
+    """Persist the session's load-flow settings onto the net as pandapower
+    ``user_pf_options`` so ``runpp`` picks them up. Preserves any options we don't
+    model (e.g. an imported net's own settings) while overwriting the ones we do."""
+    opts = dict(net.get("user_pf_options") or {})
+    for key in _SETTING_KEYS:
+        opts[key] = getattr(settings, key)
+    if settings.max_iteration is None:
+        opts.pop("max_iteration", None)
+    else:
+        opts["max_iteration"] = settings.max_iteration
+    pp.set_user_pf_options(net, overwrite=True, **opts)
+
+
+def _apply_line_temperature(net) -> None:
+    """When line-temperature correction is enabled, stamp the configured ambient
+    temperature onto every line so ``runpp`` has the column it requires. The editor
+    models one global temperature, so this overwrites any per-line values."""
+    opts = net.get("user_pf_options") or {}
+    if not opts.get("consider_line_temperature") or len(net.line) == 0:
+        return
+    temp = opts.get("line_temperature_degree_celsius", 20.0)
+    net.line["temperature_degree_celsius"] = float(temp)
+
+
 def run_powerflow(net) -> str | None:
     """Run an AC power flow on ``net`` in place. Returns ``None`` on success or a
     human-readable error message (used by both the load-flow and summary APIs)."""
     try:
+        _apply_line_temperature(net)
         pp.runpp(net, distributed_slack=_use_distributed_slack(net))
         return None
     except pp.LoadflowNotConverged:

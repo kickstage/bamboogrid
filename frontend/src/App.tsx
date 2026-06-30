@@ -21,6 +21,8 @@ import { Submenu } from "./ui/Submenu";
 import { Canvas } from "./canvas/Canvas";
 import { Inspector } from "./inspector/Inspector";
 import { Palette } from "./palette/Palette";
+import { LoadFlowSettingsModal } from "./study/LoadFlowSettingsModal";
+import { applySavedLoadFlowSettings } from "./study/loadFlowSettings";
 import { SummaryModal } from "./study/SummaryModal";
 import { MobileApp } from "./mobile/MobileApp";
 import { useIsMobile } from "./mobile/useIsMobile";
@@ -164,6 +166,7 @@ export default function App() {
     "file" | "edit" | "view" | "study" | null
   >(null);
   const [summaryOpen, setSummaryOpen] = useState(false);
+  const [loadFlowSettingsOpen, setLoadFlowSettingsOpen] = useState(false);
   const [leftW, setLeftW] = useState(() => readWidth(PANELS.left));
   const [rightW, setRightW] = useState(() => readWidth(PANELS.right));
   const ppInputRef = useRef<HTMLInputElement>(null);
@@ -238,6 +241,7 @@ export default function App() {
         }
         const { id, view } = await createSession();
         if (cancelled) return;
+        await applySavedLoadFlowSettings(id);
         await attachSession(id, view);
         rememberSession(id);
       } catch (err) {
@@ -325,6 +329,7 @@ export default function App() {
     setBusy(true);
     try {
       const { id, view } = await createSession();
+      await applySavedLoadFlowSettings(id);
       await attachSession(id, view);
       rememberSession(id);
       toast.success("Started a new network.");
@@ -346,6 +351,7 @@ export default function App() {
     setLoadingMsg(`Opening "${scenario.label}"…`);
     try {
       const { id, view } = await createScenarioSession(scenario.id);
+      await applySavedLoadFlowSettings(id);
       await attachSession(id, view);
       rememberSession(id);
       toast.success(`Opened "${scenario.label}".`);
@@ -363,9 +369,13 @@ export default function App() {
     try {
       await flushPending();
       if (studyMode === "shortcircuit") {
-        applyShortCircuit(await runShortCircuit(sessionId));
+        const result = await runShortCircuit(sessionId);
+        applyShortCircuit(result);
+        if (result.ok) toast.success("Short circuit complete.");
       } else {
-        applyResults(await runLoadFlow(sessionId));
+        const result = await runLoadFlow(sessionId);
+        applyResults(result);
+        if (result.converged) toast.success("Load flow converged.");
       }
     } catch (err) {
       toast.error(`Request failed: ${(err as Error).message}`);
@@ -534,6 +544,9 @@ export default function App() {
               <Menu.Dropdown>
                 <Menu.Item onClick={() => setSummaryOpen(true)}>
                   Network summary…
+                </Menu.Item>
+                <Menu.Item onClick={() => setLoadFlowSettingsOpen(true)}>
+                  Load flow settings…
                 </Menu.Item>
               </Menu.Dropdown>
             </Menu>
@@ -715,6 +728,10 @@ export default function App() {
       </Text>
 
       <SummaryModal opened={summaryOpen} onClose={() => setSummaryOpen(false)} />
+      <LoadFlowSettingsModal
+        opened={loadFlowSettingsOpen}
+        onClose={() => setLoadFlowSettingsOpen(false)}
+      />
     </div>
   );
 }

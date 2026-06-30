@@ -95,6 +95,135 @@ def test_run_loadflow_non_converging(client):
     assert run.json()["converged"] is False
 
 
+def test_loadflow_settings_defaults(client):
+    sid = new_session(client)
+    res = client.get("/session/loadflow-settings", headers=auth(sid))
+    assert res.status_code == 200
+    s = res.json()
+    assert s["algorithm"] == "nr"
+    assert s["max_iteration"] is None
+    assert s["tolerance_mva"] == pytest.approx(1e-8)
+    assert s["calculate_voltage_angles"] is True
+
+
+def test_loadflow_settings_update_and_roundtrip(client):
+    sid = new_session(client)
+    build_one_bus(client, sid)
+
+    update = {
+        "algorithm": "nr",
+        "init": "flat",
+        "max_iteration": 25,
+        "tolerance_mva": 1e-6,
+        "calculate_voltage_angles": True,
+        "trafo_model": "pi",
+        "trafo_loading": "power",
+        "enforce_q_lims": True,
+        "enforce_p_lims": False,
+        "voltage_depend_loads": False,
+        "consider_line_temperature": False,
+        "line_temperature_degree_celsius": 20.0,
+        "check_connectivity": True,
+    }
+    res = client.put("/session/loadflow-settings", json=update, headers=auth(sid))
+    assert res.status_code == 200
+    assert res.json()["max_iteration"] == 25
+    assert res.json()["init"] == "flat"
+
+    # Settings persist for the session...
+    again = client.get("/session/loadflow-settings", headers=auth(sid)).json()
+    assert again["max_iteration"] == 25
+    assert again["trafo_model"] == "pi"
+    assert again["enforce_q_lims"] is True
+
+    # ...and the load flow still converges with them applied.
+    run = client.post("/session/run-loadflow", headers=auth(sid))
+    assert run.status_code == 200
+    assert run.json()["converged"] is True
+
+    # ...and they round-trip through pandapower export (user_pf_options).
+    export = client.get("/session/export", headers=auth(sid))
+    assert export.status_code == 200
+    assert '"max_iteration": 25' in export.text
+
+
+def test_loadflow_settings_clearing_max_iteration(client):
+    sid = new_session(client)
+    client.put(
+        "/session/loadflow-settings",
+        json={**_default_settings(), "max_iteration": 30},
+        headers=auth(sid),
+    )
+    assert (
+        client.get("/session/loadflow-settings", headers=auth(sid)).json()[
+            "max_iteration"
+        ]
+        == 30
+    )
+    # Setting it back to auto (null) clears it.
+    client.put(
+        "/session/loadflow-settings",
+        json={**_default_settings(), "max_iteration": None},
+        headers=auth(sid),
+    )
+    assert (
+        client.get("/session/loadflow-settings", headers=auth(sid)).json()[
+            "max_iteration"
+        ]
+        is None
+    )
+
+
+def test_loadflow_settings_is_not_an_undo_step(client):
+    # Settings are a preference carried on the net, not an editable element, so
+    # changing them must not add an undo step.
+    sid = new_session(client)
+    assert client.get("/session", headers=auth(sid)).json()["can_undo"] is False
+    client.put(
+        "/session/loadflow-settings",
+        json={**_default_settings(), "max_iteration": 12},
+        headers=auth(sid),
+    )
+    assert client.get("/session", headers=auth(sid)).json()["can_undo"] is False
+
+
+def test_loadflow_consider_line_temperature_converges(client):
+    # Previously this aborted because no line carried a temperature column; the
+    # global setting now stamps one onto every line before solving.
+    sid = new_session(client)
+    _two_bus_grid(client, sid)
+    client.put(
+        "/session/loadflow-settings",
+        json={
+            **_default_settings(),
+            "consider_line_temperature": True,
+            "line_temperature_degree_celsius": 80.0,
+        },
+        headers=auth(sid),
+    )
+    run = client.post("/session/run-loadflow", headers=auth(sid))
+    assert run.status_code == 200
+    assert run.json()["converged"] is True
+
+
+def _default_settings() -> dict:
+    return {
+        "algorithm": "nr",
+        "init": "auto",
+        "max_iteration": None,
+        "tolerance_mva": 1e-8,
+        "calculate_voltage_angles": True,
+        "trafo_model": "t",
+        "trafo_loading": "current",
+        "enforce_q_lims": False,
+        "enforce_p_lims": False,
+        "voltage_depend_loads": False,
+        "consider_line_temperature": False,
+        "line_temperature_degree_celsius": 20.0,
+        "check_connectivity": True,
+    }
+
+
 def test_view_reflects_commands(client):
     sid = new_session(client)
     build_one_bus(client, sid)

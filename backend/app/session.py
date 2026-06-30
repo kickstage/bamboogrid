@@ -114,6 +114,15 @@ class History:
         self.cursor += 1
         return self.entries[self.cursor]
 
+    def amend(self, snapshot: str) -> None:
+        """Replace the current snapshot in place (no new undo step). Used for
+        changes that ride along on the net but shouldn't be a discrete undo entry,
+        like load-flow settings."""
+        if not self.entries:
+            self.reset(snapshot)
+        else:
+            self.entries[self.cursor] = snapshot
+
 
 @dataclass
 class Session:
@@ -278,6 +287,12 @@ class SessionStore:
         """Persist the session and push the new state onto its undo history."""
         net_json = self._update(session, pp.to_json(session.net))
         session.history.record(net_json, _HISTORY_LIMIT)
+
+    def update_settings(self, session: Session) -> None:
+        """Persist a preference change carried on the net (e.g. load-flow
+        settings) without adding an undo step."""
+        net_json = self._update(session, pp.to_json(session.net))
+        session.history.amend(net_json)
 
     def undo(self, session: Session) -> bool:
         """Restore the previous snapshot as the current net. No-op if at the

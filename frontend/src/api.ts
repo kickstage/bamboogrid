@@ -1,6 +1,7 @@
 import type {
   Command,
   LoadFlowResult,
+  LoadFlowSettings,
   NetworkSummary,
   ShortCircuitResult,
   ViewModel,
@@ -160,6 +161,31 @@ export async function runShortCircuit(id: string): Promise<ShortCircuitResult> {
     await fetch(`${BASE}/session/run-shortcircuit`, {
       method: "POST",
       headers: { [SESSION_HEADER]: id },
+    }),
+  );
+}
+
+// The session's current load-flow (runpp) settings.
+export async function getLoadFlowSettings(
+  id: string,
+): Promise<LoadFlowSettings> {
+  return json(
+    await fetch(`${BASE}/session/loadflow-settings`, {
+      headers: { [SESSION_HEADER]: id },
+    }),
+  );
+}
+
+// Persist updated load-flow (runpp) settings; returns the stored settings.
+export async function updateLoadFlowSettings(
+  id: string,
+  settings: LoadFlowSettings,
+): Promise<LoadFlowSettings> {
+  return json(
+    await fetch(`${BASE}/session/loadflow-settings`, {
+      method: "PUT",
+      headers: { [SESSION_HEADER]: id, ...JSON_HEADERS },
+      body: JSON.stringify(settings),
     }),
   );
 }

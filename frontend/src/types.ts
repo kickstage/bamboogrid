@@ -480,6 +480,34 @@ export interface NetworkSummary {
   max_trafo_loading: Extreme | null;
 }
 
+// User-configurable pandapower `runpp` options for a session. Mirrors the
+// backend `LoadFlowSettings` model; stored server-side on the net.
+export type LoadFlowAlgorithm =
+  | "nr"
+  | "iwamoto_nr"
+  | "bfsw"
+  | "gs"
+  | "fdbx"
+  | "fdxb";
+
+export interface LoadFlowSettings {
+  algorithm: LoadFlowAlgorithm;
+  init: "auto" | "flat" | "dc" | "results";
+  // null lets pandapower choose the iteration cap per algorithm.
+  max_iteration: number | null;
+  tolerance_mva: number;
+  calculate_voltage_angles: boolean;
+  trafo_model: "t" | "pi";
+  trafo_loading: "current" | "power";
+  enforce_q_lims: boolean;
+  enforce_p_lims: boolean;
+  voltage_depend_loads: boolean;
+  consider_line_temperature: boolean;
+  // Ambient temperature [°C] applied to all lines when the correction is on.
+  line_temperature_degree_celsius: number;
+  check_connectivity: boolean;
+}
+
 export interface LoadFlowResult {
   converged: boolean;
   message: string;

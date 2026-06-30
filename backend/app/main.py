@@ -23,6 +23,7 @@ from .projection import net_to_view
 from .schema import (
     Command,
     LoadFlowResult,
+    LoadFlowSettings,
     NetworkSummary,
     SessionInfo,
     ShortCircuitResult,
@@ -30,7 +31,7 @@ from .schema import (
 )
 from .sc import run_shortcircuit
 from .session import ConflictError, Session, store
-from .solve import solve_net
+from .solve import get_loadflow_settings, set_loadflow_settings, solve_net
 from .summary import network_summary
 from .tracing import setup_tracing, tracer
 
@@ -207,6 +208,30 @@ def run_loadflow(session: Session = Depends(current_session)) -> LoadFlowResult:
             span.set_attribute("session.id", session.id)
             span.set_attribute("net.bus_count", int(len(session.net.bus)))
             return solve_net(session.net)
+
+
+@app.get("/session/loadflow-settings", response_model=LoadFlowSettings)
+def get_loadflow_settings_endpoint(
+    session: Session = Depends(current_session),
+) -> LoadFlowSettings:
+    """The session's current load-flow (runpp) settings."""
+    with session.lock:
+        return get_loadflow_settings(session.net)
+
+
+@app.put("/session/loadflow-settings", response_model=LoadFlowSettings)
+def put_loadflow_settings(
+    settings: LoadFlowSettings, session: Session = Depends(current_session)
+) -> LoadFlowSettings:
+    """Update the session's load-flow (runpp) settings. They're stored on the net,
+    so the next load flow / summary uses them and they round-trip with export and
+    sharing."""
+    with session.lock:
+        with tracer.start_as_current_span("loadflow.settings.update") as span:
+            span.set_attribute("session.id", session.id)
+            set_loadflow_settings(session.net, settings)
+            store.update_settings(session)
+            return get_loadflow_settings(session.net)
 
 
 @app.post("/session/run-shortcircuit", response_model=ShortCircuitResult)
