@@ -10,6 +10,7 @@ import {
   SwitchGlyph,
   TransformerGlyph,
   Transformer3WGlyph,
+  XwardGlyph,
 } from "../nodes/glyphs";
 
 type Item = { kind: ElementKind; label: string; hint: string };
@@ -17,21 +18,36 @@ type Item = { kind: ElementKind; label: string; hint: string };
 const GROUPS: { title: string; items: Item[] }[] = [
   {
     title: "Nodes",
-    items: [{ kind: "bus", label: "Bus", hint: "Node — components attach here" }],
+    items: [
+      { kind: "bus", label: "Bus", hint: "Node — components attach here" },
+    ],
   },
   {
     title: "Sources",
     items: [
       { kind: "generator", label: "Generator", hint: "Fixed U injection" },
       { kind: "sgen", label: "Static generator", hint: "Fixed Q injection" },
-      { kind: "extgrid", label: "External grid", hint: "Slack / voltage reference" },
+      {
+        kind: "extgrid",
+        label: "External grid",
+        hint: "Slack / voltage reference",
+      },
+      {
+        kind: "xward",
+        label: "XWard",
+        hint: "Reduced equivalent of an external network",
+      },
     ],
   },
   {
     title: "Loads",
     items: [
       { kind: "load", label: "Load", hint: "Consumes power" },
-      { kind: "shunt", label: "Shunt", hint: "Capacitor / reactor (reactive support)" },
+      {
+        kind: "shunt",
+        label: "Shunt",
+        hint: "Capacitor / reactor (reactive support)",
+      },
     ],
   },
   {
@@ -39,7 +55,11 @@ const GROUPS: { title: string; items: Item[] }[] = [
     items: [
       { kind: "switch", label: "Switch", hint: "Ties two buses (open/closed)" },
       { kind: "trafo2w", label: "Transformer", hint: "2-winding (HV ↔ LV)" },
-      { kind: "trafo3w", label: "3W transformer", hint: "3-winding (HV/MV/LV)" },
+      {
+        kind: "trafo3w",
+        label: "3W transformer",
+        hint: "3-winding (HV/MV/LV)",
+      },
     ],
   },
 ];
@@ -50,6 +70,7 @@ function Glyph({ kind }: { kind: ElementKind }) {
   if (kind === "extgrid") return <ExtGridGlyph size={34} />;
   if (kind === "load") return <LoadGlyph size={34} />;
   if (kind === "shunt") return <ShuntGlyph size={34} />;
+  if (kind === "xward") return <XwardGlyph size={34} />;
   if (kind === "switch") return <SwitchGlyph size={40} />;
   if (kind === "trafo2w") return <TransformerGlyph size={26} />;
   if (kind === "trafo3w") return <Transformer3WGlyph size={34} />;
@@ -110,13 +131,18 @@ export function Palette() {
             {group.title}
           </Text>
           {group.items.map((item) => (
-            <PaletteItem key={item.kind} item={item} onDragStart={onDragStart} />
+            <PaletteItem
+              key={item.kind}
+              item={item}
+              onDragStart={onDragStart}
+            />
           ))}
         </Stack>
       ))}
       <Text size="xs" c="dimmed" mt="xs">
-        Drag onto the canvas. Connect a generator/load handle to a bus. Drag bus →
-        bus and pick what to add (line or switch; a transformer across voltages).
+        Drag onto the canvas. Connect a generator/load handle to a bus. Drag bus
+        → bus and pick what to add (line or switch; a transformer across
+        voltages).
       </Text>
     </Stack>
   );

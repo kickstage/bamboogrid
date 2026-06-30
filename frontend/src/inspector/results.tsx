@@ -1,7 +1,7 @@
 import { Group, Stack, Text } from "@mantine/core";
 import { fixed } from "../format";
 import { phaseAngleDeg, powerFactor, type BusInjection } from "../power";
-import type { BusData, GeneratorData, ShuntData, Trafo2WData } from "../types";
+import type { BusData, GeneratorData, ShuntData, Trafo2WData, XwardData } from "../types";
 
 export const HEADERS: Record<string, string> = {
   bus: "BUS",
@@ -10,6 +10,7 @@ export const HEADERS: Record<string, string> = {
   extgrid: "EXTERNAL GRID",
   load: "LOAD",
   shunt: "SHUNT",
+  xward: "XWARD",
   switch: "SWITCH",
   trafo2w: "TRANSFORMER",
   trafo3w: "3W TRANSFORMER",
@@ -73,6 +74,14 @@ export function nodeResultRows(type: string | undefined, data: unknown): ResultR
     return [
       ["P", `${fixed(sh.res_p_mw ?? 0, 4)} MW`],
       ["Q", `${fixed(sh.res_q_mvar, 4)} Mvar`],
+    ];
+  }
+  if (type === "xward") {
+    const w = data as XwardData;
+    if (w.res_p_mw === undefined) return [];
+    return [
+      ["P", `${fixed(w.res_p_mw, 4)} MW`],
+      ["Q", `${fixed(w.res_q_mvar ?? 0, 4)} Mvar`],
     ];
   }
   if (type === "trafo2w" || type === "trafo3w") {

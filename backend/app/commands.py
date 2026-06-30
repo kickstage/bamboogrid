@@ -34,6 +34,7 @@ _KIND_TABLE = {
     "trafo2w": "trafo",
     "trafo3w": "trafo3w",
     "line": "line",
+    "xward": "xward",
 }
 
 # Attachment end -> (bus reference column, diagram port column).
@@ -156,6 +157,19 @@ def _add_element(net, p: dict) -> None:
         if d.get("vn_kv") is not None:
             kwargs["vn_kv"] = d["vn_kv"]
         idx = pp.create_shunt(net, bus=bus, **kwargs)
+    elif kind == "xward":
+        idx = pp.create_xward(
+            net,
+            bus=bus,
+            ps_mw=d["ps_mw"],
+            qs_mvar=d["qs_mvar"],
+            pz_mw=d["pz_mw"],
+            qz_mvar=d["qz_mvar"],
+            r_ohm=d["r_ohm"],
+            x_ohm=d["x_ohm"],
+            vm_pu=d["vm_pu"],
+            name=name,
+        )
     else:
         raise CommandError(f"Cannot add element of kind '{kind}'.")
 

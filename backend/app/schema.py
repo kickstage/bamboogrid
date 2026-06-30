@@ -133,6 +133,33 @@ class Shunt(BaseModel):
     port: str = ""
 
 
+class Xward(BaseModel):
+    """An extended Ward equivalent (pandapower ``xward``): a reduced stand-in for
+    an external sub-network at one boundary bus. Unlike a shunt it bundles three
+    things — a constant power injection (``ps_mw``/``qs_mvar``), a constant
+    admittance (``pz_mw``/``qz_mvar`` at 1 p.u.), and a voltage source ``vm_pu``
+    behind an internal impedance ``r_ohm + jx_ohm`` — so it can supply power and
+    hold the boundary voltage. ``slack_weight`` is carried through unchanged."""
+
+    id: str
+    name: str = "xWard"
+    bus_id: str = ""
+    ps_mw: float = Field(default=0.0, description="Constant active power [MW]")
+    qs_mvar: float = Field(default=0.0, description="Constant reactive power [MVar]")
+    pz_mw: float = Field(default=0.0, description="Constant-Z active power at 1 p.u. [MW]")
+    qz_mvar: float = Field(default=0.0, description="Constant-Z reactive power at 1 p.u. [MVar]")
+    # Internal impedance behind the voltage source. ge=0 (not gt) so an imported
+    # equivalent with a zero resistance/reactance still round-trips.
+    r_ohm: float = Field(default=0.0, ge=0, description="Internal resistance [ohm]")
+    x_ohm: float = Field(default=1.0, ge=0, description="Internal reactance [ohm]")
+    vm_pu: float = Field(default=1.0, gt=0, description="Internal voltage setpoint [p.u.]")
+    slack_weight: float = Field(default=0.0, ge=0)
+    port: str = ""
+    x: float = 0.0
+    y: float = 0.0
+    waypoint: Point | None = None
+
+
 class Switch(BaseModel):
     """A bus–bus switch (pandapower ``et='b'``). Closed ties the two buses into
     one electrical node; open separates them. Single type for now (no
@@ -295,6 +322,7 @@ class Network(BaseModel):
     transformers3w: list[Transformer3W] = Field(default_factory=list)
     lines: list[Line] = Field(default_factory=list)
     shunts: list[Shunt] = Field(default_factory=list)
+    xwards: list[Xward] = Field(default_factory=list)
     # Set when positions are only the coarse graph fallback; the client should
     # recompute a proper layout (ELK) and persist it, which clears the flag.
     needs_layout: bool = False
@@ -348,6 +376,7 @@ class LoadFlowResult(BaseModel):
     res_ext_grid: list[GenResult] = Field(default_factory=list)
     res_load: list[LoadResult] = Field(default_factory=list)
     res_shunt: list[LoadResult] = Field(default_factory=list)
+    res_xward: list[LoadResult] = Field(default_factory=list)
     res_trafo: list[TrafoResult] = Field(default_factory=list)
     res_trafo3w: list[TrafoResult] = Field(default_factory=list)
     res_line: list[LineResult] = Field(default_factory=list)

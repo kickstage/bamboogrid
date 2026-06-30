@@ -146,6 +146,7 @@ def solve_net(net) -> LoadFlowResult:
         res_ext_grid=_gen_like("ext_grid"),
         res_load=_load_like("load"),
         res_shunt=_load_like("shunt"),
+        res_xward=_load_like("xward"),
         res_trafo=_trafo_like("trafo"),
         res_trafo3w=_trafo_like("trafo3w"),
         res_line=res_line,

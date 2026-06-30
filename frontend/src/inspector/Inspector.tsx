@@ -48,6 +48,7 @@ import type {
   Trafo2WParams,
   Trafo3WData,
   Trafo3WParams,
+  XwardData,
 } from "../types";
 
 // A physical-quantity symbol with an upright subscript, e.g. S_N or v_kr, so the
@@ -548,6 +549,45 @@ export function Inspector() {
           </Text>
         </>
       )}
+
+      {node.type === "xward" &&
+        (() => {
+          const d = node.data as XwardData;
+          const num = (
+            label: ReactNode,
+            key: keyof XwardData,
+            step: number,
+            dp: number,
+            min?: number,
+          ) => (
+            <NumberInput
+              label={label}
+              value={d[key] as number}
+              min={min}
+              step={step}
+              decimalScale={dp}
+              onChange={(v) => update({ [key]: Number(v) || 0 })}
+            />
+          );
+          return (
+            <>
+              <Text size="xs" c="dimmed">
+                A reduced equivalent of an external network: a fixed injection plus
+                an impedance plus a voltage source behind it.
+              </Text>
+              <Divider my={4} label="Constant power" labelPosition="left" />
+              {num("Active power (MW)", "ps_mw", 0.1, 4)}
+              {num("Reactive power (MVar)", "qs_mvar", 0.1, 4)}
+              <Divider my={4} label="Constant impedance (at 1 p.u.)" labelPosition="left" />
+              {num("Active power (MW)", "pz_mw", 0.1, 4)}
+              {num("Reactive power (MVar)", "qz_mvar", 0.1, 4)}
+              <Divider my={4} label="Internal source" labelPosition="left" />
+              {num(<>Resistance <Sym sub="int">R</Sym> (Ω)</>, "r_ohm", 0.1, 4, 0)}
+              {num(<>Reactance <Sym sub="int">X</Sym> (Ω)</>, "x_ohm", 0.1, 4, 0)}
+              {num("Voltage setpoint (p.u.)", "vm_pu", 0.01, 4, 0)}
+            </>
+          );
+        })()}
 
       {node.type === "switch" && (
         <Switch

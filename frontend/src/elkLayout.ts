@@ -38,6 +38,7 @@ export async function elkLayout(network: Network): Promise<Network> {
   for (const e of network.ext_grids) bump(e.bus_id);
   for (const l of network.loads) bump(l.bus_id);
   for (const sh of network.shunts) bump(sh.bus_id);
+  for (const x of network.xwards ?? []) bump(x.bus_id);
   for (const s of network.switches) {
     bump(s.bus_a);
     bump(s.bus_b);
@@ -165,6 +166,7 @@ export async function elkLayout(network: Network): Promise<Network> {
   for (const e of network.ext_grids) addFeeder(e.bus_id, e.id);
   for (const l of network.loads) addFeeder(l.bus_id, l.id);
   for (const sh of network.shunts) addFeeder(sh.bus_id, sh.id);
+  for (const x of network.xwards ?? []) addFeeder(x.bus_id, x.id);
 
   const feederPos = new Map<string, { x: number; y: number }>();
   for (const [busId, ids] of feedersByBus) {
@@ -196,6 +198,7 @@ export async function elkLayout(network: Network): Promise<Network> {
     ext_grids: network.ext_grids.map((e) => ({ ...e, ...feeder(e.id, e.x, e.y) })),
     loads: network.loads.map((l) => ({ ...l, ...feeder(l.id, l.x, l.y) })),
     shunts: network.shunts.map((sh) => ({ ...sh, ...feeder(sh.id, sh.x, sh.y) })),
+    xwards: (network.xwards ?? []).map((x) => ({ ...x, ...feeder(x.id, x.x, x.y) })),
     switches: network.switches.map((s) => {
       const p = at(s.id, s.x, s.y);
       return { ...s, x: p.x, y: p.y };

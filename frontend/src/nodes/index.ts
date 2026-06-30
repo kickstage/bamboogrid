@@ -5,6 +5,7 @@ import { SgenNode } from "./SgenNode";
 import { ExtGridNode } from "./ExtGridNode";
 import { LoadNode } from "./LoadNode";
 import { ShuntNode } from "./ShuntNode";
+import { XwardNode } from "./XwardNode";
 import { SwitchNode } from "./SwitchNode";
 import { Transformer2WNode } from "./Transformer2WNode";
 import { Transformer3WNode } from "./Transformer3WNode";
@@ -17,6 +18,7 @@ export const nodeTypes: NodeTypes = {
   extgrid: ExtGridNode,
   load: LoadNode,
   shunt: ShuntNode,
+  xward: XwardNode,
   switch: SwitchNode,
   trafo2w: Transformer2WNode,
   trafo3w: Transformer3WNode,

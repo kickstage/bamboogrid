@@ -411,6 +411,70 @@ def test_open_unknown_scenario_is_404(client):
     assert client.post("/session/scenario/not-a-case").status_code == 404
 
 
+def test_multivoltage_xwards_are_modeled_not_foreign(client):
+    res = client.post("/session/scenario/example_multivoltage")
+    assert res.status_code == 200
+    view = res.json()["view"]
+    # The example's two xwards are now first-class elements, not foreign rows.
+    assert len(view["network"]["xwards"]) == 2
+    assert all(f["table"] != "xward" for f in view["foreign"])
+    w = view["network"]["xwards"][0]
+    assert w["bus_id"] and w["x_ohm"] > 0
+
+
+def test_xward_create_edit_delete_and_solve(client):
+    sid = new_session(client)
+    build_one_bus(client, sid)  # 0.4 kV bus with a slack gen + small load
+    # Create an xward wired to the bus.
+    add = {
+        "op": "add_element",
+        "payload": {
+            "id": "w1",
+            "kind": "xward",
+            "bus_id": "b1",
+            "port": "p2",
+            "x": 120,
+            "y": 100,
+            "data": {
+                "name": "Equiv",
+                "ps_mw": 0.02,
+                "qs_mvar": 0.0,
+                "pz_mw": 0.0,
+                "qz_mvar": 0.0,
+                "r_ohm": 0.0,
+                "x_ohm": 1.0,
+                "vm_pu": 1.0,
+            },
+        },
+    }
+    assert client.post("/session/commands", json=[add], headers=auth(sid)).status_code == 200
+    xwards = client.get("/session", headers=auth(sid)).json()["network"]["xwards"]
+    assert [w["id"] for w in xwards] == ["w1"]
+    assert xwards[0]["ps_mw"] == pytest.approx(0.02)
+
+    # Edit a field.
+    client.post(
+        "/session/commands",
+        json=[{"op": "update", "payload": {"id": "w1", "kind": "xward", "patch": {"ps_mw": 0.05}}}],
+        headers=auth(sid),
+    )
+    w = client.get("/session", headers=auth(sid)).json()["network"]["xwards"][0]
+    assert w["ps_mw"] == pytest.approx(0.05)
+
+    # It solves and reports a result keyed to its uuid.
+    run = client.post("/session/run-loadflow", headers=auth(sid)).json()
+    assert run["converged"] is True
+    assert any(r["id"] == "w1" and r["p_mw"] is not None for r in run["res_xward"])
+
+    # Delete it.
+    client.post(
+        "/session/commands",
+        json=[{"op": "delete", "payload": {"id": "w1", "kind": "xward"}}],
+        headers=auth(sid),
+    )
+    assert client.get("/session", headers=auth(sid)).json()["network"]["xwards"] == []
+
+
 def test_picking_std_type_refills_params(client):
     sid = new_session(client)
     _two_bus_trafo(client, sid)

@@ -8,6 +8,7 @@ export type ElementKind =
   | "extgrid"
   | "load"
   | "shunt"
+  | "xward"
   | "switch"
   | "trafo2w"
   | "trafo3w";
@@ -161,6 +162,25 @@ export type ShuntData = {
   res_q_mvar?: number;
 };
 
+// An xward (pandapower `xward`): a network equivalent on one bus — a constant
+// PQ injection plus a constant admittance plus a voltage source behind an
+// internal impedance. Unlike a shunt it can supply power and hold voltage. The
+// minimal editable set is the seven electrical fields; slack_weight is carried
+// through on the network document but not surfaced here.
+export type XwardData = {
+  name: string;
+  ps_mw: number;
+  qs_mvar: number;
+  pz_mw: number;
+  qz_mvar: number;
+  r_ohm: number;
+  x_ohm: number;
+  vm_pu: number;
+  // Filled in after a load flow (boundary power drawn/supplied).
+  res_p_mw?: number;
+  res_q_mvar?: number;
+};
+
 // How bus voltage results are shown on the canvas: actual kilovolts
 // (vm_pu × vn_kv) or per-unit magnitude.
 export type VoltageUnit = "kv" | "pu";
@@ -181,6 +201,7 @@ export type ElementData =
   | ExtGridData
   | LoadData
   | ShuntData
+  | XwardData
   | SwitchData
   | Trafo2WData
   | Trafo3WData
@@ -325,6 +346,26 @@ export interface Shunt {
   port?: string;
 }
 
+// An xward (network equivalent on one bus). Imported and solved for fidelity;
+// editable like a shunt/load.
+export interface Xward {
+  id: string;
+  name: string;
+  bus_id: string;
+  ps_mw: number;
+  qs_mvar: number;
+  pz_mw: number;
+  qz_mvar: number;
+  r_ohm: number;
+  x_ohm: number;
+  vm_pu: number;
+  slack_weight: number;
+  port?: string;
+  x: number;
+  y: number;
+  waypoint?: { x: number; y: number } | null;
+}
+
 export interface Network {
   id: string;
   name: string;
@@ -340,6 +381,7 @@ export interface Network {
   transformers3w: Transformer3W[];
   lines: Line[];
   shunts: Shunt[];
+  xwards: Xward[];
   // Positions are the coarse server fallback; the client recomputes (ELK) and
   // persists a proper layout, which clears this.
   needs_layout?: boolean;
@@ -447,6 +489,7 @@ export interface LoadFlowResult {
   res_ext_grid: { id: string; p_mw: number | null; q_mvar: number | null }[];
   res_load: { id: string; p_mw: number | null; q_mvar: number | null }[];
   res_shunt: { id: string; p_mw: number | null; q_mvar: number | null }[];
+  res_xward: { id: string; p_mw: number | null; q_mvar: number | null }[];
   res_trafo: {
     id: string;
     loading_percent: number | null;

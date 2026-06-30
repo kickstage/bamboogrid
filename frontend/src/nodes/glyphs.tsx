@@ -118,6 +118,32 @@ export function ShuntGlyph({ size = 50, stroke = "currentColor" }: GlyphProps) {
   );
 }
 
+// xward — a network equivalent: a short stub through a series-impedance box into
+// a boxed voltage source (sine wave). Reads as "impedance + equivalent grid",
+// distinguishing it from the plain ext_grid square.
+export function XwardGlyph({ size = 50, stroke = "currentColor" }: GlyphProps) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="32 14 56 56"
+      aria-hidden
+      style={{ display: "block", margin: "0 auto" }}
+    >
+      {/* connection stub */}
+      <line x1={60} y1={16} x2={60} y2={26} stroke={stroke} strokeWidth={3} strokeLinecap="round" />
+      {/* series impedance (resistor box) */}
+      <rect x={54} y={26} width={12} height={9} fill="none" stroke={stroke} strokeWidth={2.5} />
+      {/* lead into the equivalent-source box */}
+      <line x1={60} y1={35} x2={60} y2={40} stroke={stroke} strokeWidth={3} strokeLinecap="round" />
+      {/* equivalent network source: a box with the ext_grid sine wave (the same
+          curve, scaled to fit this rectangle) marking the voltage source. */}
+      <rect x={44} y={40} width={32} height={24} fill="none" stroke={stroke} strokeWidth={3} />
+      <path d="M48 52 C53 44,67 60,72 52" fill="none" stroke={stroke} strokeWidth={3} />
+    </svg>
+  );
+}
+
 // A simple square switch sign with short leads: filled = closed, hollow = open.
 // This glyph's viewBox is rendered at a larger scale than the others (~1.6× on
 // canvas), so its stroke is set thinner to match their rendered outline weight.

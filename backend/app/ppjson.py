@@ -46,6 +46,7 @@ from .schema import (
     Trafo3WParams,
     Transformer2W,
     Transformer3W,
+    Xward,
 )
 
 SCHEMA_VERSION = "bamboogrid/1"
@@ -168,7 +169,7 @@ def std_trafo_types(table: str) -> dict[str, dict[str, float]]:
 MAX_IMPORT_BUSES = 100
 
 
-_COMPONENT_DIAGRAMS = ("gen", "sgen", "ext_grid", "load")
+_COMPONENT_DIAGRAMS = ("gen", "sgen", "ext_grid", "load", "xward")
 
 
 def ensure_diagram_tables(net) -> bool:
@@ -331,6 +332,7 @@ def net_to_network(net) -> Network:
     d_trafo3w = net.get("diagram_trafo3w")
     d_line = net.get("diagram_line")
     d_shunt = net.get("diagram_shunt")
+    d_xward = net.get("diagram_xward")
     d_meta = net.get("diagram_meta")
 
     network_id = uuid.uuid4().hex
@@ -583,6 +585,29 @@ def net_to_network(net) -> Network:
             )
         )
 
+    xwards: list[Xward] = []
+    for w in net.xward.index:
+        lay = _layout(d_xward, w)
+        xwards.append(
+            Xward(
+                id=str(lay["uuid"]) if lay is not None else uuid.uuid4().hex,
+                name=_name(net.xward.at[w, "name"], "xWard"),
+                bus_id=bus_uuid[int(net.xward.at[w, "bus"])],
+                ps_mw=float(net.xward.at[w, "ps_mw"]),
+                qs_mvar=float(net.xward.at[w, "qs_mvar"]),
+                pz_mw=float(net.xward.at[w, "pz_mw"]),
+                qz_mvar=float(net.xward.at[w, "qz_mvar"]),
+                r_ohm=float(net.xward.at[w, "r_ohm"]),
+                x_ohm=float(net.xward.at[w, "x_ohm"]),
+                vm_pu=float(net.xward.at[w, "vm_pu"]),
+                slack_weight=_num(net.xward, w, "slack_weight", 0.0),
+                port=_col(lay, "port"),
+                x=_pos(lay, "xward", w)[0],
+                y=_pos(lay, "xward", w)[1],
+                waypoint=_parse_waypoint(lay["waypoint_json"]) if lay is not None else None,
+            )
+        )
+
     return Network(
         id=network_id,
         name=network_name,
@@ -598,5 +623,6 @@ def net_to_network(net) -> Network:
         transformers3w=transformers3w,
         lines=lines,
         shunts=shunts,
+        xwards=xwards,
         needs_layout=needs_layout,
     )

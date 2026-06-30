@@ -37,6 +37,7 @@ import type {
   Trafo3WData,
   ViewModel,
   VoltageUnit,
+  XwardData,
 } from "./types";
 
 // Which study the canvas visualizes: load-flow voltage or short-circuit current.
@@ -77,6 +78,7 @@ const COMPONENT_KINDS = new Set<ElementKind>([
   "extgrid",
   "load",
   "shunt",
+  "xward",
 ]);
 
 // Source-handle id of an element's wire -> attachment "end" understood by the
@@ -190,6 +192,20 @@ function defaultData(kind: ElementKind): ElementData {
         vn_kv: null,
         step: 1,
       } satisfies ShuntData;
+    case "xward":
+      // A network equivalent: by default a pure voltage source (1 p.u.) behind a
+      // small reactance, with no constant-power or constant-Z part. Users tune the
+      // injection and impedance in the inspector.
+      return {
+        name: "xWard",
+        ps_mw: 0.0,
+        qs_mvar: 0.0,
+        pz_mw: 0.0,
+        qz_mvar: 0.0,
+        r_ohm: 0.0,
+        x_ohm: 1.0,
+        vm_pu: 1.0,
+      } satisfies XwardData;
     case "switch":
       return { name: "Switch", closed: true } satisfies SwitchData;
     case "trafo2w":
@@ -1064,6 +1080,7 @@ export const useEditor = create<EditorState>((set, get) => ({
       const bySgen = new Map(result.res_sgen.map((r) => [r.id, r]));
       const byExtGrid = new Map(result.res_ext_grid.map((r) => [r.id, r]));
       const byShunt = new Map(result.res_shunt.map((r) => [r.id, r]));
+      const byXward = new Map(result.res_xward.map((r) => [r.id, r]));
       const byTrafo = new Map(
         [...result.res_trafo, ...result.res_trafo3w].map((r) => [r.id, r]),
       );
@@ -1128,6 +1145,17 @@ export const useEditor = create<EditorState>((set, get) => ({
               ...n,
               data: {
                 ...(n.data as ShuntData),
+                res_p_mw: r?.p_mw ?? undefined,
+                res_q_mvar: r?.q_mvar ?? undefined,
+              },
+            } as ElementNode;
+          }
+          if (n.type === "xward") {
+            const r = result.converged ? byXward.get(n.id) : undefined;
+            return {
+              ...n,
+              data: {
+                ...(n.data as XwardData),
                 res_p_mw: r?.p_mw ?? undefined,
                 res_q_mvar: r?.q_mvar ?? undefined,
               },
@@ -1359,6 +1387,35 @@ export const useEditor = create<EditorState>((set, get) => ({
         edges.push(edge);
         connect(edge, "targetHandle", sh.bus_id, sh.port, sh.x + STUB_HALF);
         stubEdges.push({ id: sh.id, busId: sh.bus_id, edge, explicit: !!sh.port });
+      }
+    }
+    for (const x of network.xwards ?? []) {
+      nodes.push({
+        id: x.id,
+        type: "xward",
+        position: { x: x.x, y: x.y },
+        data: {
+          name: x.name,
+          ps_mw: x.ps_mw,
+          qs_mvar: x.qs_mvar,
+          pz_mw: x.pz_mw,
+          qz_mvar: x.qz_mvar,
+          r_ohm: x.r_ohm,
+          x_ohm: x.x_ohm,
+          vm_pu: x.vm_pu,
+        },
+      });
+      if (x.bus_id) {
+        const edge: Edge = {
+          id: `${x.id}->${x.bus_id}`,
+          source: x.id,
+          target: x.bus_id,
+          type: "wire",
+          data: x.waypoint ? { waypoint: x.waypoint } : undefined,
+        };
+        edges.push(edge);
+        connect(edge, "targetHandle", x.bus_id, x.port, x.x + STUB_HALF);
+        stubEdges.push({ id: x.id, busId: x.bus_id, edge, explicit: !!x.port });
       }
     }
     for (const s of network.switches ?? []) {
