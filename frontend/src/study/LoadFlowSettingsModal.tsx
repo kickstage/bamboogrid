@@ -10,9 +10,9 @@ import {
   Select,
   SimpleGrid,
   Stack,
-  Switch,
   Text,
 } from "@mantine/core";
+import { Switch } from "../ui/Switch";
 
 import { getLoadFlowSettings, updateLoadFlowSettings } from "../api";
 import { useEditor } from "../store";

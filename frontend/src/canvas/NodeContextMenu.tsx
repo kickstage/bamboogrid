@@ -1,6 +1,7 @@
 import { Button, Divider, Paper, Stack, Text } from "@mantine/core";
 
 import { Submenu } from "../ui/Submenu";
+import { useClampedPosition } from "../ui/useClampedPosition";
 
 export type BusGraphKind = "triangle" | "waves";
 
@@ -26,8 +27,8 @@ function Hotkey({ children }: { children: React.ReactNode }) {
 }
 
 // A right-click context menu for a canvas element: duplicate/copy actions and,
-// for a bus, a nested "Graph" flyout submenu on the same floating Paper +
-// backdrop pattern as the branch menu.
+// for a bus, a nested "Graph" flyout submenu. Closing (click-away / Escape) is
+// handled globally by the canvas.
 export function NodeContextMenu({
   x,
   y,
@@ -37,7 +38,6 @@ export function NodeContextMenu({
   onCopy,
   onDelete,
   onGraph,
-  onClose,
 }: {
   x: number;
   y: number;
@@ -47,19 +47,18 @@ export function NodeContextMenu({
   onCopy: () => void;
   onDelete: () => void;
   onGraph: (kind: BusGraphKind) => void;
-  onClose: () => void;
 }) {
+  const { ref, left, top } = useClampedPosition(x, y);
   return (
-    <>
-      {/* Click-away backdrop. */}
-      <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 10 }} />
-      <Paper
-        shadow="md"
-        withBorder
-        p={4}
-        bg="light-dark(var(--mantine-color-gray-0), var(--mantine-color-dark-6))"
-        style={{ position: "fixed", left: x, top: y, zIndex: 11, minWidth: 160 }}
-      >
+    <Paper
+      ref={ref}
+      data-canvas-menu
+      shadow="md"
+      withBorder
+      p={4}
+      bg="light-dark(var(--mantine-color-gray-0), var(--mantine-color-dark-6))"
+      style={{ position: "fixed", left, top, zIndex: 11, minWidth: 160 }}
+    >
         <Stack gap={2}>
           <Button {...item} onClick={onDuplicate}>
             Duplicate
@@ -108,7 +107,6 @@ export function NodeContextMenu({
             )}
           </>
         )}
-      </Paper>
-    </>
+    </Paper>
   );
 }

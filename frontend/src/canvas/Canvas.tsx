@@ -31,6 +31,7 @@ import { PowerTriangle } from "../diagrams/PowerTriangle";
 import { Waveforms } from "../diagrams/Waveforms";
 import { NodeContextMenu, type BusGraphKind } from "./NodeContextMenu";
 import { SearchPanel } from "./SearchPanel";
+import { useClampedPosition } from "../ui/useClampedPosition";
 import type { BusData, ElementKind } from "../types";
 
 // How far a search-dimmed element fades back (the spotlighted one stays at 1).
@@ -180,6 +181,13 @@ export function Canvas() {
   // the originals stay put with their wires.
   const cloneDrag = useRef<Map<string, string> | null>(null);
 
+  // Keep each floating menu inside the viewport (e.g. when opened near the
+  // bottom edge). The anchor falls back to 0,0 while a menu is closed; its ref
+  // only attaches once rendered, so the clamp runs the moment it opens.
+  const branchPos = useClampedPosition(menu?.x ?? 0, menu?.y ?? 0);
+  const pastePos = useClampedPosition(pasteMenu?.x ?? 0, pasteMenu?.y ?? 0);
+  const edgePos = useClampedPosition(edgeMenu?.x ?? 0, edgeMenu?.y ?? 0);
+
   // After a network is loaded (import / open), bring it into view.
   useEffect(() => {
     if (!fitSignal) return;
@@ -198,18 +206,32 @@ export function Canvas() {
     });
   }, [focusRequest, fitView]);
 
-  // Close the open floating menus on Escape.
+  // Close the open floating menus on Escape, or on a pointer-down outside any
+  // menu. Using a global listener (rather than a covering backdrop) lets a
+  // right-click pass through to the element underneath, so the menu reopens
+  // there — the standard desktop context-menu behaviour.
   useEffect(() => {
     if (!menu && !nodeMenu && !pasteMenu && !edgeMenu) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape") return;
+    const closeAll = () => {
       setMenu(null);
       setNodeMenu(null);
       setPasteMenu(null);
       setEdgeMenu(null);
     };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") closeAll();
+    };
+    const onDown = (e: PointerEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (t?.closest("[data-canvas-menu]")) return;
+      closeAll();
+    };
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    window.addEventListener("pointerdown", onDown, true);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("pointerdown", onDown, true);
+    };
   }, [menu, nodeMenu, pasteMenu, edgeMenu]);
 
   // Cmd/Ctrl+C copies the selected element; Cmd/Ctrl+V pastes a clone at the
@@ -538,24 +560,20 @@ export function Canvas() {
       <SearchPanel />
 
       {menu && (
-        <>
-          {/* Click-away backdrop. */}
-          <div
-            onClick={() => setMenu(null)}
-            style={{ position: "fixed", inset: 0, zIndex: 10 }}
-          />
-          <Paper
-            shadow="md"
-            withBorder
-            p={4}
-            style={{
-              position: "fixed",
-              left: menu.x,
-              top: menu.y,
-              zIndex: 11,
-              minWidth: 180,
-            }}
-          >
+        <Paper
+          ref={branchPos.ref}
+          data-canvas-menu
+          shadow="md"
+          withBorder
+          p={4}
+          style={{
+            position: "fixed",
+            left: branchPos.left,
+            top: branchPos.top,
+            zIndex: 11,
+            minWidth: 180,
+          }}
+        >
             <Text size="xs" c="dimmed" px="xs" pt={4} pb={2}>
               Connect buses with…
             </Text>
@@ -570,8 +588,7 @@ export function Canvas() {
                 </Button>
               )}
             </Stack>
-          </Paper>
-        </>
+        </Paper>
       )}
 
       {nodeMenu && (
@@ -600,91 +617,80 @@ export function Canvas() {
             if (nodeMenuInj) setGraph({ kind, inj: nodeMenuInj });
             setNodeMenu(null);
           }}
-          onClose={() => setNodeMenu(null)}
         />
       )}
 
       {pasteMenu && (
-        <>
-          {/* Click-away backdrop. */}
-          <div
-            onClick={() => setPasteMenu(null)}
-            style={{ position: "fixed", inset: 0, zIndex: 10 }}
-          />
-          <Paper
-            shadow="md"
-            withBorder
-            p={4}
-            style={{
-              position: "fixed",
-              left: pasteMenu.x,
-              top: pasteMenu.y,
-              zIndex: 11,
-              minWidth: 140,
+        <Paper
+          ref={pastePos.ref}
+          data-canvas-menu
+          shadow="md"
+          withBorder
+          p={4}
+          style={{
+            position: "fixed",
+            left: pastePos.left,
+            top: pastePos.top,
+            zIndex: 11,
+            minWidth: 140,
+          }}
+        >
+          <Button
+            variant="subtle"
+            size="xs"
+            fullWidth
+            justify="flex-start"
+            c="white"
+            disabled={!clipboard}
+            onClick={() => {
+              pasteAt(screenToFlowPosition({ x: pasteMenu.x, y: pasteMenu.y }));
+              setPasteMenu(null);
             }}
           >
-            <Button
-              variant="subtle"
-              size="xs"
-              fullWidth
-              justify="flex-start"
-              c="white"
-              disabled={!clipboard}
-              onClick={() => {
-                pasteAt(screenToFlowPosition({ x: pasteMenu.x, y: pasteMenu.y }));
-                setPasteMenu(null);
-              }}
-            >
-              Paste
-            </Button>
-            {!clipboard && (
-              <Text size="xs" c="dimmed" px="xs" py={2}>
-                Nothing copied yet
-              </Text>
-            )}
-          </Paper>
-        </>
+            Paste
+          </Button>
+          {!clipboard && (
+            <Text size="xs" c="dimmed" px="xs" py={2}>
+              Nothing copied yet
+            </Text>
+          )}
+        </Paper>
       )}
 
       {edgeMenu && (
-        <>
-          {/* Click-away backdrop. */}
-          <div
-            onClick={() => setEdgeMenu(null)}
-            style={{ position: "fixed", inset: 0, zIndex: 10 }}
-          />
-          <Paper
-            shadow="md"
-            withBorder
-            p={4}
-            style={{
-              position: "fixed",
-              left: edgeMenu.x,
-              top: edgeMenu.y,
-              zIndex: 11,
-              minWidth: 140,
+        <Paper
+          ref={edgePos.ref}
+          data-canvas-menu
+          shadow="md"
+          withBorder
+          p={4}
+          style={{
+            position: "fixed",
+            left: edgePos.left,
+            top: edgePos.top,
+            zIndex: 11,
+            minWidth: 140,
+          }}
+        >
+          <Button
+            variant="subtle"
+            size="xs"
+            fullWidth
+            justify="space-between"
+            c="red"
+            rightSection={
+              <Text component="span" size="xs" c="dimmed">
+                ⌫
+              </Text>
+            }
+            onClick={() => {
+              useEditor.getState().removeEdge(edgeMenu.edgeId);
+              setEdgeMenu(null);
             }}
           >
-            <Button
-              variant="subtle"
-              size="xs"
-              fullWidth
-              justify="space-between"
-              c="red"
-              rightSection={
-                <Text component="span" size="xs" c="dimmed">
-                  ⌫
-                </Text>
-              }
-              onClick={() => {
-                useEditor.getState().removeEdge(edgeMenu.edgeId);
-                setEdgeMenu(null);
-              }}
-            >
-              Delete
-            </Button>
-          </Paper>
-        </>
+            Delete
+          </Button>
+        </Paper>
       )}
 
       <Modal

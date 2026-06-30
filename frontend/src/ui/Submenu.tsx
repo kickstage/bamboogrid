@@ -1,5 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Paper } from "@mantine/core";
+
+// Gap kept between the flyout and the viewport edge.
+const PAD = 8;
 
 // A hover-activated flyout that opens a floating panel to the right of its
 // trigger — the desktop submenu pattern shared by the menu bar and the canvas
@@ -21,6 +24,14 @@ export function Submenu({
 }) {
   const [opened, setOpened] = useState(false);
   const closeTimer = useRef<number | null>(null);
+  const flyoutRef = useRef<HTMLDivElement>(null);
+  // Default placement: to the right of the trigger, top-aligned. Adjusted in a
+  // layout effect to flip leftward and/or shift up when it would overflow.
+  const [placement, setPlacement] = useState<React.CSSProperties>({
+    left: "100%",
+    marginLeft: 4,
+    top: 0,
+  });
 
   const open = () => {
     if (closeTimer.current !== null) {
@@ -39,6 +50,20 @@ export function Submenu({
     [],
   );
 
+  useLayoutEffect(() => {
+    if (!opened || disabled) return;
+    const el = flyoutRef.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    const next: React.CSSProperties =
+      r.right > window.innerWidth - PAD
+        ? { right: "100%", marginRight: 4, top: 0 }
+        : { left: "100%", marginLeft: 4, top: 0 };
+    const overflowY = r.bottom - (window.innerHeight - PAD);
+    if (overflowY > 0) next.top = -overflowY;
+    setPlacement(next);
+  }, [opened, disabled]);
+
   return (
     <div
       style={{ position: "relative" }}
@@ -48,17 +73,16 @@ export function Submenu({
       {trigger(opened)}
       {opened && !disabled && (
         <Paper
+          ref={flyoutRef}
           shadow="md"
           withBorder
           p={4}
           bg="light-dark(var(--mantine-color-gray-0), var(--mantine-color-dark-6))"
           style={{
             position: "absolute",
-            left: "100%",
-            top: 0,
-            marginLeft: 4,
             zIndex: 1,
             minWidth,
+            ...placement,
           }}
         >
           {children}

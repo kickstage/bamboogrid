@@ -4,11 +4,11 @@ import {
   NumberInput,
   Select,
   Stack,
-  Switch,
   Text,
   TextInput,
   Tooltip,
 } from "@mantine/core";
+import { Switch } from "../ui/Switch";
 import { useEffect, useState, type ReactNode } from "react";
 import "./inspector.css";
 import { fetchStdTypes, type StdTrafoTypes } from "../api";
