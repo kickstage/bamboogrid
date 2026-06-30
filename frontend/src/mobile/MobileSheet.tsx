@@ -97,8 +97,8 @@ function ParamList({ rows }: { rows: ResultRow[] }) {
   if (rows.length === 0) return null;
   return (
     <Stack gap={2}>
-      {rows.map(([label, value]) => (
-        <Group key={label} justify="space-between" gap="xs" wrap="nowrap">
+      {rows.map(([label, value], i) => (
+        <Group key={i} justify="space-between" gap="xs" wrap="nowrap">
           <Text size="sm" c="dimmed">
             {label}
           </Text>

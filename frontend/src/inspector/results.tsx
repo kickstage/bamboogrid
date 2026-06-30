@@ -1,7 +1,45 @@
+import type { ReactNode } from "react";
 import { Group, Stack, Text } from "@mantine/core";
 import { fixed } from "../format";
 import { phaseAngleDeg, powerFactor, type BusInjection } from "../power";
 import type { BusData, GeneratorData, ShuntData, Trafo2WData, XwardData } from "../types";
+
+// Quantity symbols in scientifically correct notation (IEC 60909 short-circuit
+// quantities, bus voltage magnitude/angle), rendered with sub/superscripts.
+const SYM = {
+  vm: (
+    <>
+      V<sub>m</sub>
+    </>
+  ),
+  va: (
+    <>
+      V<sub>a</sub>
+    </>
+  ),
+  ikss: (
+    <>
+      I<sup>″</sup>
+      <sub>k</sub>
+    </>
+  ),
+  ip: (
+    <>
+      i<sub>p</sub>
+    </>
+  ),
+  ith: (
+    <>
+      I<sub>th</sub>
+    </>
+  ),
+  skss: (
+    <>
+      S<sup>″</sup>
+      <sub>k</sub>
+    </>
+  ),
+} as const;
 
 export const HEADERS: Record<string, string> = {
   bus: "BUS",
@@ -18,7 +56,7 @@ export const HEADERS: Record<string, string> = {
 
 // A quantity row in the load-flow result block: its symbol (the "sign", e.g. P,
 // Q, Vm) and its formatted value+unit.
-export type ResultRow = [label: string, value: string];
+export type ResultRow = [label: ReactNode, value: string];
 
 // A labeled result block, rendered consistently for every element.
 export function ResultList({
@@ -35,8 +73,8 @@ export function ResultList({
         {label}
       </Text>
       <Stack gap={2}>
-        {rows.map(([label, value]) => (
-          <Group key={label} justify="space-between" gap="xs" wrap="nowrap">
+        {rows.map(([label, value], i) => (
+          <Group key={i} justify="space-between" gap="xs" wrap="nowrap">
             <Text size="xs" c="dimmed">
               {label}
             </Text>
@@ -56,8 +94,8 @@ export function nodeResultRows(type: string | undefined, data: unknown): ResultR
     const b = data as BusData;
     if (b.vm_pu === undefined) return [];
     return [
-      ["Vm", `${fixed(b.vm_pu, 4)} p.u.`],
-      ["Va", `${fixed(b.va_degree ?? 0, 2)}°`],
+      [SYM.vm, `${fixed(b.vm_pu, 4)} p.u.`],
+      [SYM.va, `${fixed(b.va_degree ?? 0, 2)}°`],
     ];
   }
   if (type === "generator" || type === "sgen" || type === "extgrid") {
@@ -99,11 +137,11 @@ export function nodeResultRows(type: string | undefined, data: unknown): ResultR
 // Short-circuit result rows for a bus, or [] before a short-circuit run.
 export function busScRows(data: BusData): ResultRow[] {
   if (data.ikss_ka === undefined) return [];
-  const rows: ResultRow[] = [["Ik″", `${fixed(data.ikss_ka, 3)} kA`]];
-  if (data.ip_ka !== undefined) rows.push(["ip", `${fixed(data.ip_ka, 3)} kA`]);
-  if (data.ith_ka !== undefined) rows.push(["ith", `${fixed(data.ith_ka, 3)} kA`]);
+  const rows: ResultRow[] = [[SYM.ikss, `${fixed(data.ikss_ka, 3)} kA`]];
+  if (data.ip_ka !== undefined) rows.push([SYM.ip, `${fixed(data.ip_ka, 3)} kA`]);
+  if (data.ith_ka !== undefined) rows.push([SYM.ith, `${fixed(data.ith_ka, 3)} kA`]);
   if (data.skss_mw !== undefined)
-    rows.push(["Sk″", `${fixed(data.skss_mw, 1)} MVA`]);
+    rows.push([SYM.skss, `${fixed(data.skss_mw, 1)} MVA`]);
   return rows;
 }
 
@@ -154,7 +192,7 @@ export function VoltageLegend() {
 // Explains the fault-current heatmap a short circuit paints on (see faultColor
 // in BusNode): a cool→hot scale by share of the network's peak Ik″.
 export function FaultCurrentLegend() {
-  const Row = ({ color, label }: { color: string; label: string }) => (
+  const Row = ({ color, label }: { color: string; label: ReactNode }) => (
     <Group gap={6} wrap="nowrap">
       <span
         style={{ width: 11, height: 11, borderRadius: 2, background: color, flex: "none" }}
@@ -169,8 +207,8 @@ export function FaultCurrentLegend() {
       <Text size="xs" fw={600} c="dimmed">
         BUS FAULT CURRENT (IEC 60909)
       </Text>
-      <Row color="rgb(125, 211, 252)" label="Light — lower Ik″" />
-      <Row color="rgb(190, 24, 93)" label="Dark — network's peak Ik″" />
+      <Row color="rgb(125, 211, 252)" label={<>Light — lower {SYM.ikss}</>} />
+      <Row color="rgb(190, 24, 93)" label={<>Dark — network's peak {SYM.ikss}</>} />
     </Stack>
   );
 }

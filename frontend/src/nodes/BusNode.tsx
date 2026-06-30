@@ -83,7 +83,12 @@ export function BusNode({ id, data, selected, width, positionAbsoluteY }: NodePr
     return `${fixed(d.vm_pu!, 3)} p.u. · ${angle}`;
   };
 
-  const faultReadout = () => `${fixed(d.ikss_ka!, 2)} kA Ik″`;
+  const faultReadout = () => (
+    <>
+      {fixed(d.ikss_ka!, 2)} kA I<sup>″</sup>
+      <sub>k</sub>
+    </>
+  );
 
   // A port handle faces the element wired to it: Bottom when that element sits
   // below the bus, Top otherwise. This keeps wires from below attaching cleanly
