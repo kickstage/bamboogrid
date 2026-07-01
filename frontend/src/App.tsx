@@ -10,13 +10,13 @@ import {
   SegmentedControl,
   Stack,
   Text,
-  Title,
   Tooltip,
   useMantineColorScheme,
   useComputedColorScheme,
 } from "@mantine/core";
 import { ReactFlowProvider } from "@xyflow/react";
 
+import { Logo } from "./ui/Logo";
 import { Submenu } from "./ui/Submenu";
 import { Canvas } from "./canvas/Canvas";
 import { Inspector } from "./inspector/Inspector";
@@ -408,9 +408,7 @@ export default function App() {
       <Paper shadow="xs" p="sm" radius={0} onPointerDown={deselectAll}>
         <Group justify="space-between">
           <Group gap="xs">
-            <Title order={4} mr="xs">
-              BambooGrid
-            </Title>
+            <Logo height={21} style={{ margin: "2px 10px" }} />
 
             <Menu
               shadow="md"

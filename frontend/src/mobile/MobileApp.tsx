@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
-import { Anchor, Button, Group, Modal, Paper, Stack, Text, Title } from "@mantine/core";
+import { Anchor, Button, Group, Modal, Paper, Stack, Text } from "@mantine/core";
 import { ReactFlowProvider } from "@xyflow/react";
 
+import { Logo } from "../ui/Logo";
 import { Canvas } from "../canvas/Canvas";
 import { useEditor } from "../store";
 import { toast } from "../toast";
@@ -70,9 +71,7 @@ export function MobileApp() {
       <Paper withBorder radius={0} px="sm" py={6}>
         <Group justify="space-between" wrap="nowrap" gap="xs">
           <Group gap={6} wrap="nowrap" style={{ minWidth: 0 }}>
-            <Title order={5} style={{ whiteSpace: "nowrap" }}>
-              BambooGrid
-            </Title>
+            <Logo height={18} style={{ margin: "2px 6px" }} />
             <Text size="xs" c="dimmed" truncate>
               {networkName}
             </Text>
