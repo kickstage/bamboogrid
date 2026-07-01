@@ -169,6 +169,9 @@ def std_trafo_types(table: str) -> dict[str, dict[str, float]]:
 # the React Flow canvas start to crawl. Lifted once rendering/perf is addressed.
 MAX_IMPORT_BUSES = 100
 
+# Hard cap on the raw import body
+MAX_IMPORT_BYTES = 16 * 1024 * 1024
+
 
 _COMPONENT_DIAGRAMS = ("gen", "sgen", "ext_grid", "load", "xward")
 

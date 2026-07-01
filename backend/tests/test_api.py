@@ -247,6 +247,32 @@ def test_export_then_import_roundtrip(client):
     assert len(network["loads"]) == 1
 
 
+def test_import_rejects_oversized_body(client):
+    from app.ppjson import MAX_IMPORT_BYTES
+
+    sid = new_session(client)
+    oversized = b"[0" + b",0" * (MAX_IMPORT_BYTES // 2) + b"]"
+    res = client.post("/session/import", content=oversized, headers=auth(sid))
+    assert res.status_code == 413
+    assert "too large" in res.json()["detail"].lower()
+
+
+def test_import_rejects_valid_json_that_is_not_a_net(client):
+    # Valid JSON, but a bare list — pandapower parses it without error, so the
+    # endpoint must type-check rather than blow up on net.bus (was a 500).
+    sid = new_session(client)
+    res = client.post("/session/import", content=b"[1, 2, 3]", headers=auth(sid))
+    assert res.status_code == 400
+    assert "not a pandapower network" in res.json()["detail"].lower()
+
+
+def test_import_rejects_non_utf8_body(client):
+    # A non-UTF-8 body used to escape as an unhandled 500 (decode outside the try).
+    sid = new_session(client)
+    res = client.post("/session/import", content=b"\xff\xfe\xff", headers=auth(sid))
+    assert res.status_code == 400
+
+
 def test_summary_reports_balance_and_counts(client):
     sid = new_session(client)
     build_one_bus(client, sid)

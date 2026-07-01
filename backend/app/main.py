@@ -17,7 +17,7 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from .commands import CommandError, apply_commands
-from .ppjson import MAX_IMPORT_BUSES, std_trafo_types
+from .ppjson import MAX_IMPORT_BUSES, MAX_IMPORT_BYTES, std_trafo_types
 from .scenarios import build_scenario, list_scenarios
 from .projection import net_to_view
 from .schema import (
@@ -257,6 +257,11 @@ def session_summary(session: Session = Depends(current_session)) -> NetworkSumma
             return network_summary(session.net)
 
 
+def _too_large_detail() -> str:
+    mb = MAX_IMPORT_BYTES // (1024 * 1024)
+    return f"Import is too large; the limit is {mb} MB."
+
+
 @app.post("/session/import", response_model=ViewModel)
 async def import_pandapower(
     request: Request, session: Session = Depends(current_session)
@@ -264,15 +269,31 @@ async def import_pandapower(
     """Replace the session's net with an uploaded pandapower JSON (ours or a plain
     pandapower net). The full net — including elements/columns we don't model — is
     retained server-side; the browser gets only the projection."""
-    raw = (await request.body()).decode("utf-8")
     with tracer.start_as_current_span("session.import") as span:
         span.set_attribute("session.id", session.id)
-        span.set_attribute("import.bytes", len(raw))
+        # Reject oversized uploads before buffering them. A declared Content-Length
+        # over the cap is refused outright; otherwise the body is read in chunks and
+        # aborted the moment it exceeds the cap, so a lying/absent header (or a
+        # chunked upload) still can't balloon memory in the pod.
+        declared = request.headers.get("content-length")
+        if declared is not None and declared.isdigit() and int(declared) > MAX_IMPORT_BYTES:
+            raise HTTPException(status_code=413, detail=_too_large_detail())
+        chunks = bytearray()
+        async for chunk in request.stream():
+            chunks.extend(chunk)
+            if len(chunks) > MAX_IMPORT_BYTES:
+                raise HTTPException(status_code=413, detail=_too_large_detail())
+        span.set_attribute("import.bytes", len(chunks))
         try:
-            net = pp.from_json_string(raw)
-        except Exception as exc:  # noqa: BLE001 - report parse failures
+            net = pp.from_json_string(bytes(chunks).decode("utf-8"))
+        except Exception as exc:  # noqa: BLE001 - report parse/decode failures
             raise HTTPException(
                 status_code=400, detail=f"Could not import pandapower JSON: {exc}"
+            )
+        if not isinstance(net, pp.pandapowerNet):
+            raise HTTPException(
+                status_code=400,
+                detail="File is valid JSON but not a pandapower network.",
             )
         if len(net.bus) > MAX_IMPORT_BUSES:
             raise HTTPException(
