@@ -93,19 +93,10 @@ function ParamInput({
   return (
     <NumberInput
       label={
-        <Tooltip
-          label={name}
-          withArrow
-          position="top-start"
-          openDelay={150}
-          multiline
-          w={220}
-        >
-          <span style={{ cursor: "help" }}>
-            {symbol}
-            {unit ? <> ({unit})</> : null}
-          </span>
-        </Tooltip>
+        <span style={{ cursor: "help" }} title={name}>
+          {symbol}
+          {unit ? <> ({unit})</> : null}
+        </span>
       }
       {...rest}
     />
