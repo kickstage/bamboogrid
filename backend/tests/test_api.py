@@ -273,6 +273,34 @@ def test_import_rejects_non_utf8_body(client):
     assert res.status_code == 400
 
 
+def test_import_rejects_code_execution_gadget(client):
+    # pp.from_json_string is a deserializer; a crafted object would run
+    # os.system("...") DURING parsing. The endpoint must reject it (400) before
+    # the loader ever sees it — and, crucially, nothing must execute.
+    import os as _os
+
+    marker = "/tmp/bamboogrid_rce_marker"
+    if _os.path.exists(marker):
+        _os.remove(marker)
+    sid = new_session(client)
+    gadget = f'{{"_module": "os", "_class": "system", "_object": "touch {marker}"}}'
+    res = client.post("/session/import", content=gadget, headers=auth(sid))
+    assert res.status_code == 400
+    assert "disallowed object reference" in res.json()["detail"].lower()
+    assert not _os.path.exists(marker), "the gadget executed — RCE not blocked!"
+
+
+def test_import_rejects_gadget_hidden_in_valid_net(client):
+    # A payload buried inside otherwise-valid-looking JSON must still be caught.
+    sid = new_session(client)
+    hidden = (
+        '{"bus": [{"ok": 1}, '
+        '{"x": {"_module": "builtins", "_class": "eval", "_object": "1+1"}}]}'
+    )
+    res = client.post("/session/import", content=hidden, headers=auth(sid))
+    assert res.status_code == 400
+
+
 def test_summary_reports_balance_and_counts(client):
     sid = new_session(client)
     build_one_bus(client, sid)

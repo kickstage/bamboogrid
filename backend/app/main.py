@@ -20,6 +20,7 @@ from .commands import CommandError, apply_commands
 from .ppjson import MAX_IMPORT_BUSES, MAX_IMPORT_BYTES, std_trafo_types
 from .scenarios import build_scenario, list_scenarios
 from .projection import net_to_view
+from .safe_import import UnsafeImportError, validate_import_json
 from .schema import (
     Command,
     LoadFlowResult,
@@ -285,8 +286,22 @@ async def import_pandapower(
                 raise HTTPException(status_code=413, detail=_too_large_detail())
         span.set_attribute("import.bytes", len(chunks))
         try:
-            net = pp.from_json_string(bytes(chunks).decode("utf-8"))
-        except Exception as exc:  # noqa: BLE001 - report parse/decode failures
+            text = bytes(chunks).decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise HTTPException(
+                status_code=400, detail=f"Could not import pandapower JSON: {exc}"
+            )
+        # SECURITY: pp.from_json_string is a deserializer — a crafted object can
+        # execute arbitrary code during parsing (see safe_import). Screen the raw
+        # JSON against an allowlist before it ever touches the loader.
+        try:
+            validate_import_json(text)
+        except UnsafeImportError as exc:
+            span.set_attribute("import.rejected", "unsafe")
+            raise HTTPException(status_code=400, detail=str(exc))
+        try:
+            net = pp.from_json_string(text)
+        except Exception as exc:  # noqa: BLE001 - report parse failures
             raise HTTPException(
                 status_code=400, detail=f"Could not import pandapower JSON: {exc}"
             )
