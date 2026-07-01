@@ -19,11 +19,7 @@ const SYM = {
       V<sub>m</sub>
     </>
   ),
-  va: (
-    <>
-      V<sub>a</sub>
-    </>
-  ),
+  va: <>δ</>,
   ikss: (
     <>
       I<sup>″</sup>
