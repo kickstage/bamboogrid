@@ -2,6 +2,7 @@ import {
   Accordion,
   Divider,
   NumberInput,
+  type NumberInputProps,
   Select,
   Stack,
   Text,
@@ -52,19 +53,75 @@ import type {
   XwardData,
 } from "../types";
 
-// A physical-quantity symbol with an upright subscript, e.g. S_N or v_kr, so the
-// advanced labels read in the usual scientific notation.
-function Sym({ children, sub }: { children: ReactNode; sub: ReactNode }) {
+// A physical-quantity symbol with an upright subscript (and optional
+// superscript), e.g. S_N, v_kr or x″_d, so labels read in the usual scientific
+// notation. `sup` renders before `sub` (e.g. the double-prime on a subtransient
+// reactance).
+function Sym({
+  children,
+  sub,
+  sup,
+}: {
+  children: ReactNode;
+  sub?: ReactNode;
+  sup?: ReactNode;
+}) {
   return (
     <>
       <em>{children}</em>
-      <sub>{sub}</sub>
+      {sup !== undefined && <sup>{sup}</sup>}
+      {sub !== undefined && <sub>{sub}</sub>}
     </>
   );
 }
 
-// One editable transformer parameter: which field, how to label and step it.
-type ParamField = { key: string; label: ReactNode; step: number; dp: number };
+// Every editable quantity is labeled the same way across all elements: the
+// visible label is the symbol and unit — e.g. "P (MW)" — and hovering it reveals
+// the descriptive name ("Active power"). The label is a plain span so it inherits
+// the input label's typography. `unit` is omitted for dimensionless quantities
+// (e.g. cos φ).
+function ParamInput({
+  name,
+  symbol,
+  unit,
+  ...rest
+}: {
+  name: string;
+  symbol: ReactNode;
+  unit?: string;
+} & Omit<NumberInputProps, "label">) {
+  return (
+    <NumberInput
+      label={
+        <Tooltip
+          label={name}
+          withArrow
+          position="top-start"
+          openDelay={150}
+          multiline
+          w={220}
+        >
+          <span style={{ cursor: "help" }}>
+            {symbol}
+            {unit ? <> ({unit})</> : null}
+          </span>
+        </Tooltip>
+      }
+      {...rest}
+    />
+  );
+}
+
+// One editable transformer parameter: the field key, its symbol/unit (the
+// visible label), the descriptive name (shown on hover) and how to step it.
+type ParamField = {
+  key: string;
+  symbol: ReactNode;
+  unit?: string;
+  name: string;
+  step: number;
+  dp: number;
+};
 // Advanced parameters grouped by what they describe (see pandapower's trafo
 // model), each shown under a small heading.
 type ParamGroup = { title: string; fields: ParamField[] };
@@ -73,29 +130,29 @@ const TRAFO2W_GROUPS: ParamGroup[] = [
   {
     title: "Ratings",
     fields: [
-      { key: "sn_mva", label: <>Rated power <Sym sub="N">S</Sym> (MVA)</>, step: 0.1, dp: 4 },
-      { key: "vn_hv_kv", label: <>HV rated voltage <Sym sub="N">V</Sym> (kV)</>, step: 1, dp: 3 },
-      { key: "vn_lv_kv", label: <>LV rated voltage <Sym sub="N">V</Sym> (kV)</>, step: 0.1, dp: 3 },
+      { key: "sn_mva", symbol: <Sym sub="N">S</Sym>, unit: "MVA", name: "Rated apparent power", step: 0.1, dp: 4 },
+      { key: "vn_hv_kv", symbol: <>HV <Sym sub="N">V</Sym></>, unit: "kV", name: "HV rated voltage", step: 1, dp: 3 },
+      { key: "vn_lv_kv", symbol: <>LV <Sym sub="N">V</Sym></>, unit: "kV", name: "LV rated voltage", step: 0.1, dp: 3 },
     ],
   },
   {
     title: "Short-circuit voltage",
     fields: [
-      { key: "vk_percent", label: <><Sym sub="k">v</Sym> (%)</>, step: 0.1, dp: 3 },
-      { key: "vkr_percent", label: <>Real part <Sym sub="kr">v</Sym> (%)</>, step: 0.1, dp: 4 },
+      { key: "vk_percent", symbol: <Sym sub="k">v</Sym>, unit: "%", name: "Short-circuit voltage", step: 0.1, dp: 3 },
+      { key: "vkr_percent", symbol: <Sym sub="kr">v</Sym>, unit: "%", name: "Short-circuit voltage (real part)", step: 0.1, dp: 4 },
     ],
   },
   {
     title: "No-load (magnetising)",
     fields: [
-      { key: "pfe_kw", label: <>Iron losses <Sym sub="Fe">P</Sym> (kW)</>, step: 0.1, dp: 3 },
-      { key: "i0_percent", label: <>No-load current <Sym sub="0">i</Sym> (%)</>, step: 0.01, dp: 4 },
+      { key: "pfe_kw", symbol: <Sym sub="Fe">P</Sym>, unit: "kW", name: "Iron (no-load) losses", step: 0.1, dp: 3 },
+      { key: "i0_percent", symbol: <Sym sub="0">i</Sym>, unit: "%", name: "No-load current", step: 0.01, dp: 4 },
     ],
   },
   {
     title: "Phase shift",
     fields: [
-      { key: "shift_degree", label: <>Phase shift <em>θ</em> (deg)</>, step: 30, dp: 1 },
+      { key: "shift_degree", symbol: <em>θ</em>, unit: "deg", name: "Phase shift", step: 30, dp: 1 },
     ],
   },
 ];
@@ -104,42 +161,42 @@ const TRAFO3W_GROUPS: ParamGroup[] = [
   {
     title: "Rated power",
     fields: [
-      { key: "sn_hv_mva", label: <>HV <Sym sub="N">S</Sym> (MVA)</>, step: 0.1, dp: 4 },
-      { key: "sn_mv_mva", label: <>MV <Sym sub="N">S</Sym> (MVA)</>, step: 0.1, dp: 4 },
-      { key: "sn_lv_mva", label: <>LV <Sym sub="N">S</Sym> (MVA)</>, step: 0.1, dp: 4 },
+      { key: "sn_hv_mva", symbol: <>HV <Sym sub="N">S</Sym></>, unit: "MVA", name: "HV rated apparent power", step: 0.1, dp: 4 },
+      { key: "sn_mv_mva", symbol: <>MV <Sym sub="N">S</Sym></>, unit: "MVA", name: "MV rated apparent power", step: 0.1, dp: 4 },
+      { key: "sn_lv_mva", symbol: <>LV <Sym sub="N">S</Sym></>, unit: "MVA", name: "LV rated apparent power", step: 0.1, dp: 4 },
     ],
   },
   {
     title: "Rated voltage",
     fields: [
-      { key: "vn_hv_kv", label: <>HV <Sym sub="N">V</Sym> (kV)</>, step: 1, dp: 3 },
-      { key: "vn_mv_kv", label: <>MV <Sym sub="N">V</Sym> (kV)</>, step: 1, dp: 3 },
-      { key: "vn_lv_kv", label: <>LV <Sym sub="N">V</Sym> (kV)</>, step: 0.1, dp: 3 },
+      { key: "vn_hv_kv", symbol: <>HV <Sym sub="N">V</Sym></>, unit: "kV", name: "HV rated voltage", step: 1, dp: 3 },
+      { key: "vn_mv_kv", symbol: <>MV <Sym sub="N">V</Sym></>, unit: "kV", name: "MV rated voltage", step: 1, dp: 3 },
+      { key: "vn_lv_kv", symbol: <>LV <Sym sub="N">V</Sym></>, unit: "kV", name: "LV rated voltage", step: 0.1, dp: 3 },
     ],
   },
   {
     title: "Short-circuit voltage",
     fields: [
-      { key: "vk_hv_percent", label: <>HV <Sym sub="k">v</Sym> (%)</>, step: 0.1, dp: 3 },
-      { key: "vk_mv_percent", label: <>MV <Sym sub="k">v</Sym> (%)</>, step: 0.1, dp: 3 },
-      { key: "vk_lv_percent", label: <>LV <Sym sub="k">v</Sym> (%)</>, step: 0.1, dp: 3 },
-      { key: "vkr_hv_percent", label: <>HV real part <Sym sub="kr">v</Sym> (%)</>, step: 0.1, dp: 4 },
-      { key: "vkr_mv_percent", label: <>MV real part <Sym sub="kr">v</Sym> (%)</>, step: 0.1, dp: 4 },
-      { key: "vkr_lv_percent", label: <>LV real part <Sym sub="kr">v</Sym> (%)</>, step: 0.1, dp: 4 },
+      { key: "vk_hv_percent", symbol: <>HV <Sym sub="k">v</Sym></>, unit: "%", name: "HV short-circuit voltage", step: 0.1, dp: 3 },
+      { key: "vk_mv_percent", symbol: <>MV <Sym sub="k">v</Sym></>, unit: "%", name: "MV short-circuit voltage", step: 0.1, dp: 3 },
+      { key: "vk_lv_percent", symbol: <>LV <Sym sub="k">v</Sym></>, unit: "%", name: "LV short-circuit voltage", step: 0.1, dp: 3 },
+      { key: "vkr_hv_percent", symbol: <>HV <Sym sub="kr">v</Sym></>, unit: "%", name: "HV short-circuit voltage (real part)", step: 0.1, dp: 4 },
+      { key: "vkr_mv_percent", symbol: <>MV <Sym sub="kr">v</Sym></>, unit: "%", name: "MV short-circuit voltage (real part)", step: 0.1, dp: 4 },
+      { key: "vkr_lv_percent", symbol: <>LV <Sym sub="kr">v</Sym></>, unit: "%", name: "LV short-circuit voltage (real part)", step: 0.1, dp: 4 },
     ],
   },
   {
     title: "No-load (magnetising)",
     fields: [
-      { key: "pfe_kw", label: <>Iron losses <Sym sub="Fe">P</Sym> (kW)</>, step: 0.1, dp: 3 },
-      { key: "i0_percent", label: <>No-load current <Sym sub="0">i</Sym> (%)</>, step: 0.01, dp: 4 },
+      { key: "pfe_kw", symbol: <Sym sub="Fe">P</Sym>, unit: "kW", name: "Iron (no-load) losses", step: 0.1, dp: 3 },
+      { key: "i0_percent", symbol: <Sym sub="0">i</Sym>, unit: "%", name: "No-load current", step: 0.01, dp: 4 },
     ],
   },
   {
     title: "Phase shift",
     fields: [
-      { key: "shift_mv_degree", label: <>MV phase shift <em>θ</em> (deg)</>, step: 30, dp: 1 },
-      { key: "shift_lv_degree", label: <>LV phase shift <em>θ</em> (deg)</>, step: 30, dp: 1 },
+      { key: "shift_mv_degree", symbol: <>MV <em>θ</em></>, unit: "deg", name: "MV phase shift", step: 30, dp: 1 },
+      { key: "shift_lv_degree", symbol: <>LV <em>θ</em></>, unit: "deg", name: "LV phase shift", step: 30, dp: 1 },
     ],
   },
 ];
@@ -188,9 +245,11 @@ function AdvancedParams({
                   {g.title}
                 </Text>
                 {g.fields.map((f) => (
-                  <NumberInput
+                  <ParamInput
                     key={f.key}
-                    label={f.label}
+                    name={f.name}
+                    symbol={f.symbol}
+                    unit={f.unit}
                     value={params[f.key] ?? ""}
                     step={f.step}
                     decimalScale={f.dp}
@@ -236,9 +295,18 @@ export function Inspector() {
     const d = lineEdge.data as LineData;
     const set = (patch: Partial<LineData>) =>
       updateEdgeData(lineEdge.id, patch);
-    const num = (label: string, key: keyof LineData, step: number, dp: number) => (
-      <NumberInput
-        label={label}
+    const num = (
+      name: string,
+      symbol: ReactNode,
+      unit: string,
+      key: keyof LineData,
+      step: number,
+      dp: number,
+    ) => (
+      <ParamInput
+        name={name}
+        symbol={symbol}
+        unit={unit}
         value={d[key] as number}
         min={0}
         step={step}
@@ -256,11 +324,11 @@ export function Inspector() {
           value={d.name}
           onChange={(e) => set({ name: e.currentTarget.value })}
         />
-        {num("Length (km)", "length_km", 0.1, 3)}
-        {num("Resistance (ohm/km)", "r_ohm_per_km", 0.01, 4)}
-        {num("Reactance (ohm/km)", "x_ohm_per_km", 0.01, 4)}
-        {num("Capacitance (nF/km)", "c_nf_per_km", 1, 2)}
-        {num("Max current (kA)", "max_i_ka", 0.01, 4)}
+        {num("Length", <em>l</em>, "km", "length_km", 0.1, 3)}
+        {num("Resistance per length", <><em>R</em>′</>, "Ω/km", "r_ohm_per_km", 0.01, 4)}
+        {num("Reactance per length", <><em>X</em>′</>, "Ω/km", "x_ohm_per_km", 0.01, 4)}
+        {num("Capacitance per length", <><em>C</em>′</>, "nF/km", "c_nf_per_km", 1, 2)}
+        {num("Max current (thermal limit)", <Sym sub="max">I</Sym>, "kA", "max_i_ka", 0.01, 4)}
         {d.res_loading_percent !== undefined && (
           <ResultList
             rows={[
@@ -362,41 +430,52 @@ export function Inspector() {
           );
           const locked = lineConnected || branchConnected;
           return (
-            <Tooltip
-              label="Connected buses share one nominal voltage. Remove the connection to change it."
-              disabled={!locked}
-              color="yellow"
-              styles={{ tooltip: { color: "var(--mantine-color-black)" } }}
-              multiline
-              w={220}
-              withArrow
-            >
-              <div>
-                <NumberInput
-                  label="Nominal voltage (kV)"
-                  value={(node.data as BusData).vn_kv}
-                  min={0}
-                  step={0.01}
-                  decimalScale={3}
-                  disabled={locked}
-                  onChange={(v) => update({ vn_kv: Number(v) || 0 })}
-                />
-              </div>
-            </Tooltip>
+            <ParamInput
+              name="Nominal voltage"
+              symbol={<Sym sub="N">V</Sym>}
+              unit="kV"
+              value={(node.data as BusData).vn_kv}
+              min={0}
+              step={0.01}
+              decimalScale={3}
+              disabled={locked}
+              onChange={(v) => update({ vn_kv: Number(v) || 0 })}
+              // The "voltage is locked" note hangs off the input field only (not
+              // the label), below it, so it never collides with the label's
+              // descriptive tooltip above.
+              inputContainer={(children) => (
+                <Tooltip
+                  label="Connected buses share one nominal voltage. Remove the connection to change it."
+                  disabled={!locked}
+                  color="yellow"
+                  styles={{ tooltip: { color: "var(--mantine-color-black)" } }}
+                  multiline
+                  w={220}
+                  withArrow
+                  position="bottom"
+                >
+                  <div>{children}</div>
+                </Tooltip>
+              )}
+            />
           );
         })()}
 
       {node.type === "generator" && (
         <>
-          <NumberInput
-            label="Active power (MW)"
+          <ParamInput
+            name="Active power"
+            symbol={<>P</>}
+            unit="MW"
             value={(node.data as GeneratorData).p_mw}
             step={0.001}
             decimalScale={4}
             onChange={(v) => update({ p_mw: Number(v) || 0 })}
           />
-          <NumberInput
-            label="Voltage setpoint (p.u.)"
+          <ParamInput
+            name="Voltage setpoint"
+            symbol={<Sym sub="m">V</Sym>}
+            unit="p.u."
             value={(node.data as GeneratorData).vm_pu}
             min={0}
             step={0.01}
@@ -420,25 +499,29 @@ export function Inspector() {
             />
           )}
           <Divider my={4} label="Short-circuit" labelPosition="left" />
-          <NumberInput
-            label="Rated power (MVA)"
+          <ParamInput
+            name="Rated apparent power"
+            symbol={<Sym sub="N">S</Sym>}
+            unit="MVA"
             value={(node.data as GeneratorData).sn_mva}
             min={0}
             step={0.1}
             decimalScale={3}
             onChange={(v) => update({ sn_mva: Number(v) || 0 })}
           />
-          <NumberInput
-            label="Subtransient reactance (p.u.)"
-            description="xdss″ — drives the machine's fault contribution"
+          <ParamInput
+            name="Subtransient reactance — drives the machine's fault contribution"
+            symbol={<Sym sub="d" sup="″">X</Sym>}
+            unit="p.u."
             value={(node.data as GeneratorData).xdss_pu}
             min={0}
             step={0.01}
             decimalScale={4}
             onChange={(v) => update({ xdss_pu: Number(v) || 0 })}
           />
-          <NumberInput
-            label="Power factor (cos φ)"
+          <ParamInput
+            name="Power factor"
+            symbol={<>cos φ</>}
             value={(node.data as GeneratorData).cos_phi}
             min={0}
             max={1}
@@ -451,15 +534,19 @@ export function Inspector() {
 
       {node.type === "sgen" && (
         <>
-          <NumberInput
-            label="Active power (MW)"
+          <ParamInput
+            name="Active power"
+            symbol={<>P</>}
+            unit="MW"
             value={(node.data as SgenData).p_mw}
             step={0.001}
             decimalScale={4}
             onChange={(v) => update({ p_mw: Number(v) || 0 })}
           />
-          <NumberInput
-            label="Reactive power (MVar)"
+          <ParamInput
+            name="Reactive power"
+            symbol={<>Q</>}
+            unit="Mvar"
             value={(node.data as SgenData).q_mvar}
             step={0.001}
             decimalScale={4}
@@ -470,16 +557,20 @@ export function Inspector() {
 
       {node.type === "extgrid" && (
         <>
-          <NumberInput
-            label="Voltage setpoint (p.u.)"
+          <ParamInput
+            name="Voltage setpoint"
+            symbol={<Sym sub="m">V</Sym>}
+            unit="p.u."
             value={(node.data as ExtGridData).vm_pu}
             min={0}
             step={0.01}
             decimalScale={3}
             onChange={(v) => update({ vm_pu: Number(v) || 0 })}
           />
-          <NumberInput
-            label="Voltage angle (deg)"
+          <ParamInput
+            name="Voltage angle"
+            symbol={<em>δ</em>}
+            unit="deg"
             value={(node.data as ExtGridData).va_degree}
             step={0.1}
             decimalScale={2}
@@ -489,17 +580,19 @@ export function Inspector() {
             Always a slack (voltage reference) that balances the network.
           </Text>
           <Divider my={4} label="Short-circuit" labelPosition="left" />
-          <NumberInput
-            label="Fault level (MVA)"
-            description="Max short-circuit power at this connection"
+          <ParamInput
+            name="Fault level — max short-circuit power at this connection"
+            symbol={<Sym sub="k" sup="″">S</Sym>}
+            unit="MVA"
             value={(node.data as ExtGridData).s_sc_max_mva}
             min={0}
             step={10}
             decimalScale={2}
             onChange={(v) => update({ s_sc_max_mva: Number(v) || 0 })}
           />
-          <NumberInput
-            label="R/X ratio (max)"
+          <ParamInput
+            name="R/X ratio (max case)"
+            symbol={<>R/X</>}
             value={(node.data as ExtGridData).rx_max}
             min={0}
             step={0.01}
@@ -511,15 +604,19 @@ export function Inspector() {
 
       {node.type === "load" && (
         <>
-          <NumberInput
-            label="Active power (MW)"
+          <ParamInput
+            name="Active power"
+            symbol={<>P</>}
+            unit="MW"
             value={(node.data as LoadData).p_mw}
             step={0.001}
             decimalScale={4}
             onChange={(v) => update({ p_mw: Number(v) || 0 })}
           />
-          <NumberInput
-            label="Reactive power (MVar)"
+          <ParamInput
+            name="Reactive power"
+            symbol={<>Q</>}
+            unit="Mvar"
             value={(node.data as LoadData).q_mvar}
             step={0.001}
             decimalScale={4}
@@ -530,16 +627,20 @@ export function Inspector() {
 
       {node.type === "shunt" && (
         <>
-          <NumberInput
-            label="Active power (MW)"
+          <ParamInput
+            name="Active power at rated voltage"
+            symbol={<>P</>}
+            unit="MW"
             value={(node.data as ShuntData).p_mw}
             min={0}
             step={0.001}
             decimalScale={4}
             onChange={(v) => update({ p_mw: Math.max(0, Number(v) || 0) })}
           />
-          <NumberInput
-            label="Reactive power (MVar)"
+          <ParamInput
+            name="Reactive power at rated voltage"
+            symbol={<>Q</>}
+            unit="Mvar"
             value={(node.data as ShuntData).q_mvar}
             step={0.001}
             decimalScale={4}
@@ -556,14 +657,18 @@ export function Inspector() {
         (() => {
           const d = node.data as XwardData;
           const num = (
-            label: ReactNode,
+            name: string,
+            symbol: ReactNode,
+            unit: string | undefined,
             key: keyof XwardData,
             step: number,
             dp: number,
             min?: number,
           ) => (
-            <NumberInput
-              label={label}
+            <ParamInput
+              name={name}
+              symbol={symbol}
+              unit={unit}
               value={d[key] as number}
               min={min}
               step={step}
@@ -578,15 +683,15 @@ export function Inspector() {
                 an impedance plus a voltage source behind it.
               </Text>
               <Divider my={4} label="Constant power" labelPosition="left" />
-              {num("Active power (MW)", "ps_mw", 0.1, 4)}
-              {num("Reactive power (MVar)", "qs_mvar", 0.1, 4)}
+              {num("Constant active power", <Sym sub="s">P</Sym>, "MW", "ps_mw", 0.1, 4)}
+              {num("Constant reactive power", <Sym sub="s">Q</Sym>, "Mvar", "qs_mvar", 0.1, 4)}
               <Divider my={4} label="Constant impedance (at 1 p.u.)" labelPosition="left" />
-              {num("Active power (MW)", "pz_mw", 0.1, 4)}
-              {num("Reactive power (MVar)", "qz_mvar", 0.1, 4)}
+              {num("Constant-impedance active power", <Sym sub="z">P</Sym>, "MW", "pz_mw", 0.1, 4)}
+              {num("Constant-impedance reactive power", <Sym sub="z">Q</Sym>, "Mvar", "qz_mvar", 0.1, 4)}
               <Divider my={4} label="Internal source" labelPosition="left" />
-              {num(<>Resistance <Sym sub="int">R</Sym> (Ω)</>, "r_ohm", 0.1, 4, 0)}
-              {num(<>Reactance <Sym sub="int">X</Sym> (Ω)</>, "x_ohm", 0.1, 4, 0)}
-              {num("Voltage setpoint (p.u.)", "vm_pu", 0.01, 4, 0)}
+              {num("Internal resistance", <Sym sub="int">R</Sym>, "Ω", "r_ohm", 0.1, 4, 0)}
+              {num("Internal reactance", <Sym sub="int">X</Sym>, "Ω", "x_ohm", 0.1, 4, 0)}
+              {num("Internal voltage setpoint", <Sym sub="m">V</Sym>, "p.u.", "vm_pu", 0.01, 4, 0)}
             </>
           );
         })()}
@@ -600,16 +705,20 @@ export function Inspector() {
                 A per-unit series impedance tying two buses together, on the rating
                 base below. Modeled symmetrically (from→to = to→from).
               </Text>
-              <NumberInput
-                label="Rating base Sₙ (MVA)"
+              <ParamInput
+                name="Rating base — the per-unit R/X below are referenced to this"
+                symbol={<Sym sub="N">S</Sym>}
+                unit="MVA"
                 value={d.sn_mva}
                 min={0}
                 step={1}
                 decimalScale={4}
                 onChange={(v) => update({ sn_mva: Math.max(0, Number(v) || 0) })}
               />
-              <NumberInput
-                label={<>Resistance <Sym sub="ft">R</Sym> (p.u.)</>}
+              <ParamInput
+                name="Resistance"
+                symbol={<>R</>}
+                unit="p.u."
                 value={d.rft_pu}
                 min={0}
                 step={0.001}
@@ -619,8 +728,10 @@ export function Inspector() {
                   update({ rft_pu: r, rtf_pu: r });
                 }}
               />
-              <NumberInput
-                label={<>Reactance <Sym sub="ft">X</Sym> (p.u.)</>}
+              <ParamInput
+                name="Reactance"
+                symbol={<>X</>}
+                unit="p.u."
                 value={d.xft_pu}
                 min={0}
                 step={0.001}
