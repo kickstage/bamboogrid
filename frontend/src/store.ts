@@ -25,6 +25,7 @@ import type {
   ForeignData,
   ForeignElement,
   GeneratorData,
+  ImpedanceData,
   LineData,
   LoadData,
   LoadFlowResult,
@@ -206,6 +207,18 @@ function defaultData(kind: ElementKind): ElementData {
         x_ohm: 1.0,
         vm_pu: 1.0,
       } satisfies XwardData;
+    case "impedance":
+      // A per-unit series branch: default to a small reactance on a 100 MVA base
+      // (symmetric from→to / to→from). Users tune R/X and the rating in the
+      // inspector.
+      return {
+        name: "Impedance",
+        rft_pu: 0.0,
+        xft_pu: 0.1,
+        rtf_pu: 0.0,
+        xtf_pu: 0.1,
+        sn_mva: 100.0,
+      } satisfies ImpedanceData;
     case "switch":
       return { name: "Switch", closed: true } satisfies SwitchData;
     case "trafo2w":
@@ -418,6 +431,36 @@ function syncAttachment(
             x: node.position.x,
             y: node.position.y,
             name: d.name,
+          },
+        });
+        serverIds.add(node.id);
+      }
+    }
+    return;
+  }
+
+  if (kind === "impedance") {
+    const from = wire("from");
+    const to = wire("to");
+    if (from?.target && to?.target) {
+      if (known)
+        enqueue({
+          op: "connect",
+          payload: { id: node.id, kind, end: handleToEnd(handle), bus_id: busId, port },
+        });
+      else {
+        enqueue({
+          op: "add_impedance",
+          payload: {
+            id: node.id,
+            from_bus: from.target,
+            to_bus: to.target,
+            port_from: from.targetHandle ?? "",
+            port_to: to.targetHandle ?? "",
+            x: node.position.x,
+            y: node.position.y,
+            data: node.data,
+            waypoint: null,
           },
         });
         serverIds.add(node.id);
@@ -1081,6 +1124,7 @@ export const useEditor = create<EditorState>((set, get) => ({
       const byExtGrid = new Map(result.res_ext_grid.map((r) => [r.id, r]));
       const byShunt = new Map(result.res_shunt.map((r) => [r.id, r]));
       const byXward = new Map(result.res_xward.map((r) => [r.id, r]));
+      const byImpedance = new Map(result.res_impedance.map((r) => [r.id, r]));
       const byTrafo = new Map(
         [...result.res_trafo, ...result.res_trafo3w].map((r) => [r.id, r]),
       );
@@ -1156,6 +1200,17 @@ export const useEditor = create<EditorState>((set, get) => ({
               ...n,
               data: {
                 ...(n.data as XwardData),
+                res_p_mw: r?.p_mw ?? undefined,
+                res_q_mvar: r?.q_mvar ?? undefined,
+              },
+            } as ElementNode;
+          }
+          if (n.type === "impedance") {
+            const r = result.converged ? byImpedance.get(n.id) : undefined;
+            return {
+              ...n,
+              data: {
+                ...(n.data as ImpedanceData),
                 res_p_mw: r?.p_mw ?? undefined,
                 res_q_mvar: r?.q_mvar ?? undefined,
               },
@@ -1446,6 +1501,43 @@ export const useEditor = create<EditorState>((set, get) => ({
         };
         edges.push(edge);
         connect(edge, "targetHandle", s.bus_b, s.port_b, s.x + 32);
+      }
+    }
+    for (const z of network.impedances ?? []) {
+      nodes.push({
+        id: z.id,
+        type: "impedance",
+        position: { x: z.x, y: z.y },
+        data: {
+          name: z.name,
+          rft_pu: z.rft_pu,
+          xft_pu: z.xft_pu,
+          rtf_pu: z.rtf_pu,
+          xtf_pu: z.xtf_pu,
+          sn_mva: z.sn_mva,
+        },
+      });
+      if (z.from_bus) {
+        const edge: Edge = {
+          id: `${z.id}:from->${z.from_bus}`,
+          source: z.id,
+          sourceHandle: "from",
+          target: z.from_bus,
+          type: "wire",
+        };
+        edges.push(edge);
+        connect(edge, "targetHandle", z.from_bus, z.port_from, z.x + 32);
+      }
+      if (z.to_bus) {
+        const edge: Edge = {
+          id: `${z.id}:to->${z.to_bus}`,
+          source: z.id,
+          sourceHandle: "to",
+          target: z.to_bus,
+          type: "wire",
+        };
+        edges.push(edge);
+        connect(edge, "targetHandle", z.to_bus, z.port_to, z.x + 32);
       }
     }
     // Helper: a transformer winding wire (source handle "hv"/"mv"/"lv" → bus). The

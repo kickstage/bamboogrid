@@ -165,6 +165,19 @@ def solve_net(net) -> LoadFlowResult:
             for uid, idx in _uuid_index(net, table)
         ]
 
+    def _branch_load_like(table: str) -> list[LoadResult]:
+        """A two-terminal branch's from-side flow (impedance has no single
+        ``p_mw`` column — its result is split into from/to)."""
+        res = net[f"res_{table}"]
+        return [
+            LoadResult(
+                id=uid,
+                p_mw=_f(res.at[idx, "p_from_mw"]),
+                q_mvar=_f(res.at[idx, "q_from_mvar"]),
+            )
+            for uid, idx in _uuid_index(net, table)
+        ]
+
     def _trafo_like(table: str) -> list[TrafoResult]:
         res = net[f"res_{table}"]
         return [
@@ -205,6 +218,7 @@ def solve_net(net) -> LoadFlowResult:
         res_load=_load_like("load"),
         res_shunt=_load_like("shunt"),
         res_xward=_load_like("xward"),
+        res_impedance=_branch_load_like("impedance"),
         res_trafo=_trafo_like("trafo"),
         res_trafo3w=_trafo_like("trafo3w"),
         res_line=res_line,

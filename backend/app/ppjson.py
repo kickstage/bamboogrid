@@ -35,6 +35,7 @@ from .schema import (
     Bus,
     ExtGrid,
     Generator,
+    Impedance,
     Line,
     Load,
     Network,
@@ -310,6 +311,21 @@ def ensure_diagram_tables(net) -> bool:
             ],
             index=list(net.line.index),
         )
+    if net.get("diagram_impedance") is None and len(net.impedance):
+        net["diagram_impedance"] = pd.DataFrame(
+            [
+                {
+                    "uuid": uuid.uuid4().hex,
+                    "x": _xy("impedance", i)[0],
+                    "y": _xy("impedance", i)[1],
+                    "port_from": "",
+                    "port_to": "",
+                    "waypoint_json": "",
+                }
+                for i in net.impedance.index
+            ],
+            index=list(net.impedance.index),
+        )
     return needs_layout
 
 
@@ -333,6 +349,7 @@ def net_to_network(net) -> Network:
     d_line = net.get("diagram_line")
     d_shunt = net.get("diagram_shunt")
     d_xward = net.get("diagram_xward")
+    d_impedance = net.get("diagram_impedance")
     d_meta = net.get("diagram_meta")
 
     network_id = uuid.uuid4().hex
@@ -608,6 +625,28 @@ def net_to_network(net) -> Network:
             )
         )
 
+    impedances: list[Impedance] = []
+    for z in net.impedance.index:
+        lay = _layout(d_impedance, z)
+        impedances.append(
+            Impedance(
+                id=str(lay["uuid"]) if lay is not None else uuid.uuid4().hex,
+                name=_name(net.impedance.at[z, "name"], "Impedance"),
+                from_bus=bus_uuid[int(net.impedance.at[z, "from_bus"])],
+                to_bus=bus_uuid[int(net.impedance.at[z, "to_bus"])],
+                rft_pu=float(net.impedance.at[z, "rft_pu"]),
+                xft_pu=float(net.impedance.at[z, "xft_pu"]),
+                rtf_pu=_num(net.impedance, z, "rtf_pu", float(net.impedance.at[z, "rft_pu"])),
+                xtf_pu=_num(net.impedance, z, "xtf_pu", float(net.impedance.at[z, "xft_pu"])),
+                sn_mva=float(net.impedance.at[z, "sn_mva"]),
+                port_from=_col(lay, "port_from"),
+                port_to=_col(lay, "port_to"),
+                waypoint=_parse_waypoint(lay["waypoint_json"]) if lay is not None else None,
+                x=_pos(lay, "impedance", z)[0],
+                y=_pos(lay, "impedance", z)[1],
+            )
+        )
+
     return Network(
         id=network_id,
         name=network_name,
@@ -624,5 +663,6 @@ def net_to_network(net) -> Network:
         lines=lines,
         shunts=shunts,
         xwards=xwards,
+        impedances=impedances,
         needs_layout=needs_layout,
     )

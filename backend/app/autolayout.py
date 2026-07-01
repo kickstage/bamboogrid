@@ -125,6 +125,9 @@ def _bus_widths(net) -> dict[int, float]:
     for li in net.line.index:
         bump(int(net.line.at[li, "from_bus"]))
         bump(int(net.line.at[li, "to_bus"]))
+    for zi in net.impedance.index:
+        bump(int(net.impedance.at[zi, "from_bus"]))
+        bump(int(net.impedance.at[zi, "to_bus"]))
     for ti in net.trafo.index:
         bump(int(net.trafo.at[ti, "hv_bus"]))
         bump(int(net.trafo.at[ti, "lv_bus"]))
@@ -187,6 +190,7 @@ def _place_components(net, bus_xy: dict[int, Coord]) -> dict[str, dict[int, Coor
         "shunt": {},
         "xward": {},
         "switch": {},
+        "impedance": {},
         "trafo": {},
         "trafo3w": {},
         "line": {},
@@ -241,7 +245,7 @@ def _place_components(net, bus_xy: dict[int, Coord]) -> dict[str, dict[int, Coor
 
     # Branch body widths (mirror the node glyphs) so a body is centered on the
     # centroid rather than hung from its left edge.
-    BODY_W = {"trafo": 40.0, "trafo3w": 48.0, "switch": 64.0}
+    BODY_W = {"trafo": 40.0, "trafo3w": 48.0, "switch": 64.0, "impedance": 64.0}
 
     def place_body(table: str, idx: int, *buses: int, dy: float = 0.0) -> None:
         cx, cy = centroid(*buses)
@@ -260,6 +264,15 @@ def _place_components(net, bus_xy: dict[int, Coord]) -> dict[str, dict[int, Coor
         by = bus_xy.get(b, (0.0, 0.0))[1]
         dy = GAP if abs(ay - by) < GAP else 0.0
         place_body("switch", si, a, b, dy=dy)
+    # An impedance is a series two-terminal branch; drop it below the bus row like
+    # a switch when its buses share a row so it reads as a coupler.
+    for zi in net.impedance.index:
+        a = int(net.impedance.at[zi, "from_bus"])
+        b = int(net.impedance.at[zi, "to_bus"])
+        ay = bus_xy.get(a, (0.0, 0.0))[1]
+        by = bus_xy.get(b, (0.0, 0.0))[1]
+        dy = GAP if abs(ay - by) < GAP else 0.0
+        place_body("impedance", zi, a, b, dy=dy)
     for ti in net.trafo.index:
         place_body("trafo", ti, int(net.trafo.at[ti, "hv_bus"]), int(net.trafo.at[ti, "lv_bus"]))
     for ti in net.trafo3w.index:

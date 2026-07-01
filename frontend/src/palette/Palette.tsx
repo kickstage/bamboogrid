@@ -11,6 +11,7 @@ import {
   TransformerGlyph,
   Transformer3WGlyph,
   XwardGlyph,
+  ImpedanceGlyph,
 } from "../nodes/glyphs";
 
 type Item = { kind: ElementKind; label: string; hint: string };
@@ -31,11 +32,6 @@ const GROUPS: { title: string; items: Item[] }[] = [
         kind: "extgrid",
         label: "External grid",
         hint: "Slack / voltage reference",
-      },
-      {
-        kind: "xward",
-        label: "XWard",
-        hint: "Reduced equivalent of an external network",
       },
     ],
   },
@@ -62,6 +58,23 @@ const GROUPS: { title: string; items: Item[] }[] = [
       },
     ],
   },
+  {
+    // Uncommon elements, kept at the bottom so they don't clutter the common
+    // workflow: a network equivalent and a raw per-unit series impedance.
+    title: "Advanced",
+    items: [
+      {
+        kind: "xward",
+        label: "XWard",
+        hint: "Reduced equivalent of an external network",
+      },
+      {
+        kind: "impedance",
+        label: "Impedance",
+        hint: "Per-unit series branch between two buses",
+      },
+    ],
+  },
 ];
 
 function Glyph({ kind }: { kind: ElementKind }) {
@@ -71,6 +84,7 @@ function Glyph({ kind }: { kind: ElementKind }) {
   if (kind === "load") return <LoadGlyph size={34} />;
   if (kind === "shunt") return <ShuntGlyph size={34} />;
   if (kind === "xward") return <XwardGlyph size={34} />;
+  if (kind === "impedance") return <ImpedanceGlyph size={40} />;
   if (kind === "switch") return <SwitchGlyph size={40} />;
   if (kind === "trafo2w") return <TransformerGlyph size={26} />;
   if (kind === "trafo3w") return <Transformer3WGlyph size={34} />;

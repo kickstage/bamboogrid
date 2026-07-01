@@ -39,6 +39,7 @@ import type {
   ExtGridData,
   ForeignData,
   GeneratorData,
+  ImpedanceData,
   LineData,
   LoadData,
   SgenData,
@@ -334,31 +335,32 @@ export function Inspector() {
 
       {node.type === "bus" &&
         (() => {
-          // A line — or a bus–bus switch — joins two buses at one voltage level,
-          // so while either is attached we lock the nominal voltage to keep both
-          // ends consistent.
+          // A line — or a bus–bus switch/impedance — joins two buses at one
+          // voltage level, so while either is attached we lock the nominal voltage
+          // to keep both ends consistent.
           const lineConnected = edges.some(
             (e) =>
               e.type === "line" && (e.source === node.id || e.target === node.id),
           );
-          // Switch nodes wired to this bus (switch = wire source, bus = target)…
-          const switchIds = new Set(
+          // Switch/impedance nodes wired to this bus (branch = wire source, bus =
+          // target)…
+          const branchIds = new Set(
             edges
-              .filter(
-                (e) =>
-                  e.target === node.id &&
-                  nodes.find((n) => n.id === e.source)?.type === "switch",
-              )
+              .filter((e) => {
+                if (e.target !== node.id) return false;
+                const t = nodes.find((n) => n.id === e.source)?.type;
+                return t === "switch" || t === "impedance";
+              })
               .map((e) => e.source),
           );
           // …that also reach a second bus.
-          const switchConnected = edges.some(
+          const branchConnected = edges.some(
             (e) =>
-              switchIds.has(e.source) &&
+              branchIds.has(e.source) &&
               e.target !== node.id &&
               nodes.find((n) => n.id === e.target)?.type === "bus",
           );
-          const locked = lineConnected || switchConnected;
+          const locked = lineConnected || branchConnected;
           return (
             <Tooltip
               label="Connected buses share one nominal voltage. Remove the connection to change it."
@@ -585,6 +587,49 @@ export function Inspector() {
               {num(<>Resistance <Sym sub="int">R</Sym> (Ω)</>, "r_ohm", 0.1, 4, 0)}
               {num(<>Reactance <Sym sub="int">X</Sym> (Ω)</>, "x_ohm", 0.1, 4, 0)}
               {num("Voltage setpoint (p.u.)", "vm_pu", 0.01, 4, 0)}
+            </>
+          );
+        })()}
+
+      {node.type === "impedance" &&
+        (() => {
+          const d = node.data as ImpedanceData;
+          return (
+            <>
+              <Text size="xs" c="dimmed">
+                A per-unit series impedance tying two buses together, on the rating
+                base below. Modeled symmetrically (from→to = to→from).
+              </Text>
+              <NumberInput
+                label="Rating base Sₙ (MVA)"
+                value={d.sn_mva}
+                min={0}
+                step={1}
+                decimalScale={4}
+                onChange={(v) => update({ sn_mva: Math.max(0, Number(v) || 0) })}
+              />
+              <NumberInput
+                label={<>Resistance <Sym sub="ft">R</Sym> (p.u.)</>}
+                value={d.rft_pu}
+                min={0}
+                step={0.001}
+                decimalScale={6}
+                onChange={(v) => {
+                  const r = Math.max(0, Number(v) || 0);
+                  update({ rft_pu: r, rtf_pu: r });
+                }}
+              />
+              <NumberInput
+                label={<>Reactance <Sym sub="ft">X</Sym> (p.u.)</>}
+                value={d.xft_pu}
+                min={0}
+                step={0.001}
+                decimalScale={6}
+                onChange={(v) => {
+                  const x = Math.max(0, Number(v) || 0);
+                  update({ xft_pu: x, xtf_pu: x });
+                }}
+              />
             </>
           );
         })()}

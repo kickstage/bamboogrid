@@ -144,6 +144,34 @@ export function XwardGlyph({ size = 50, stroke = "currentColor" }: GlyphProps) {
   );
 }
 
+// Impedance — a series-branch symbol: two leads into the serpentine impedance
+// curve from the project's SVG symbol library (symbols/pandapower/impedance.svg),
+// so it reads as an impedance rather than the switch's plain box. Horizontal and
+// symmetric so it rotates cleanly along the axis between its two buses. Rendered
+// at the same ~1.6× scale, so the stroke is thinner to match the other glyphs.
+export function ImpedanceGlyph({ size = 48, stroke = "currentColor" }: GlyphProps) {
+  return (
+    <svg
+      width={size}
+      height={size / 2}
+      viewBox="0 0 40 20"
+      aria-hidden
+      style={{ display: "block", margin: "0 auto" }}
+    >
+      <line x1={0} y1={10} x2={10} y2={10} stroke={stroke} strokeWidth={1.2} />
+      {/* serpentine impedance curve (the library motif, laid horizontally) */}
+      <path
+        d="M10 10 q5 -7 10 0 q5 7 10 0"
+        fill="none"
+        stroke={stroke}
+        strokeWidth={1.4}
+        strokeLinecap="round"
+      />
+      <line x1={30} y1={10} x2={40} y2={10} stroke={stroke} strokeWidth={1.2} />
+    </svg>
+  );
+}
+
 // A simple square switch sign with short leads: filled = closed, hollow = open.
 // This glyph's viewBox is rendered at a larger scale than the others (~1.6× on
 // canvas), so its stroke is set thinner to match their rendered outline weight.

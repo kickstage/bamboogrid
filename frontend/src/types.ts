@@ -9,6 +9,7 @@ export type ElementKind =
   | "load"
   | "shunt"
   | "xward"
+  | "impedance"
   | "switch"
   | "trafo2w"
   | "trafo3w";
@@ -73,6 +74,23 @@ export type LoadData = {
 export type SwitchData = {
   name: string;
   closed: boolean;
+};
+
+// An impedance (pandapower `impedance`): a per-unit series branch tying two buses
+// together, defined by its p.u. R/X on a rating (sn_mva) rather than by length.
+// Modeled symmetrically — the inspector edits the from→to R/X and mirrors them to
+// the to→from pair; an imported asymmetric impedance is carried through until
+// edited.
+export type ImpedanceData = {
+  name: string;
+  rft_pu: number;
+  xft_pu: number;
+  rtf_pu: number;
+  xtf_pu: number;
+  sn_mva: number;
+  // Filled in after a load flow (from-side branch flow).
+  res_p_mw?: number;
+  res_q_mvar?: number;
 };
 
 // Explicit pandapower transformer parameters, present on imports whose
@@ -202,6 +220,7 @@ export type ElementData =
   | LoadData
   | ShuntData
   | XwardData
+  | ImpedanceData
   | SwitchData
   | Trafo2WData
   | Trafo3WData
@@ -366,6 +385,25 @@ export interface Xward {
   waypoint?: { x: number; y: number } | null;
 }
 
+// An impedance (per-unit series branch between two buses). Imported and solved;
+// editable like a line but defined by p.u. R/X on a rating.
+export interface Impedance {
+  id: string;
+  name: string;
+  from_bus: string;
+  to_bus: string;
+  rft_pu: number;
+  xft_pu: number;
+  rtf_pu: number;
+  xtf_pu: number;
+  sn_mva: number;
+  port_from?: string;
+  port_to?: string;
+  waypoint?: { x: number; y: number } | null;
+  x: number;
+  y: number;
+}
+
 export interface Network {
   id: string;
   name: string;
@@ -382,6 +420,7 @@ export interface Network {
   lines: Line[];
   shunts: Shunt[];
   xwards: Xward[];
+  impedances: Impedance[];
   // Positions are the coarse server fallback; the client recomputes (ELK) and
   // persists a proper layout, which clears this.
   needs_layout?: boolean;
@@ -518,6 +557,7 @@ export interface LoadFlowResult {
   res_load: { id: string; p_mw: number | null; q_mvar: number | null }[];
   res_shunt: { id: string; p_mw: number | null; q_mvar: number | null }[];
   res_xward: { id: string; p_mw: number | null; q_mvar: number | null }[];
+  res_impedance: { id: string; p_mw: number | null; q_mvar: number | null }[];
   res_trafo: {
     id: string;
     loading_percent: number | null;

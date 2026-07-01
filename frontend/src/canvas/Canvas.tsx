@@ -45,7 +45,7 @@ type BranchMenu = { conn: Connection; x: number; y: number; sameVoltage: boolean
 // Elements that attach to a bus. Every attachment edge is stored element→bus
 // (source = element, target = bus port), but the user may draw it from either
 // end, so attachments are normalized to that orientation before use.
-const ATTACHABLE = ["generator", "sgen", "extgrid", "load", "shunt", "xward", "switch", "trafo2w", "trafo3w"];
+const ATTACHABLE = ["generator", "sgen", "extgrid", "load", "shunt", "xward", "impedance", "switch", "trafo2w", "trafo3w"];
 
 // Elements whose own injected/absorbed power is meaningful on its own, so the
 // power-triangle / waveform graphs hang off their context menu (a transit bus

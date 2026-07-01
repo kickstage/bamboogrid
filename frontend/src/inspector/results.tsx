@@ -2,7 +2,14 @@ import type { ReactNode } from "react";
 import { Group, Stack, Text } from "@mantine/core";
 import { fixed } from "../format";
 import { phaseAngleDeg, powerFactor, type BusInjection } from "../power";
-import type { BusData, GeneratorData, ShuntData, Trafo2WData, XwardData } from "../types";
+import type {
+  BusData,
+  GeneratorData,
+  ImpedanceData,
+  ShuntData,
+  Trafo2WData,
+  XwardData,
+} from "../types";
 
 // Quantity symbols in scientifically correct notation (IEC 60909 short-circuit
 // quantities, bus voltage magnitude/angle), rendered with sub/superscripts.
@@ -49,6 +56,7 @@ export const HEADERS: Record<string, string> = {
   load: "LOAD",
   shunt: "SHUNT",
   xward: "XWARD",
+  impedance: "IMPEDANCE",
   switch: "SWITCH",
   trafo2w: "TRANSFORMER",
   trafo3w: "3W TRANSFORMER",
@@ -120,6 +128,14 @@ export function nodeResultRows(type: string | undefined, data: unknown): ResultR
     return [
       ["P", `${fixed(w.res_p_mw, 4)} MW`],
       ["Q", `${fixed(w.res_q_mvar ?? 0, 4)} Mvar`],
+    ];
+  }
+  if (type === "impedance") {
+    const z = data as ImpedanceData;
+    if (z.res_p_mw === undefined) return [];
+    return [
+      ["P", `${fixed(z.res_p_mw, 4)} MW`],
+      ["Q", `${fixed(z.res_q_mvar ?? 0, 4)} Mvar`],
     ];
   }
   if (type === "trafo2w" || type === "trafo3w") {

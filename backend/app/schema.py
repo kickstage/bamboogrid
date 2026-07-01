@@ -162,6 +162,33 @@ class Xward(BaseModel):
     waypoint: Point | None = None
 
 
+class Impedance(BaseModel):
+    """A per-unit series impedance (pandapower ``impedance``) tying two buses
+    together — a branch defined directly by its p.u. R/X on a rating ``sn_mva``
+    rather than by length like a :class:`Line`. Used for network equivalents and
+    couplings (e.g. the multi-voltage example's 110 kV tie). The from→to and
+    to→from impedances are modeled symmetrically (``rtf``/``xtf`` mirror
+    ``rft``/``xft``); an imported asymmetric impedance is carried through until
+    edited."""
+
+    id: str
+    name: str = "Impedance"
+    from_bus: str = ""  # bus on handle "from" ("" while unwired)
+    to_bus: str = ""  # bus on handle "to"
+    # ge=0 (not gt) so an imported ideal/near-ideal impedance still round-trips.
+    rft_pu: float = Field(default=0.0, ge=0, description="from→to resistance [p.u.]")
+    xft_pu: float = Field(default=0.1, ge=0, description="from→to reactance [p.u.]")
+    rtf_pu: float = Field(default=0.0, ge=0, description="to→from resistance [p.u.]")
+    xtf_pu: float = Field(default=0.1, ge=0, description="to→from reactance [p.u.]")
+    sn_mva: float = Field(default=100.0, gt=0, description="Rating base [MVA]")
+    # Which bus port each end attaches to (handle ids, visual only).
+    port_from: str = ""
+    port_to: str = ""
+    waypoint: Point | None = None
+    x: float = 0.0
+    y: float = 0.0
+
+
 class Switch(BaseModel):
     """A bus–bus switch (pandapower ``et='b'``). Closed ties the two buses into
     one electrical node; open separates them. Single type for now (no
@@ -325,6 +352,7 @@ class Network(BaseModel):
     lines: list[Line] = Field(default_factory=list)
     shunts: list[Shunt] = Field(default_factory=list)
     xwards: list[Xward] = Field(default_factory=list)
+    impedances: list[Impedance] = Field(default_factory=list)
     # Set when positions are only the coarse graph fallback; the client should
     # recompute a proper layout (ELK) and persist it, which clears the flag.
     needs_layout: bool = False
@@ -424,6 +452,7 @@ class LoadFlowResult(BaseModel):
     res_load: list[LoadResult] = Field(default_factory=list)
     res_shunt: list[LoadResult] = Field(default_factory=list)
     res_xward: list[LoadResult] = Field(default_factory=list)
+    res_impedance: list[LoadResult] = Field(default_factory=list)
     res_trafo: list[TrafoResult] = Field(default_factory=list)
     res_trafo3w: list[TrafoResult] = Field(default_factory=list)
     res_line: list[LineResult] = Field(default_factory=list)
@@ -528,8 +557,8 @@ class NetworkSummary(BaseModel):
 
 
 class ForeignElement(BaseModel):
-    """A pandapower element the editor doesn't model yet (e.g. dcline, impedance,
-    motor, storage). Kept on the authoritative server net for full-fidelity
+    """A pandapower element the editor doesn't model yet (e.g. dcline, motor,
+    storage, ward). Kept on the authoritative server net for full-fidelity
     solves and surfaced read-only so the user can see it's there. ``id`` is
     derived as ``"<table>:<index>"`` and is stable as long as the row exists."""
 

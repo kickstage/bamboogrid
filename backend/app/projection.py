@@ -27,12 +27,13 @@ _MODELED = {
     "trafo3w",
     "line",
     "xward",
+    "impedance",
 }
 _NON_ELEMENT = {"bus_geodata", "line_geodata"}
 
 # Columns on a foreign table that reference a bus (by pandapower index). A
 # foreign row is only surfaced when it connects to a bus — this keeps real
-# network elements (dcline, impedance, motor, storage, ward, ...) and drops pure
+# network elements (dcline, motor, storage, ward, ...) and drops pure
 # metadata tables (poly_cost, measurement, ...) that have no place on the canvas.
 _BUS_COLUMNS = ("bus", "from_bus", "to_bus", "hv_bus", "mv_bus", "lv_bus")
 

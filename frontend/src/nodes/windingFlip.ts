@@ -53,22 +53,26 @@ export function windingFlip(
   return false;
 }
 
-// Orientation for a bus-bus switch. The glyph rotates to lie along the axis
-// separating its two buses: horizontal when the buses sit side by side, vertical
-// when one is above the other. `flip` swaps the "a"/"b" terminals so each faces
-// its own bus (a on the right when horizontal, or on the bottom when vertical),
-// keeping the wires from crossing. Unknown ends fall back to the switch body.
+// Orientation for a two-terminal bus-bus element (switch or impedance). The glyph
+// rotates to lie along the axis separating its two buses: horizontal when the
+// buses sit side by side, vertical when one is above the other. `flip` swaps the
+// two terminals so each faces its own bus (terminal a on the right when
+// horizontal, or on the bottom when vertical), keeping the wires from crossing.
+// Unknown ends fall back to the body. The terminal handle ids default to
+// "a"/"b" (switch) but can be overridden (e.g. "from"/"to" for an impedance).
 export function switchLayout(
   nodes: WNode[],
   edges: WEdge[],
   id: string,
   selfX: number,
   selfY: number,
+  terminals: [string, string] = ["a", "b"],
 ): { vertical: boolean; flip: boolean } {
-  const ax = busCoord(nodes, edges, id, "a", "x");
-  const ay = busCoord(nodes, edges, id, "a", "y");
-  const bx = busCoord(nodes, edges, id, "b", "x");
-  const by = busCoord(nodes, edges, id, "b", "y");
+  const [ta, tb] = terminals;
+  const ax = busCoord(nodes, edges, id, ta, "x");
+  const ay = busCoord(nodes, edges, id, ta, "y");
+  const bx = busCoord(nodes, edges, id, tb, "x");
+  const by = busCoord(nodes, edges, id, tb, "y");
   if (ax === null && ay === null && bx === null && by === null)
     return { vertical: false, flip: false };
   const aX = ax ?? selfX;

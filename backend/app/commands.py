@@ -35,6 +35,7 @@ _KIND_TABLE = {
     "trafo3w": "trafo3w",
     "line": "line",
     "xward": "xward",
+    "impedance": "impedance",
 }
 
 # Attachment end -> (bus reference column, diagram port column).
@@ -277,6 +278,34 @@ def _add_transformer3w(net, p: dict) -> None:
     )
 
 
+def _add_impedance(net, p: dict) -> None:
+    d = p["data"]
+    idx = pp.create_impedance(
+        net,
+        from_bus=_index_of(net, "bus", p["from_bus"]),
+        to_bus=_index_of(net, "bus", p["to_bus"]),
+        rft_pu=d["rft_pu"],
+        xft_pu=d["xft_pu"],
+        rtf_pu=d.get("rtf_pu", d["rft_pu"]),
+        xtf_pu=d.get("xtf_pu", d["xft_pu"]),
+        sn_mva=d["sn_mva"],
+        name=d.get("name", "Impedance"),
+    )
+    _set_diagram(
+        net,
+        "impedance",
+        idx,
+        {
+            "uuid": p["id"],
+            "x": p.get("x", 0.0),
+            "y": p.get("y", 0.0),
+            "port_from": p.get("port_from", ""),
+            "port_to": p.get("port_to", ""),
+            "waypoint_json": _waypoint_json(p.get("waypoint")),
+        },
+    )
+
+
 def _add_switch(net, p: dict) -> None:
     idx = pp.create_switch(
         net,
@@ -375,6 +404,7 @@ _HANDLERS = {
     "add_line": _add_line,
     "add_transformer": _add_transformer,
     "add_transformer3w": _add_transformer3w,
+    "add_impedance": _add_impedance,
     "add_switch": _add_switch,
     "connect": _connect,
     "update": _update,
