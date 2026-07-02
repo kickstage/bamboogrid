@@ -17,6 +17,7 @@ import json
 import pandapower as pp
 import pandas as pd
 
+from .ppjson import MAX_IMPORT_BUSES
 from .schema import Command
 
 DEFAULT_TRAFO_STD = "0.25 MVA 20/0.4 kV"
@@ -415,6 +416,17 @@ _HANDLERS = {
 
 def apply_commands(net, commands: list[Command]) -> None:
     """Apply a batch of commands to ``net`` in order, mutating it in place."""
+    # Cap net size on the building side too, matching the import limit. Checked
+    # up front (before any mutation) because the batch is applied in place on the
+    # session's live, cached net — a mid-batch raise would otherwise leave it
+    # over the limit. Only ``add_bus`` grows the bus table.
+    added_buses = sum(1 for c in commands if c.op == "add_bus")
+    if added_buses and len(net.bus) + added_buses > MAX_IMPORT_BUSES:
+        raise CommandError(
+            f"This would bring the network to {len(net.bus) + added_buses} buses, "
+            f"but the limit is {MAX_IMPORT_BUSES}. Larger networks are disabled "
+            "for now to keep the editor responsive."
+        )
     for command in commands:
         handler = _HANDLERS.get(command.op)
         if handler is None:

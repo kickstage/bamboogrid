@@ -301,6 +301,62 @@ def test_import_rejects_gadget_hidden_in_valid_net(client):
     assert res.status_code == 400
 
 
+def test_import_enforces_bus_limit(client):
+    # A net over MAX_IMPORT_BUSES is refused with 413 and a message that names the
+    # actual and allowed counts; a net at the limit is accepted.
+    import pandapower as pp
+
+    from app.ppjson import MAX_IMPORT_BUSES
+
+    over = pp.create_empty_network()
+    for _ in range(MAX_IMPORT_BUSES + 1):
+        pp.create_bus(over, vn_kv=0.4)
+    sid = new_session(client)
+    res = client.post("/session/import", content=pp.to_json(over), headers=auth(sid))
+    assert res.status_code == 413
+    detail = res.json()["detail"]
+    assert str(MAX_IMPORT_BUSES + 1) in detail
+    assert str(MAX_IMPORT_BUSES) in detail
+
+    at_limit = pp.create_empty_network()
+    for _ in range(MAX_IMPORT_BUSES):
+        pp.create_bus(at_limit, vn_kv=0.4)
+    ok = client.post(
+        "/session/import", content=pp.to_json(at_limit), headers=auth(sid)
+    )
+    assert ok.status_code == 200
+    assert len(ok.json()["network"]["buses"]) == MAX_IMPORT_BUSES
+
+
+def test_building_enforces_bus_limit(client):
+    # The same cap applies when buses are added interactively, not just on import.
+    # The over-limit batch is rejected (400) and must not mutate the net.
+    from app.ppjson import MAX_IMPORT_BUSES
+
+    sid = new_session(client)
+
+    def add_buses(n: int):
+        cmds = [
+            {
+                "op": "add_bus",
+                "payload": {"id": f"b{i}", "name": f"B{i}", "vn_kv": 0.4,
+                            "x": 0, "y": i, "width": 220},
+            }
+            for i in range(n)
+        ]
+        return client.post("/session/commands", json=cmds, headers=auth(sid))
+
+    # A batch that exactly fills the limit is fine.
+    assert add_buses(MAX_IMPORT_BUSES).status_code == 200
+    # One more bus is refused, with a message that names the limit...
+    over = add_buses(1)
+    assert over.status_code == 400
+    assert str(MAX_IMPORT_BUSES) in over.json()["detail"]
+    # ...and the rejected command left the net untouched.
+    view = client.get("/session", headers=auth(sid)).json()
+    assert len(view["network"]["buses"]) == MAX_IMPORT_BUSES
+
+
 def test_summary_reports_balance_and_counts(client):
     sid = new_session(client)
     build_one_bus(client, sid)
