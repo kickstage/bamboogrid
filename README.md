@@ -11,11 +11,14 @@ editor doesn't model yet) and edits it through commands. The long-term aim is to
 also export to CGMES.
 
 > **Status.** The editor supports **buses**, three source types (**external
-> grid**/slack, **generator**, **static generator**), **loads**, bus–bus
-> **switches**, and two- and three-winding **transformers** — enough to model
-> multi-voltage-level networks and observe voltage drop, transformer loading and
-> slack balancing under load. Networks import and export as **pandapower JSON**
-> (the file also carries the diagram layout). CGMES export is a planned next step.
+> grid**/slack, **generator**, **static generator**), **loads** and **shunts**,
+> **lines**, bus–bus **switches**, two- and three-winding **transformers**, and
+> two advanced elements (an **xward** network equivalent and a series
+> **impedance**) — enough to model multi-voltage-level networks and observe
+> voltage drop, transformer loading and slack balancing under load. Besides load
+> flow it also runs an **IEC 60909 short circuit**. Networks import and export as
+> **pandapower JSON** (the file also carries the diagram layout). CGMES export is
+> a planned next step.
 
 ## Elements
 
@@ -26,9 +29,13 @@ also export to CGMES.
 | Generator | `gen` | A PV unit: set its active power and the voltage it holds; reactive power is solved. |
 | Static generator | `sgen` | A PQ injection (PV / wind / storage feed-in): set active and reactive power. |
 | Load | `load` | Consumes a fixed P and Q. |
+| Shunt | `shunt` | A fixed shunt element (e.g. capacitor/reactor) at a bus. |
 | Switch | `switch` (`et="b"`) | Ties two buses; closed = one node, open = separated. |
+| Line | `line` | Connects two buses at the same voltage; drawn by wiring one bus directly to another. |
 | Transformer | `trafo` | 2-winding, connects an HV and an LV bus (from a standard type). |
 | 3W transformer | `trafo3w` | 3-winding, connects HV / MV / LV buses. |
+| XWard | `xward` | Reduced equivalent of an external network, attached to a bus. |
+| Impedance | `impedance` | A raw per-unit series branch between two buses. |
 
 See [`examples/`](examples/) for a guided tour of these elements — three small,
 progressively richer networks you can import and solve.
@@ -155,23 +162,29 @@ helm install bamboogrid deploy/helm/bamboogrid \
 ## Using the editor
 
 1. **Drag** elements from the left palette (grouped into *Nodes*, *Sources*,
-   *Loads*, *Connections*) onto the canvas.
+   *Loads*, *Connections*, and *Advanced*) onto the canvas.
 2. **Connect** their handles to buses. A component (generator, static generator,
-   external grid, load) wires to one bus; a switch wires each of its two ends to
-   a bus; a transformer wires each winding (HV/LV, or HV/MV/LV) to a bus. Each
-   handle carries a single wire, and the busbar grows ports as you attach more.
+   external grid, load, shunt) wires to one bus; a switch or an impedance wires
+   each of its two ends to a bus; a transformer wires each winding (HV/LV, or
+   HV/MV/LV) to a bus. Wiring one bus directly to another draws a **line**
+   between them. Each handle carries a single wire, and the busbar grows ports as
+   you attach more.
 3. **Select** an element and edit its parameters in the right-hand inspector
    (e.g. bus `vn_kv`; generator `p_mw`/`vm_pu`; load `p_mw`/`q_mvar`; external
    grid `vm_pu`; transformer standard type).
-4. **Run load flow** — bus voltages (`vm_pu`) are painted onto the buses (tinted
-   green/amber/red by how far they are from 1.0 p.u.); generators, sgens and
-   external grids show their solved P/Q, and transformers their loading %. A
-   failed solve shows a banner and clears stale results. Toggle the **Results**
-   switch to show/hide them.
+4. **Run a study** — pick it from the toolbar. **Load flow** paints bus voltages
+   (`vm_pu`) onto the buses (tinted green/amber/red by how far they are from 1.0
+   p.u.); generators, sgens and external grids show their solved P/Q, and
+   transformers their loading %. Solver options (algorithm, tolerance, etc.) live
+   under the study's **settings**. **Short circuit** runs an IEC 60909 (3-phase,
+   max) calculation and shows the fault levels per bus. A failed solve shows a
+   banner and clears stale results. Toggle the **Results** switch to show/hide
+   them.
 5. **Import / Export** — *Export* downloads the network as a single pandapower
    JSON (a valid pandapower net plus `diagram_*` layout tables); *Import* loads a
    pandapower JSON back — either one we exported, or a plain pandapower net
-   (which gets an automatic layout).
+   (which gets an automatic layout). Imports are capped (currently 100 buses and
+   16 MB) and screened for unsafe content before loading.
 6. **Share** — *Share* copies a short link; opening it gives the recipient an
    editable **copy** (a fresh session), so the original is never modified. Your
    work is saved to its server session and restored on reload.
