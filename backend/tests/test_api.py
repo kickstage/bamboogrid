@@ -95,6 +95,28 @@ def test_run_loadflow_non_converging(client):
     assert run.json()["converged"] is False
 
 
+def test_run_loadflow_drops_disconnected_client(client, monkeypatch):
+    """A request whose client hung up (the editor timed out and aborted) is
+    refused with 499 before the solve runs, so an abandoned request can't burn a
+    CPU core."""
+    sid = new_session(client)
+    build_one_bus(client, sid)
+
+    async def _always_disconnected(self) -> bool:
+        return True
+
+    def _boom(_net):  # the solver must not be reached for a dead client
+        raise AssertionError("solve_net ran for a disconnected client")
+
+    monkeypatch.setattr(
+        "starlette.requests.Request.is_disconnected", _always_disconnected
+    )
+    monkeypatch.setattr("app.main.solve_net", _boom)
+
+    run = client.post("/session/run-loadflow", headers=auth(sid))
+    assert run.status_code == 499
+
+
 def test_loadflow_settings_defaults(client):
     sid = new_session(client)
     res = client.get("/session/loadflow-settings", headers=auth(sid))

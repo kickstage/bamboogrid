@@ -145,14 +145,31 @@ export async function openShare(token: string): Promise<SessionInfo> {
   return json(await fetch(`${BASE}/share/${token}`, { method: "POST" }));
 }
 
+// A load flow that hasn't answered within this budget is abandoned. The solve
+// is CPU-bound; under load the server queues requests, and one waiting this long
+// is unlikely to return soon. Aborting closes the connection, which lets the
+// backend drop the still-queued request instead of spending a core on a result
+// no one is waiting for.
+const LOAD_FLOW_TIMEOUT_MS = 5000;
+
 // Run a load flow on the retained net; results are keyed by editor element id.
 export async function runLoadFlow(id: string): Promise<LoadFlowResult> {
-  return json(
-    await fetch(`${BASE}/session/run-loadflow`, {
+  let res: Response;
+  try {
+    res = await fetch(`${BASE}/session/run-loadflow`, {
       method: "POST",
       headers: { [SESSION_HEADER]: id },
-    }),
-  );
+      signal: AbortSignal.timeout(LOAD_FLOW_TIMEOUT_MS),
+    });
+  } catch (err) {
+    if (err instanceof DOMException && err.name === "TimeoutError") {
+      throw new Error(
+        `Load flow timed out after ${LOAD_FLOW_TIMEOUT_MS / 1000}s — the server is busy. Try again in a moment.`,
+      );
+    }
+    throw err;
+  }
+  return json(res);
 }
 
 // Run an IEC 60909 3-phase (max) short circuit; results are keyed by bus id.

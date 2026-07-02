@@ -10,11 +10,13 @@ from __future__ import annotations
 
 import os
 
+import anyio
 import pandapower as pp
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.concurrency import run_in_threadpool
 
 from .commands import CommandError, apply_commands
 from .ppjson import MAX_IMPORT_BUSES, MAX_IMPORT_BYTES, std_trafo_types
@@ -38,6 +40,14 @@ from .tracing import setup_tracing, tracer
 
 app = FastAPI(title="BambooGrid API", version="0.2.0")
 setup_tracing(app)
+
+# Cap concurrent load-flow solves. Solves are CPU-bound and GIL-serialized while
+# the container caps CPU, so admitting more than a few at once just thrashes and
+# inflates everyone's latency past the client's timeout. The rest wait in this
+# limiter (see ``run_loadflow``), which is a place we can still notice the client
+# hanging up. A CapacityLimiter is safe to construct at import (loop-agnostic).
+_MAX_CONCURRENT_SOLVES = max(1, int(os.getenv("MAX_CONCURRENT_SOLVES", "4")))
+_solve_limiter = anyio.CapacityLimiter(_MAX_CONCURRENT_SOLVES)
 
 
 @app.exception_handler(ConflictError)
@@ -202,13 +212,33 @@ def open_share(token: str) -> SessionInfo:
 
 
 @app.post("/session/run-loadflow", response_model=LoadFlowResult)
-def run_loadflow(session: Session = Depends(current_session)) -> LoadFlowResult:
-    """Run a load flow on the retained net and return results keyed by editor id."""
-    with session.lock:
-        with tracer.start_as_current_span("loadflow.run") as span:
-            span.set_attribute("session.id", session.id)
-            span.set_attribute("net.bus_count", int(len(session.net.bus)))
-            return solve_net(session.net)
+async def run_loadflow(
+    request: Request, session: Session = Depends(current_session)
+) -> LoadFlowResult:
+    """Run a load flow on the retained net and return results keyed by editor id.
+
+    The solve is CPU-bound and single-threaded under the GIL, and the container
+    caps CPU, so running many at once only thrashes. We cap concurrent solves and
+    let the rest queue here, in async-land, where a client disconnect is still
+    visible: a request whose browser gave up (the editor aborts the fetch after a
+    few seconds) is dropped before we spend a core on a result no one will read."""
+    if await request.is_disconnected():
+        raise HTTPException(status_code=499, detail="Client closed request.")
+
+    async with _solve_limiter:
+        # Re-check after (possibly) waiting for a free solve slot: the browser
+        # may have timed out and aborted while this request sat in the queue.
+        if await request.is_disconnected():
+            raise HTTPException(status_code=499, detail="Client closed request.")
+
+        def _solve() -> LoadFlowResult:
+            with session.lock:
+                with tracer.start_as_current_span("loadflow.run") as span:
+                    span.set_attribute("session.id", session.id)
+                    span.set_attribute("net.bus_count", int(len(session.net.bus)))
+                    return solve_net(session.net)
+
+        return await run_in_threadpool(_solve)
 
 
 @app.get("/session/loadflow-settings", response_model=LoadFlowSettings)
