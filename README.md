@@ -102,7 +102,7 @@ npm run typecheck   # tsc --noEmit
 npm run build       # tsc + vite build
 ```
 
-## Docker / Kubernetes
+## Docker
 
 The whole app ships as a **single container**: the FastAPI backend serves the
 built SPA as static files, so UI and API share one origin on port 8000.
@@ -124,8 +124,8 @@ the API / Swagger (<http://localhost:8001/docs>). Both `./frontend` and
 `./backend` are bind-mounted, so edits are picked up live, no rebuild. Postgres
 state persists in the `pgdata` volume; `docker compose down -v` also drops it.
 
-> This compose file is for local dev only. Production is the single image below,
-> deployed via Helm/k8s — not Compose.
+> This compose file is for local dev only. Production is the single image below —
+> not Compose.
 
 ### Building the production image
 
@@ -136,28 +136,8 @@ docker run --rm -p 8000:8000 -e DATABASE_URL=postgresql://… bamboogrid
 
 Open <http://localhost:8000>.
 
-CI publishes the image to **`ghcr.io/kickstage/bamboogrid`**
-(nightly via `nightly` tag, and on GitHub release as semver + `latest`).
-
-A Helm chart lives in [`deploy/helm/bamboogrid`](deploy/helm/bamboogrid):
-
-```bash
-helm install bamboogrid deploy/helm/bamboogrid \
-  --set image.tag=nightly
-```
-
-The package is private by default (private repo), so the cluster needs a pull
-secret. Create one and reference it via `imagePullSecrets`:
-
-```bash
-kubectl create secret docker-registry ghcr-pull \
-  --docker-server=ghcr.io \
-  --docker-username=<github-user> \
-  --docker-password=<PAT with read:packages>
-
-helm install bamboogrid deploy/helm/bamboogrid \
-  --set 'imagePullSecrets[0].name=ghcr-pull'
-```
+The container needs a reachable PostgreSQL database via `DATABASE_URL`; sessions
+are stored there.
 
 ## Using the editor
 

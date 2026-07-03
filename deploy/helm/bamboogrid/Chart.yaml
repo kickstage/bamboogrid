@@ -1,6 +1,0 @@
-apiVersion: v2
-name: bamboogrid
-description: BambooGrid - pandapower network editor (single-container SPA + API)
-type: application
-version: 0.1.0
-appVersion: "0.1.0"
