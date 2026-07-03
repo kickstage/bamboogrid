@@ -13,9 +13,12 @@ RUN npm run build
 
 # --- Stage 2: runtime ---
 FROM python:3.14-slim AS runtime
+# NUMBA_CACHE_DIR: the JIT cache must land in /tmp because the container runs
+# with a read-only root filesystem.
 ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
-    STATIC_DIR=/app/static
+    STATIC_DIR=/app/static \
+    NUMBA_CACHE_DIR=/tmp
 WORKDIR /app
 
 COPY backend/ ./backend/

@@ -8,6 +8,9 @@ dependencies = [
     "uvicorn[standard]>=0.29",
     "pydantic>=2.6",
     "pandapower>=2.14",
+    # Optional pandapower accelerator; without it every load flow logs a warning
+    # and runs the pure-Python solver. Needs >=0.63 for Python 3.14.
+    "numba>=0.63",
     "networkx>=3.0",
     "psycopg[binary]>=3.1",
     "psycopg-pool>=3.2",

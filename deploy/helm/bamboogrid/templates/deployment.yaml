@@ -6,6 +6,8 @@ metadata:
     {{- include "bamboogrid.labels" . | nindent 4 }}
 spec:
   replicas: {{ .Values.replicaCount }}
+  strategy:
+    {{- toYaml .Values.deployment.strategy | nindent 4 }}
   selector:
     matchLabels:
       {{- include "bamboogrid.selectorLabels" . | nindent 6 }}
@@ -20,6 +22,7 @@ spec:
       {{- end }}
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      terminationGracePeriodSeconds: {{ .Values.deployment.terminationGracePeriodSeconds }}
       containers:
         - name: {{ .Chart.Name }}
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
@@ -46,18 +49,31 @@ spec:
             - name: OTEL_SERVICE_NAME
               value: {{ .Values.tracing.serviceName | quote }}
             {{- end }}
+          lifecycle:
+            preStop:
+              # Keep serving while Kubernetes removes this pod from the Service
+              # endpoints and the ingress updates its upstreams. Without this the
+              # pod stops accepting connections before nginx stops routing to it,
+              # which surfaces as 502/Bad Gateway during rollouts.
+              exec:
+                command: ["sleep", {{ .Values.deployment.preStopSleepSeconds | quote }}]
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 3
+            failureThreshold: 20
           livenessProbe:
             httpGet:
               path: /health
               port: http
-            initialDelaySeconds: 10
             periodSeconds: 30
           readinessProbe:
             httpGet:
               path: /health
               port: http
-            initialDelaySeconds: 5
-            periodSeconds: 10
+            periodSeconds: 5
+            failureThreshold: 2
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
           volumeMounts:

@@ -19,6 +19,27 @@ service:
   type: ClusterIP
   port: 8000
 
+# Rollout and graceful-shutdown tuning for uninterrupted (zero-downtime) deploys.
+# maxUnavailable 0 keeps full capacity during a rollout; the preStop delay keeps
+# a terminating pod serving until the ingress stops routing to it, which avoids
+# the 502/Bad Gateway that otherwise appears mid-deploy.
+deployment:
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  # Must exceed preStopSleepSeconds so uvicorn still has time to drain in-flight
+  # requests after the delay before the pod is force-killed.
+  terminationGracePeriodSeconds: 35
+  preStopSleepSeconds: 5
+
+# Keeps at least one pod serving during voluntary disruptions (e.g. node drains).
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+  maxUnavailable: ""
+
 # With more than one replica a session is pinned to the pod that holds its live
 # net via consistent hashing on the X-Session-Id header. This needs the ingress
 # enabled and an nginx ingress controller; requests without the header (session
@@ -28,7 +49,10 @@ ingress:
   className: ""
   annotations:
     nginx.ingress.kubernetes.io/upstream-hash-by: "$http_x_session_id"
-    nginx.ingress.kubernetes.io/proxy-body-size: "16m"
+    # Kept above the app's 16 MiB import cap (MAX_IMPORT_BYTES) so oversized
+    # uploads are rejected by the app with a readable JSON message rather than by
+    # nginx with its generic HTML 413 page.
+    nginx.ingress.kubernetes.io/proxy-body-size: "20m"
   hosts:
     - host: bamboogrid.local
       paths:
