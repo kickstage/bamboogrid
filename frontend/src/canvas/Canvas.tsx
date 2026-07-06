@@ -309,10 +309,7 @@ export function Canvas() {
       const selNodes = s.nodes.filter((n) => n.selected).map((n) => n.id);
       if (selEdges.length === 0 && selNodes.length === 0) return;
       e.preventDefault();
-      // Edges before nodes, so a line is dropped before a bus it hangs off of
-      // cascades on the server (avoids deleting an already-cascaded line).
-      for (const id of selEdges) s.removeEdge(id);
-      for (const id of selNodes) s.removeNode(id);
+      s.removeElements(selNodes, selEdges);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -609,8 +606,7 @@ export function Canvas() {
             const s = useEditor.getState();
             const selEdges = s.edges.filter((ed) => ed.selected).map((ed) => ed.id);
             const selNodes = s.nodes.filter((n) => n.selected).map((n) => n.id);
-            for (const id of selEdges) s.removeEdge(id);
-            for (const id of selNodes) s.removeNode(id);
+            s.removeElements(selNodes, selEdges);
             setNodeMenu(null);
           }}
           onGraph={(kind) => {

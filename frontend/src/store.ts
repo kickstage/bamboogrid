@@ -140,7 +140,10 @@ function withoutResults(type: ElementKind, data: ElementData): ElementData {
   return d as ElementData;
 }
 
-function makeCloneNode(payload: ClonePayload, position: XYPosition): ElementNode {
+function makeCloneNode(
+  payload: ClonePayload,
+  position: XYPosition,
+): ElementNode {
   return {
     id: newId(),
     type: payload.type,
@@ -293,6 +296,7 @@ interface EditorState {
   updateEdgeData: (id: string, patch: Partial<LineData>) => void;
   removeNode: (id: string) => void;
   removeEdge: (id: string) => void;
+  removeElements: (nodeIds: string[], edgeIds: string[]) => void;
   // Set (or clear, with null) a wire's routing waypoint — a draggable point the
   // line is computed through. Purely visual; ignored by the load-flow converter.
   setEdgeWaypoint: (id: string, point: { x: number; y: number } | null) => void;
@@ -416,7 +420,13 @@ function syncAttachment(
       if (known)
         enqueue({
           op: "connect",
-          payload: { id: node.id, kind, end: handleToEnd(handle), bus_id: busId, port },
+          payload: {
+            id: node.id,
+            kind,
+            end: handleToEnd(handle),
+            bus_id: busId,
+            port,
+          },
         });
       else {
         enqueue({
@@ -446,7 +456,13 @@ function syncAttachment(
       if (known)
         enqueue({
           op: "connect",
-          payload: { id: node.id, kind, end: handleToEnd(handle), bus_id: busId, port },
+          payload: {
+            id: node.id,
+            kind,
+            end: handleToEnd(handle),
+            bus_id: busId,
+            port,
+          },
         });
       else {
         enqueue({
@@ -476,7 +492,13 @@ function syncAttachment(
       if (known) {
         enqueue({
           op: "connect",
-          payload: { id: node.id, kind, end: handleToEnd(handle), bus_id: busId, port },
+          payload: {
+            id: node.id,
+            kind,
+            end: handleToEnd(handle),
+            bus_id: busId,
+            port,
+          },
         });
         return;
       }
@@ -517,7 +539,13 @@ function syncAttachment(
     if (known) {
       enqueue({
         op: "connect",
-        payload: { id: node.id, kind, end: handleToEnd(handle), bus_id: busId, port },
+        payload: {
+          id: node.id,
+          kind,
+          end: handleToEnd(handle),
+          bus_id: busId,
+          port,
+        },
       });
       return;
     }
@@ -645,7 +673,12 @@ export const useEditor = create<EditorState>((set, get) => ({
         if (n?.type && serverIds.has(n.id) && n.type !== "foreign")
           enqueue({
             op: "set_layout",
-            payload: { id: n.id, kind: n.type, x: n.position.x, y: n.position.y },
+            payload: {
+              id: n.id,
+              kind: n.type,
+              x: n.position.x,
+              y: n.position.y,
+            },
           });
       } else if (ch.type === "dimensions" && ch.resizing === false) {
         // Only a finished user resize syncs width. React Flow's initial
@@ -677,7 +710,9 @@ export const useEditor = create<EditorState>((set, get) => ({
     const handle = connection.sourceHandle ?? null;
     const filtered = s.edges.filter(
       (e) =>
-        !(e.source === connection.source && (e.sourceHandle ?? null) === handle),
+        !(
+          e.source === connection.source && (e.sourceHandle ?? null) === handle
+        ),
     );
     const edges = addEdge({ ...connection, type: "wire" }, filtered);
     set({ edges });
@@ -760,7 +795,11 @@ export const useEditor = create<EditorState>((set, get) => ({
       const matches = matchingTrafo2wTypes(hvVn, lvVn);
       const data: Trafo2WData = matches.length
         ? { name: "Transformer", std_type: matches[0] }
-        : { name: "Transformer", std_type: "", params: defaultTrafo2wParams(hvVn, lvVn) };
+        : {
+            name: "Transformer",
+            std_type: "",
+            params: defaultTrafo2wParams(hvVn, lvVn),
+          };
       const id = newId();
       const node: ElementNode = {
         id,
@@ -863,7 +902,13 @@ export const useEditor = create<EditorState>((set, get) => ({
     if (sel.length === 0) return [];
     const created = sel.map((n) =>
       makeCloneNode(
-        { type: n.type as ElementKind, data: n.data, width: n.width, dx: 0, dy: 0 },
+        {
+          type: n.type as ElementKind,
+          data: n.data,
+          width: n.width,
+          dx: 0,
+          dy: 0,
+        },
         { x: n.position.x + delta.x, y: n.position.y + delta.y },
       ),
     );
@@ -889,13 +934,22 @@ export const useEditor = create<EditorState>((set, get) => ({
     const pairs = sel.map((n) => ({
       original: n,
       clone: makeCloneNode(
-        { type: n.type as ElementKind, data: n.data, width: n.width, dx: 0, dy: 0 },
+        {
+          type: n.type as ElementKind,
+          data: n.data,
+          width: n.width,
+          dx: 0,
+          dy: 0,
+        },
         { x: n.position.x, y: n.position.y },
       ),
     }));
     set((s) => ({ nodes: [...s.nodes, ...pairs.map((p) => p.clone)] }));
     pairs.forEach((p) => syncClonedNode(p.clone));
-    return pairs.map((p) => ({ originalId: p.original.id, cloneId: p.clone.id }));
+    return pairs.map((p) => ({
+      originalId: p.original.id,
+      cloneId: p.clone.id,
+    }));
   },
 
   pasteAt: (position) => {
@@ -967,6 +1021,53 @@ export const useEditor = create<EditorState>((set, get) => ({
     }
   },
 
+  removeElements: (nodeIds, edgeIds) => {
+    if (get().readOnly) return;
+    const nodesById = new Map(get().nodes.map((n) => [n.id, n]));
+
+    // Buses go last. A bus delete cascades everything attached to it (lines,
+    // transformers, switches, loads, gens…) server-side, so we delete those
+    // explicitly *first*, while they still exist — the later bus cascade then
+    // simply skips rows already gone (drop_buses is idempotent over them). The
+    // whole batch flushes in one request (via the single resync below, or the
+    // debounce timer), so this ordering holds and nothing races across requests.
+    const busIds: string[] = [];
+    const elementIds: string[] = [];
+    for (const id of nodeIds) {
+      if (nodesById.get(id)?.type === "bus") busIds.push(id);
+      else elementIds.push(id);
+    }
+
+    const removeNodeLocal = (id: string) => {
+      const node = nodesById.get(id);
+      set((s) => ({
+        nodes: s.nodes.filter((n) => n.id !== id),
+        edges: s.edges.filter((e) => e.source !== id && e.target !== id),
+        selectedId: s.selectedId === id ? null : s.selectedId,
+      }));
+      if (!node?.type || node.type === "foreign" || !serverIds.has(id)) return;
+      enqueue({ op: "delete", payload: { id, kind: node.type } });
+      serverIds.delete(id);
+    };
+
+    // Lines, then attached elements, then the buses they hang off of.
+    for (const id of edgeIds) {
+      const edge = get().edges.find((e) => e.id === id);
+      set((s) => ({ edges: s.edges.filter((e) => e.id !== id) }));
+      if (edge?.type === "line" && serverIds.has(id)) {
+        enqueue({ op: "delete", payload: { id, kind: "line" } });
+        serverIds.delete(id);
+      }
+    }
+    for (const id of elementIds) removeNodeLocal(id);
+    for (const id of busIds) removeNodeLocal(id);
+
+    // Re-pull the projection once for the whole batch (rather than per bus) so
+    // the local canvas reflects the server-side cascade without firing
+    // overlapping requests.
+    if (busIds.length > 0) void get().resyncFromServer();
+  },
+
   setEdgeWaypoint: (id, point) => {
     if (get().readOnly) return;
     const edge = get().edges.find((e) => e.id === id);
@@ -1031,7 +1132,10 @@ export const useEditor = create<EditorState>((set, get) => ({
     if (nodes.some((n) => n.id === id)) {
       get().selectOnly(id);
       set((s) => ({
-        focusRequest: { ids: [id], nonce: s.focusRequest ? s.focusRequest.nonce + 1 : 1 },
+        focusRequest: {
+          ids: [id],
+          nonce: s.focusRequest ? s.focusRequest.nonce + 1 : 1,
+        },
         searchHighlightId: highlight,
       }));
       return true;
@@ -1058,7 +1162,11 @@ export const useEditor = create<EditorState>((set, get) => ({
   },
 
   setSearchOpen: (open) =>
-    set(open ? { searchOpen: true } : { searchOpen: false, searchHighlightId: null }),
+    set(
+      open
+        ? { searchOpen: true }
+        : { searchOpen: false, searchHighlightId: null },
+    ),
 
   deselectAll: () =>
     set((s) => ({
@@ -1309,7 +1417,12 @@ export const useEditor = create<EditorState>((set, get) => ({
     // Stub elements (source/load/shunt) tracked so the lone ones can be straightened
     // onto their assigned port after layout.
     const STUB_HALF = 32; // element nodes are 64 px wide with a centered handle
-    const stubEdges: { id: string; busId: string; edge: Edge; explicit: boolean }[] = [];
+    const stubEdges: {
+      id: string;
+      busId: string;
+      edge: Edge;
+      explicit: boolean;
+    }[] = [];
     for (const b of network.buses) {
       nodes.push({
         id: b.id,
@@ -1319,7 +1432,9 @@ export const useEditor = create<EditorState>((set, get) => ({
         width: b.width ?? BUS_DEFAULT_WIDTH,
       });
     }
-    const busById = new Map(nodes.filter((n) => n.type === "bus").map((n) => [n.id, n]));
+    const busById = new Map(
+      nodes.filter((n) => n.type === "bus").map((n) => [n.id, n]),
+    );
     const busCenter = (id: string): number => {
       const b = busById.get(id);
       return b ? b.position.x + (b.width ?? BUS_DEFAULT_WIDTH) / 2 : 0;
@@ -1370,7 +1485,12 @@ export const useEditor = create<EditorState>((set, get) => ({
         };
         edges.push(edge);
         connect(edge, "targetHandle", sg.bus_id, sg.port, sg.x + STUB_HALF);
-        stubEdges.push({ id: sg.id, busId: sg.bus_id, edge, explicit: !!sg.port });
+        stubEdges.push({
+          id: sg.id,
+          busId: sg.bus_id,
+          edge,
+          explicit: !!sg.port,
+        });
       }
     }
     for (const eg of network.ext_grids ?? []) {
@@ -1396,7 +1516,12 @@ export const useEditor = create<EditorState>((set, get) => ({
         };
         edges.push(edge);
         connect(edge, "targetHandle", eg.bus_id, eg.port, eg.x + STUB_HALF);
-        stubEdges.push({ id: eg.id, busId: eg.bus_id, edge, explicit: !!eg.port });
+        stubEdges.push({
+          id: eg.id,
+          busId: eg.bus_id,
+          edge,
+          explicit: !!eg.port,
+        });
       }
     }
     for (const l of network.loads) {
@@ -1441,7 +1566,12 @@ export const useEditor = create<EditorState>((set, get) => ({
         };
         edges.push(edge);
         connect(edge, "targetHandle", sh.bus_id, sh.port, sh.x + STUB_HALF);
-        stubEdges.push({ id: sh.id, busId: sh.bus_id, edge, explicit: !!sh.port });
+        stubEdges.push({
+          id: sh.id,
+          busId: sh.bus_id,
+          edge,
+          explicit: !!sh.port,
+        });
       }
     }
     for (const x of network.xwards ?? []) {
@@ -1631,7 +1761,10 @@ export const useEditor = create<EditorState>((set, get) => ({
     for (const bus of busById.values()) {
       const count = portCount.get(bus.id);
       if (count)
-        bus.width = Math.max(bus.width ?? BUS_DEFAULT_WIDTH, widthForPorts(count));
+        bus.width = Math.max(
+          bus.width ?? BUS_DEFAULT_WIDTH,
+          widthForPorts(count),
+        );
     }
     // Straighten lone stubs: when a source/load/shunt is the only element on its
     // side of a bus, snap it directly under/over its assigned port so the wire is a
