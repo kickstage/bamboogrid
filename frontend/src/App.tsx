@@ -14,6 +14,7 @@ import {
   useMantineColorScheme,
   useComputedColorScheme,
 } from "@mantine/core";
+import { notifications } from "@mantine/notifications";
 import { ReactFlowProvider } from "@xyflow/react";
 
 import { Logo } from "./ui/Logo";
@@ -365,6 +366,46 @@ export default function App() {
 
   const onRun = async () => {
     if (!sessionId || busy) return;
+
+    // An empty canvas has nothing to solve, and the backend rejects it with a
+    // cryptic error. Nudge the user to build a grid (or load a ready-made one)
+    // instead of surfacing that failure.
+    const { nodes } = useEditor.getState();
+    if (nodes.length === 0) {
+      const study = studyMode === "shortcircuit" ? "short circuit" : "load flow";
+      const ieee14 = scenarios.find((s) => s.id === "case14");
+      const noticeId = "empty-canvas-run";
+      notifications.show({
+        id: noticeId,
+        color: "blue",
+        autoClose: 8000,
+        title: "Nothing to solve yet",
+        message: (
+          <Text size="sm">
+            Add some buses and equipment to build a grid before running a{" "}
+            {study}
+            {ieee14 && (
+              <>
+                , or{" "}
+                <Anchor
+                  inherit
+                  fw={500}
+                  onClick={() => {
+                    notifications.hide(noticeId);
+                    void onOpenScenario(ieee14);
+                  }}
+                >
+                  try the IEEE 14-bus example
+                </Anchor>
+              </>
+            )}
+            .
+          </Text>
+        ),
+      });
+      return;
+    }
+
     setBusy(true);
     try {
       await flushPending();
