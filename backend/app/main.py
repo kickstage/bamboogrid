@@ -95,7 +95,7 @@ def health() -> dict[str, str]:
 
 
 @app.get("/std-types/{table}")
-def get_std_types(table: str) -> dict[str, dict[str, float]]:
+def get_std_types(table: str) -> dict[str, dict[str, float | str]]:
     """The library transformer types and their editable parameters. The inspector
     fetches this (once, cached) to expand a chosen std_type into editable params.
     Session-independent — it's pandapower's static catalog."""

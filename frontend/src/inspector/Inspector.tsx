@@ -46,6 +46,7 @@ import type {
   SgenData,
   ShuntData,
   SwitchData,
+  TapChangerType,
   Trafo2WData,
   Trafo2WParams,
   Trafo3WData,
@@ -213,7 +214,9 @@ function AdvancedParams({
   onChange,
 }: {
   groups: ParamGroup[];
-  params: Record<string, number | null>;
+  // Only the numeric group fields are read here; string tap fields on the wider
+  // param type are ignored.
+  params: Record<string, number | string | null | undefined>;
   onChange: (key: string, value: number) => void;
 }) {
   return (
@@ -256,6 +259,162 @@ function AdvancedParams({
   );
 }
 
+// The 2-winding transformer's tap changer. pandapower models a voltage
+// regulator and a phase shifter with the same fields, distinguished by
+// `tap_changer_type`: "Ratio" moves voltage magnitude (via tap_step_percent),
+// "Ideal"/"Symmetrical" move the phase angle (via tap_step_degree). Picking a
+// type reveals the relevant fields; "None" removes the tap changer. Tabular
+// (table-defined) presets are shown read-only — editing them isn't supported yet.
+const TAP_TYPES = ["None", "Ratio", "Symmetrical", "Ideal"] as const;
+
+function TapChanger({
+  params,
+  onPatch,
+  onTapPos,
+}: {
+  params: Trafo2WParams;
+  onPatch: (patch: Partial<Trafo2WParams>) => void;
+  // tap_pos is the operating setpoint — routed separately so moving the tap
+  // doesn't drop the transformer's preset label (unlike every other tap edit).
+  onTapPos: (pos: number) => void;
+}) {
+  const type = params.tap_changer_type ?? "None";
+
+  // Collapsible like the Advanced parameters section (same Accordion styling).
+  const section = (body: ReactNode) => (
+    <Accordion
+      chevronPosition="right"
+      classNames={{ control: "advancedControl" }}
+      styles={{
+        item: { border: "none" },
+        control: { paddingInline: 0 },
+        content: { paddingInline: 0 },
+      }}
+    >
+      <Accordion.Item value="tap">
+        <Accordion.Control>Tap changer</Accordion.Control>
+        <Accordion.Panel>{body}</Accordion.Panel>
+      </Accordion.Item>
+    </Accordion>
+  );
+
+  if (type === "Tabular") {
+    return section(
+      <Text size="xs" c="dimmed">
+        This transformer uses a tabular (table-defined) tap changer, which isn't
+        editable here yet.
+      </Text>,
+    );
+  }
+
+  const setType = (v: string | null) => {
+    if (!v || v === type) return;
+    if (v === "None") {
+      // Remove the tap changer entirely.
+      onPatch({
+        tap_changer_type: null,
+        tap_side: null,
+        tap_neutral: null,
+        tap_min: null,
+        tap_max: null,
+        tap_pos: null,
+        tap_step_percent: null,
+        tap_step_degree: null,
+      });
+      return;
+    }
+    const tct = v as TapChangerType;
+    const phase = tct === "Ideal" || tct === "Symmetrical";
+    // Seed the position fields when turning a tap changer on from nothing.
+    const seed =
+      type === "None"
+        ? {
+            tap_side: params.tap_side ?? "hv",
+            tap_neutral: params.tap_neutral ?? 0,
+            tap_min: params.tap_min ?? -9,
+            tap_max: params.tap_max ?? 9,
+            tap_pos: params.tap_pos ?? 0,
+          }
+        : {};
+    onPatch({
+      tap_changer_type: tct,
+      ...seed,
+      // The step fields are mutually exclusive by type: pandapower rejects a
+      // voltage step on an ideal phase shifter, and an angle step is meaningless
+      // for a ratio changer. Symmetrical uses both.
+      tap_step_percent: tct === "Ideal" ? 0 : params.tap_step_percent || 1.5,
+      tap_step_degree: phase ? params.tap_step_degree || 1.5 : 0,
+    });
+  };
+
+  const numField = (
+    key: keyof Trafo2WParams,
+    symbol: ReactNode,
+    unit: string | undefined,
+    name: string,
+    step: number,
+    dp: number,
+  ) => (
+    <ParamInput
+      name={name}
+      symbol={symbol}
+      unit={unit}
+      value={(params[key] as number | null) ?? ""}
+      step={step}
+      decimalScale={dp}
+      onChange={(v) =>
+        onPatch({ [key]: Number(v) || 0 } as Partial<Trafo2WParams>)
+      }
+    />
+  );
+
+  const ratio = type === "Ratio" || type === "Symmetrical";
+  const phase = type === "Ideal" || type === "Symmetrical";
+
+  return section(
+    <Stack gap="xs">
+      <Select
+        label="Type"
+        data={[...TAP_TYPES]}
+        value={type}
+        onChange={setType}
+        allowDeselect={false}
+      />
+      {type !== "None" && (
+        <>
+          <Select
+            label="Tap side"
+            // Displayed uppercase to match the bus labels on the diagram; the
+            // stored value stays pandapower's lowercase "hv"/"lv".
+            data={[
+              { value: "hv", label: "HV" },
+              { value: "lv", label: "LV" },
+            ]}
+            value={params.tap_side ?? "hv"}
+            onChange={(v) => v && onPatch({ tap_side: v })}
+            allowDeselect={false}
+          />
+          {numField("tap_neutral", "Neutral", undefined, "Neutral (mid) tap position", 1, 0)}
+          {numField("tap_min", "Min", undefined, "Minimum tap position", 1, 0)}
+          {numField("tap_max", "Max", undefined, "Maximum tap position", 1, 0)}
+          <ParamInput
+            name="Current tap position"
+            symbol="Position"
+            value={params.tap_pos ?? ""}
+            step={1}
+            decimalScale={0}
+            onChange={(v) => onTapPos(Number(v) || 0)}
+          />
+          {ratio &&
+            numField("tap_step_percent", <>Δ<Sym sub="tap">V</Sym></>, "%", "Voltage change per tap step", 0.1, 3)}
+          {phase &&
+            numField("tap_step_degree", <>Δ<Sym sub="tap">θ</Sym></>, "deg", "Angle change per tap step", 0.5, 2)}
+        </>
+      )}
+    </Stack>,
+  );
+}
+
 export function Inspector() {
   const {
     nodes,
@@ -264,6 +423,7 @@ export function Inspector() {
     selectedEdgeId,
     updateNodeData,
     updateEdgeData,
+    setTrafoTapPos,
     studyMode,
   } = useEditor();
 
@@ -771,6 +931,12 @@ export function Inspector() {
                   kvEqual(params.vn_lv_kv, volts.lv!)
                 )
               : !matching.includes(d.std_type));
+          // Editing any field (incl. the tap changer) makes the transformer
+          // custom, dropping the preset label but keeping its parameters.
+          const patchParams = (patch: Partial<Trafo2WParams>) => {
+            if (!params) return;
+            update({ std_type: "", params: { ...params, ...patch } });
+          };
           const editParam = (key: string, value: number) => {
             if (!params) return;
             // Editing any field makes the transformer custom (drops the preset).
@@ -830,6 +996,13 @@ export function Inspector() {
                   groups={TRAFO2W_GROUPS}
                   params={params}
                   onChange={editParam}
+                />
+              )}
+              {params && (
+                <TapChanger
+                  params={params}
+                  onPatch={patchParams}
+                  onTapPos={(pos) => setTrafoTapPos(node.id, pos)}
                 />
               )}
             </>

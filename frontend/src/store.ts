@@ -294,6 +294,11 @@ interface EditorState {
   pasteAt: (position: XYPosition) => void;
   updateNodeData: (id: string, patch: Partial<ElementData>) => void;
   updateEdgeData: (id: string, patch: Partial<LineData>) => void;
+  // Set a transformer's tap position. tap_pos is an operating setpoint, not part
+  // of the std_type definition, so this writes it as a plain column (keeping the
+  // preset label) rather than routing through the params — which would drop the
+  // transformer to "custom" like any other electrical edit.
+  setTrafoTapPos: (id: string, pos: number) => void;
   removeNode: (id: string) => void;
   removeEdge: (id: string) => void;
   removeElements: (nodeIds: string[], edgeIds: string[]) => void;
@@ -992,6 +997,32 @@ export const useEditor = create<EditorState>((set, get) => ({
     }));
     if (serverIds.has(id))
       enqueue({ op: "update", payload: { id, kind: "line", patch } });
+  },
+
+  setTrafoTapPos: (id, pos) => {
+    if (get().readOnly) return;
+    const node = get().nodes.find((n) => n.id === id);
+    if (!node || (node.type !== "trafo2w" && node.type !== "trafo3w")) return;
+    // Update the tap position inside the projected params locally (leaving the
+    // std_type label untouched)…
+    set((s) => ({
+      nodes: s.nodes.map((n) => {
+        if (n.id !== id) return n;
+        const data = n.data as Trafo2WData | Trafo3WData;
+        if (!data.params) return n;
+        return {
+          ...n,
+          data: { ...data, params: { ...data.params, tap_pos: pos } },
+        } as ElementNode;
+      }),
+    }));
+    // …and send it as a bare column write, not a params/std_type change, so the
+    // preset survives (see the interface note).
+    if (serverIds.has(id))
+      enqueue({
+        op: "update",
+        payload: { id, kind: node.type, patch: { tap_pos: pos } },
+      });
   },
 
   removeNode: (id) => {

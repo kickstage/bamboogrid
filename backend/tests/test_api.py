@@ -653,6 +653,69 @@ def test_editing_a_param_makes_transformer_custom(client):
     assert _trafo(client, sid)["params"]["vk_percent"] == pytest.approx(9.9)
 
 
+def test_setting_tap_position_keeps_the_preset(client):
+    # tap_pos is an operating setpoint, not part of the std_type definition, so
+    # moving the tap is sent as a bare column write and must leave the preset
+    # label intact (unlike editing any electrical param, which makes it custom).
+    sid = new_session(client)
+    _two_bus_trafo(client, sid)
+    std_type = _trafo(client, sid)["std_type"]
+    assert std_type  # started life as a recognized preset
+
+    patch = {"op": "update", "payload": {"id": "t1", "kind": "trafo2w",
+        "patch": {"tap_pos": 2}}}
+    assert client.post("/session/commands", json=[patch], headers=auth(sid)).status_code == 200
+
+    t = _trafo(client, sid)
+    assert t["std_type"] == std_type  # preset survived
+    assert t["params"]["tap_pos"] == pytest.approx(2)
+
+
+def test_std_types_include_tap_changer(client):
+    # The catalog must forward a preset's tap changer so the inspector can show
+    # and edit it (the default distribution transformer has a ratio tap changer).
+    p = client.get("/std-types/trafo").json()["0.25 MVA 20/0.4 kV"]
+    assert p.get("tap_changer_type") == "Ratio"
+    assert p.get("tap_side") in ("hv", "lv")
+    assert "tap_step_percent" in p
+
+
+def test_phase_shifter_tap_changer_round_trips_and_solves(client):
+    sid = new_session(client)
+    _two_bus_trafo(client, sid)
+    # A slack source on the HV bus and a load on the LV bus so the net solves.
+    grid = [
+        {"op": "add_element", "payload": {"id": "g1", "kind": "generator", "bus_id": "b1",
+            "port": "p1", "x": -100, "y": 0,
+            "data": {"name": "Slack", "p_mw": 0.0, "vm_pu": 1.0, "slack": True, "slack_weight": 1.0}}},
+        {"op": "add_element", "payload": {"id": "l1", "kind": "load", "bus_id": "b2",
+            "port": "p1", "x": 0, "y": 400,
+            "data": {"name": "Load", "p_mw": 0.05, "q_mvar": 0.01}}},
+    ]
+    assert client.post("/session/commands", json=grid, headers=auth(sid)).status_code == 200
+
+    # Turn the transformer into an ideal phase shifter, tapped off neutral.
+    params = _trafo(client, sid)["params"]
+    params["tap_changer_type"] = "Ideal"
+    params["tap_step_degree"] = 5.0
+    params["tap_step_percent"] = 0.0  # an ideal phase shifter is pure angle
+    params["tap_pos"] = (params["tap_neutral"] or 0) + 1
+    patch = {"op": "update", "payload": {"id": "t1", "kind": "trafo2w",
+        "patch": {"std_type": "", "params": params}}}
+    assert client.post("/session/commands", json=[patch], headers=auth(sid)).status_code == 200
+
+    t = _trafo(client, sid)
+    assert t["params"]["tap_changer_type"] == "Ideal"
+    assert t["params"]["tap_step_degree"] == pytest.approx(5.0)
+
+    # It actually solves with the phase shifter active...
+    run = client.post("/session/run-loadflow", headers=auth(sid))
+    assert run.status_code == 200
+    assert run.json()["converged"] is True
+    # ...and the tap changer survives an export round-trip.
+    assert "Ideal" in client.get("/session/export", headers=auth(sid)).text
+
+
 def test_scenarios_list_includes_known_cases(client):
     body = client.get("/scenarios").json()
     ids = {s["id"] for s in body}

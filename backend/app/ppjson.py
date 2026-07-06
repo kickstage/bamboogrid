@@ -72,20 +72,25 @@ def _opt_s(value) -> str | None:
     return str(value) or None
 
 
+def _cell(row, col):
+    """A row value by column name, or ``None`` if the column is absent. Lets one
+    tap-field reader serve both a ``net.trafo`` row (all columns) and a std_type
+    catalog row (no ``tap_pos``; ``tap_changer_type`` only on newer pandapower)."""
+    return row[col] if col in row.index else None
+
+
 def _tap_fields(row) -> dict:
-    """Tap-changer columns common to ``trafo`` and ``trafo3w``, NaN-safe. The
-    ``tap_changer_type`` column only exists in newer pandapower versions."""
+    """Tap-changer columns common to ``trafo`` and ``trafo3w``, NaN-safe and
+    tolerant of columns a given row may not carry."""
     return dict(
-        tap_side=_opt_s(row["tap_side"]),
-        tap_neutral=_opt_f(row["tap_neutral"]),
-        tap_min=_opt_f(row["tap_min"]),
-        tap_max=_opt_f(row["tap_max"]),
-        tap_step_percent=_opt_f(row["tap_step_percent"]),
-        tap_step_degree=_opt_f(row["tap_step_degree"]),
-        tap_pos=_opt_f(row["tap_pos"]),
-        tap_changer_type=(
-            _opt_s(row["tap_changer_type"]) if "tap_changer_type" in row else None
-        ),
+        tap_side=_opt_s(_cell(row, "tap_side")),
+        tap_neutral=_opt_f(_cell(row, "tap_neutral")),
+        tap_min=_opt_f(_cell(row, "tap_min")),
+        tap_max=_opt_f(_cell(row, "tap_max")),
+        tap_step_percent=_opt_f(_cell(row, "tap_step_percent")),
+        tap_step_degree=_opt_f(_cell(row, "tap_step_degree")),
+        tap_pos=_opt_f(_cell(row, "tap_pos")),
+        tap_changer_type=_opt_s(_cell(row, "tap_changer_type")),
     )
 
 
@@ -131,8 +136,8 @@ def _trafo3w_params(row) -> Trafo3WParams:
 
 # The editable electrical fields of each transformer kind — the ones the
 # inspector's "Advanced" expander exposes (and the subset of a std_type a picked
-# preset fills). Tap-changer columns are intentionally excluded: they're carried
-# through unchanged rather than edited here.
+# preset fills). The tap-changer columns are appended separately (see
+# ``std_trafo_types``) since some are strings.
 _STD_FIELDS_2W = [
     "sn_mva", "vn_hv_kv", "vn_lv_kv",
     "vk_percent", "vkr_percent", "pfe_kw", "i0_percent", "shift_degree",
@@ -146,22 +151,31 @@ _STD_FIELDS_3W = [
 ]
 
 
-def std_trafo_types(table: str) -> dict[str, dict[str, float]]:
+def std_trafo_types(table: str) -> dict[str, dict[str, float | str]]:
     """Each library ``trafo``/``trafo3w`` std_type mapped to its editable
     parameter set, so the inspector can expand a chosen preset into editable
     values. Built from a throwaway empty net (pandapower's default catalog);
-    independent of any session."""
+    independent of any session.
+
+    Includes the preset's tap changer (``tap_*``), so the inspector can show and
+    edit it and a preset that has one keeps it when the transformer is made
+    custom. Tap fields are mixed-type (``tap_side``/``tap_changer_type`` are
+    strings), hence the ``float | str`` value type."""
     net = pp.create_empty_network()
     df = pp.available_std_types(net, table)
     fields = _STD_FIELDS_3W if table == "trafo3w" else _STD_FIELDS_2W
-    out: dict[str, dict[str, float]] = {}
+    out: dict[str, dict[str, float | str]] = {}
     for name in df.index:
         row = df.loc[name]
-        out[str(name)] = {
+        values: dict[str, float | str] = {
             f: float(row[f])
             for f in fields
             if f in df.columns and pd.notna(row[f])
         }
+        for key, val in _tap_fields(row).items():
+            if val is not None:
+                values[key] = val
+        out[str(name)] = values
     return out
 
 

@@ -72,7 +72,9 @@ export async function getView(id: string): Promise<ViewModel> {
 }
 
 // The library transformer types keyed by name → their editable parameter set.
-export type StdTrafoTypes = Record<string, Record<string, number>>;
+// Values are mostly numbers; the tap changer adds a couple of string fields
+// (tap_side, tap_changer_type).
+export type StdTrafoTypes = Record<string, Record<string, number | string>>;
 
 const stdTypeCache: Partial<Record<"trafo" | "trafo3w", Promise<StdTrafoTypes>>> = {};
 

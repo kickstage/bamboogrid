@@ -97,6 +97,12 @@ export type ImpedanceData = {
 // transformer has no recognized std_type (e.g. case14). The editor treats them
 // as opaque pass-through data: when set they drive the solve and take precedence
 // over std_type; picking a std_type in the inspector clears them.
+// pandapower tap-changer kind. "Ratio" moves voltage magnitude (via
+// tap_step_percent); "Ideal"/"Symmetrical" move phase angle (via
+// tap_step_degree). "Tabular" is a table-defined preset (read-only here). null =
+// no tap changer.
+export type TapChangerType = "Ratio" | "Symmetrical" | "Ideal" | "Tabular";
+
 export type Trafo2WParams = {
   sn_mva: number;
   vn_hv_kv: number;
@@ -106,6 +112,15 @@ export type Trafo2WParams = {
   pfe_kw: number;
   i0_percent: number;
   shift_degree: number;
+  // Tap changer — null/absent means none.
+  tap_side?: string | null;
+  tap_neutral?: number | null;
+  tap_min?: number | null;
+  tap_max?: number | null;
+  tap_step_percent?: number | null;
+  tap_step_degree?: number | null;
+  tap_pos?: number | null;
+  tap_changer_type?: TapChangerType | null;
 };
 
 export type Trafo3WParams = {
