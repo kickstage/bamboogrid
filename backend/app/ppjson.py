@@ -42,6 +42,7 @@ from .schema import (
     Point,
     Sgen,
     Shunt,
+    Svc,
     Switch,
     Trafo2WParams,
     Trafo3WParams,
@@ -187,7 +188,7 @@ MAX_IMPORT_BUSES = 100
 MAX_IMPORT_BYTES = 16 * 1024 * 1024
 
 
-_COMPONENT_DIAGRAMS = ("gen", "sgen", "ext_grid", "load", "xward")
+_COMPONENT_DIAGRAMS = ("gen", "sgen", "ext_grid", "load", "xward", "svc")
 
 
 def ensure_diagram_tables(net) -> bool:
@@ -366,6 +367,7 @@ def net_to_network(net) -> Network:
     d_line = net.get("diagram_line")
     d_shunt = net.get("diagram_shunt")
     d_xward = net.get("diagram_xward")
+    d_svc = net.get("diagram_svc")
     d_impedance = net.get("diagram_impedance")
     d_meta = net.get("diagram_meta")
 
@@ -642,6 +644,30 @@ def net_to_network(net) -> Network:
             )
         )
 
+    svcs: list[Svc] = []
+    for v in net.svc.index:
+        lay = _layout(d_svc, v)
+        svcs.append(
+            Svc(
+                id=str(lay["uuid"]) if lay is not None else uuid.uuid4().hex,
+                name=_name(net.svc.at[v, "name"], "SVC"),
+                bus_id=bus_uuid[int(net.svc.at[v, "bus"])],
+                set_vm_pu=float(net.svc.at[v, "set_vm_pu"]),
+                x_l_ohm=float(net.svc.at[v, "x_l_ohm"]),
+                x_cvar_ohm=float(net.svc.at[v, "x_cvar_ohm"]),
+                thyristor_firing_angle_degree=float(
+                    net.svc.at[v, "thyristor_firing_angle_degree"]
+                ),
+                min_angle_degree=_num(net.svc, v, "min_angle_degree", 90.0),
+                max_angle_degree=_num(net.svc, v, "max_angle_degree", 180.0),
+                controllable=bool(net.svc.at[v, "controllable"]),
+                port=_col(lay, "port"),
+                x=_pos(lay, "svc", v)[0],
+                y=_pos(lay, "svc", v)[1],
+                waypoint=_parse_waypoint(lay["waypoint_json"]) if lay is not None else None,
+            )
+        )
+
     impedances: list[Impedance] = []
     for z in net.impedance.index:
         lay = _layout(d_impedance, z)
@@ -680,6 +706,7 @@ def net_to_network(net) -> Network:
         lines=lines,
         shunts=shunts,
         xwards=xwards,
+        svcs=svcs,
         impedances=impedances,
         needs_layout=needs_layout,
     )

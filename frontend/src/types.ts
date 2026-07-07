@@ -9,6 +9,7 @@ export type ElementKind =
   | "load"
   | "shunt"
   | "xward"
+  | "svc"
   | "impedance"
   | "switch"
   | "trafo2w"
@@ -219,6 +220,26 @@ export type XwardData = {
   res_q_mvar?: number;
 };
 
+// An SVC (pandapower `svc`): a shunt-connected FACTS voltage regulator. A
+// thyristor-controlled reactor in parallel with a fixed capacitor gives a
+// continuous inductive↔capacitive range; when `controllable` it solves for a
+// firing angle to hold `set_vm_pu`, otherwise the firing angle is fixed. The
+// dynamic counterpart to the fixed shunt.
+export type SvcData = {
+  name: string;
+  set_vm_pu: number;
+  x_l_ohm: number;
+  x_cvar_ohm: number;
+  thyristor_firing_angle_degree: number;
+  min_angle_degree: number;
+  max_angle_degree: number;
+  controllable: boolean;
+  // Filled in after a load flow.
+  res_q_mvar?: number;
+  res_vm_pu?: number;
+  res_firing_angle?: number;
+};
+
 // How bus voltage results are shown on the canvas: actual kilovolts
 // (vm_pu × vn_kv) or per-unit magnitude.
 export type VoltageUnit = "kv" | "pu";
@@ -240,6 +261,7 @@ export type ElementData =
   | LoadData
   | ShuntData
   | XwardData
+  | SvcData
   | ImpedanceData
   | SwitchData
   | Trafo2WData
@@ -405,6 +427,25 @@ export interface Xward {
   waypoint?: { x: number; y: number } | null;
 }
 
+// An SVC (shunt FACTS voltage regulator on one bus). Created, edited and solved
+// like a shunt/xward.
+export interface Svc {
+  id: string;
+  name: string;
+  bus_id: string;
+  set_vm_pu: number;
+  x_l_ohm: number;
+  x_cvar_ohm: number;
+  thyristor_firing_angle_degree: number;
+  min_angle_degree: number;
+  max_angle_degree: number;
+  controllable: boolean;
+  port?: string;
+  x: number;
+  y: number;
+  waypoint?: { x: number; y: number } | null;
+}
+
 // An impedance (per-unit series branch between two buses). Imported and solved;
 // editable like a line but defined by p.u. R/X on a rating.
 export interface Impedance {
@@ -440,6 +481,7 @@ export interface Network {
   lines: Line[];
   shunts: Shunt[];
   xwards: Xward[];
+  svcs: Svc[];
   impedances: Impedance[];
   // Positions are the coarse server fallback; the client recomputes (ELK) and
   // persists a proper layout, which clears this.
@@ -577,6 +619,12 @@ export interface LoadFlowResult {
   res_load: { id: string; p_mw: number | null; q_mvar: number | null }[];
   res_shunt: { id: string; p_mw: number | null; q_mvar: number | null }[];
   res_xward: { id: string; p_mw: number | null; q_mvar: number | null }[];
+  res_svc: {
+    id: string;
+    q_mvar: number | null;
+    vm_pu: number | null;
+    thyristor_firing_angle_degree: number | null;
+  }[];
   res_impedance: { id: string; p_mw: number | null; q_mvar: number | null }[];
   res_trafo: {
     id: string;

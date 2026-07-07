@@ -162,6 +162,37 @@ class Xward(BaseModel):
     waypoint: Point | None = None
 
 
+class Svc(BaseModel):
+    """A Static Var Compensator (pandapower ``svc``): a shunt-connected FACTS
+    device on one bus that dynamically holds a target voltage by varying its
+    effective susceptance. A thyristor-controlled reactor (``x_l_ohm``) in
+    parallel with a fixed capacitor (``x_cvar_ohm``, negative) spans a
+    continuous range from inductive to capacitive; the thyristor firing angle
+    sets where in that range it sits.
+
+    When ``controllable`` it regulates the bus to ``set_vm_pu`` by solving for a
+    firing angle within ``[min_angle_degree, max_angle_degree]``; otherwise the
+    firing angle is fixed and the device acts as a plain susceptance. The
+    canonical dynamic counterpart to the fixed :class:`Shunt`."""
+
+    id: str
+    name: str = "SVC"
+    bus_id: str = ""
+    set_vm_pu: float = Field(default=1.0, gt=0, description="Target voltage [p.u.]")
+    x_l_ohm: float = Field(default=1.0, description="Reactor reactance [ohm]")
+    x_cvar_ohm: float = Field(default=-10.0, description="Capacitor reactance [ohm]")
+    thyristor_firing_angle_degree: float = Field(
+        default=145.0, description="Thyristor firing angle [deg]"
+    )
+    min_angle_degree: float = Field(default=90.0, description="Min firing angle [deg]")
+    max_angle_degree: float = Field(default=180.0, description="Max firing angle [deg]")
+    controllable: bool = True
+    port: str = ""
+    x: float = 0.0
+    y: float = 0.0
+    waypoint: Point | None = None
+
+
 class Impedance(BaseModel):
     """A per-unit series impedance (pandapower ``impedance``) tying two buses
     together — a branch defined directly by its p.u. R/X on a rating ``sn_mva``
@@ -352,6 +383,7 @@ class Network(BaseModel):
     lines: list[Line] = Field(default_factory=list)
     shunts: list[Shunt] = Field(default_factory=list)
     xwards: list[Xward] = Field(default_factory=list)
+    svcs: list[Svc] = Field(default_factory=list)
     impedances: list[Impedance] = Field(default_factory=list)
     # Set when positions are only the coarse graph fallback; the client should
     # recompute a proper layout (ELK) and persist it, which clears the flag.
@@ -427,6 +459,15 @@ class GenResult(BaseModel):
     q_mvar: float | None = None
 
 
+class SvcResult(BaseModel):
+    id: str
+    # Reactive power exchanged with the bus (negative = capacitive/injecting),
+    # the regulated voltage, and the firing angle the solver settled on.
+    q_mvar: float | None = None
+    vm_pu: float | None = None
+    thyristor_firing_angle_degree: float | None = None
+
+
 class TrafoResult(BaseModel):
     id: str
     loading_percent: float | None = None
@@ -452,6 +493,7 @@ class LoadFlowResult(BaseModel):
     res_load: list[LoadResult] = Field(default_factory=list)
     res_shunt: list[LoadResult] = Field(default_factory=list)
     res_xward: list[LoadResult] = Field(default_factory=list)
+    res_svc: list[SvcResult] = Field(default_factory=list)
     res_impedance: list[LoadResult] = Field(default_factory=list)
     res_trafo: list[TrafoResult] = Field(default_factory=list)
     res_trafo3w: list[TrafoResult] = Field(default_factory=list)

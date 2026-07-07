@@ -144,6 +144,29 @@ export function XwardGlyph({ size = 50, stroke = "currentColor" }: GlyphProps) {
   );
 }
 
+// SVC — a shunt FACTS voltage regulator. A connection stub into a box with a
+// diagonal arrow through it (the IEC "variable/controllable" mark), reading as
+// an adjustable susceptance — the dynamic sibling of the fixed shunt.
+export function SvcGlyph({ size = 50, stroke = "currentColor" }: GlyphProps) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="32 14 56 56"
+      aria-hidden
+      style={{ display: "block", margin: "0 auto" }}
+    >
+      {/* connection stub */}
+      <line x1={60} y1={16} x2={60} y2={30} stroke={stroke} strokeWidth={3} strokeLinecap="round" />
+      {/* susceptance box */}
+      <rect x={48} y={30} width={24} height={28} fill="none" stroke={stroke} strokeWidth={3} />
+      {/* diagonal control arrow (variable) */}
+      <line x1={44} y1={62} x2={74} y2={28} stroke={stroke} strokeWidth={2.5} strokeLinecap="round" />
+      <path d="M74 28 l-8 1 M74 28 l-1 8" fill="none" stroke={stroke} strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 // Impedance — a series-branch symbol: two leads into the serpentine impedance
 // curve from the project's SVG symbol library (symbols/pandapower/impedance.svg),
 // so it reads as an impedance rather than the switch's plain box. Horizontal and

@@ -7,6 +7,7 @@ import {
   LoadGlyph,
   SgenGlyph,
   ShuntGlyph,
+  SvcGlyph,
   SwitchGlyph,
   TransformerGlyph,
   Transformer3WGlyph,
@@ -43,6 +44,11 @@ const GROUPS: { title: string; items: Item[] }[] = [
         kind: "shunt",
         label: "Shunt",
         hint: "Capacitor / reactor (reactive support)",
+      },
+      {
+        kind: "svc",
+        label: "SVC",
+        hint: "FACTS — dynamic voltage regulator",
       },
     ],
   },
@@ -83,6 +89,7 @@ function Glyph({ kind }: { kind: ElementKind }) {
   if (kind === "extgrid") return <ExtGridGlyph size={34} />;
   if (kind === "load") return <LoadGlyph size={34} />;
   if (kind === "shunt") return <ShuntGlyph size={34} />;
+  if (kind === "svc") return <SvcGlyph size={34} />;
   if (kind === "xward") return <XwardGlyph size={34} />;
   if (kind === "impedance") return <ImpedanceGlyph size={40} />;
   if (kind === "switch") return <SwitchGlyph size={40} />;

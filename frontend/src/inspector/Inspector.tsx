@@ -45,6 +45,7 @@ import type {
   LoadData,
   SgenData,
   ShuntData,
+  SvcData,
   SwitchData,
   TapChangerFields,
   TapChangerType,
@@ -856,6 +857,56 @@ export function Inspector() {
               {num("Internal resistance", <Sym sub="int">R</Sym>, "Ω", "r_ohm", 0.1, 4, 0)}
               {num("Internal reactance", <Sym sub="int">X</Sym>, "Ω", "x_ohm", 0.1, 4, 0)}
               {num("Internal voltage setpoint", <Sym sub="m">V</Sym>, "p.u.", "vm_pu", 0.01, 4, 0)}
+            </>
+          );
+        })()}
+
+      {node.type === "svc" &&
+        (() => {
+          const d = node.data as SvcData;
+          const num = (
+            name: string,
+            symbol: ReactNode,
+            unit: string | undefined,
+            key: keyof SvcData,
+            step: number,
+            dp: number,
+          ) => (
+            <ParamInput
+              name={name}
+              symbol={symbol}
+              unit={unit}
+              value={d[key] as number}
+              step={step}
+              decimalScale={dp}
+              onChange={(v) => update({ [key]: Number(v) || 0 })}
+            />
+          );
+          return (
+            <>
+              <Text size="xs" c="dimmed">
+                A shunt FACTS regulator: a thyristor-controlled reactor in parallel
+                with a fixed capacitor. When regulating it solves for a firing
+                angle to hold the target voltage; otherwise the angle is fixed.
+              </Text>
+              <Switch
+                label="Regulate voltage"
+                checked={d.controllable}
+                onChange={(e) => update({ controllable: e.currentTarget.checked })}
+              />
+              {d.controllable
+                ? num("Target voltage the SVC holds", <Sym sub="set">V</Sym>, "p.u.", "set_vm_pu", 0.01, 4)
+                : num("Fixed thyristor firing angle", <>α</>, "deg", "thyristor_firing_angle_degree", 1, 2)}
+              <Divider my={4} label="Susceptance range" labelPosition="left" />
+              {num("Reactor reactance", <Sym sub="L">X</Sym>, "Ω", "x_l_ohm", 0.1, 4)}
+              {num("Capacitor reactance (negative)", <Sym sub="Cvar">X</Sym>, "Ω", "x_cvar_ohm", 0.1, 4)}
+              {d.controllable && (
+                <>
+                  <Divider my={4} label="Firing-angle limits" labelPosition="left" />
+                  {num("Minimum firing angle", <>α<sub>min</sub></>, "deg", "min_angle_degree", 1, 2)}
+                  {num("Maximum firing angle", <>α<sub>max</sub></>, "deg", "max_angle_degree", 1, 2)}
+                </>
+              )}
             </>
           );
         })()}

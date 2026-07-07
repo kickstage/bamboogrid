@@ -7,6 +7,7 @@ import type {
   GeneratorData,
   ImpedanceData,
   ShuntData,
+  SvcData,
   Trafo2WData,
   XwardData,
 } from "../types";
@@ -52,6 +53,7 @@ export const HEADERS: Record<string, string> = {
   load: "LOAD",
   shunt: "SHUNT",
   xward: "XWARD",
+  svc: "SVC",
   impedance: "IMPEDANCE",
   switch: "SWITCH",
   trafo2w: "TRANSFORMER",
@@ -124,6 +126,15 @@ export function nodeResultRows(type: string | undefined, data: unknown): ResultR
     return [
       ["P", `${fixed(w.res_p_mw, 4)} MW`],
       ["Q", `${fixed(w.res_q_mvar ?? 0, 4)} Mvar`],
+    ];
+  }
+  if (type === "svc") {
+    const v = data as SvcData;
+    if (v.res_q_mvar === undefined) return [];
+    return [
+      ["Q", `${fixed(v.res_q_mvar, 4)} Mvar`],
+      [SYM.vm, `${fixed(v.res_vm_pu ?? 0, 4)} p.u.`],
+      ["α", `${fixed(v.res_firing_angle ?? 0, 2)}°`],
     ];
   }
   if (type === "impedance") {

@@ -7,7 +7,7 @@ dependencies = [
     "fastapi>=0.110",
     "uvicorn[standard]>=0.29",
     "pydantic>=2.6",
-    "pandapower>=2.14",
+    "pandapower>=3.5,<3.6",
     # Optional pandapower accelerator; without it every load flow logs a warning
     # and runs the pure-Python solver. Needs >=0.63 for Python 3.14.
     "numba>=0.63",

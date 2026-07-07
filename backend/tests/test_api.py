@@ -882,6 +882,126 @@ def test_xward_create_edit_delete_and_solve(client):
     assert client.get("/session", headers=auth(sid)).json()["network"]["xwards"] == []
 
 
+def _two_bus_svc_grid(client, sid: str) -> None:
+    """Two 110 kV buses tied by a line, an ext-grid slack on b1 and a load on b2
+    that sags b2's voltage — the setup an SVC on b2 can visibly regulate."""
+    cmds = [
+        {"op": "add_bus", "payload": {"id": "b1", "name": "Slack", "vn_kv": 110.0, "x": 0, "y": 0, "width": 220}},
+        {"op": "add_bus", "payload": {"id": "b2", "name": "Load bus", "vn_kv": 110.0, "x": 0, "y": 300, "width": 220}},
+        {"op": "add_element", "payload": {"id": "eg", "kind": "extgrid", "bus_id": "b1", "port": "p0",
+            "x": 0, "y": -100, "data": {"name": "Grid", "vm_pu": 1.0, "va_degree": 0.0}}},
+        {"op": "add_line", "payload": {"id": "ln", "from_bus": "b1", "to_bus": "b2", "port_from": "p1", "port_to": "p0",
+            "data": {"name": "Line", "length_km": 50.0, "r_ohm_per_km": 0.1, "x_ohm_per_km": 0.3,
+                     "c_nf_per_km": 10.0, "max_i_ka": 0.5, "std_type": ""}}},
+        {"op": "add_element", "payload": {"id": "l1", "kind": "load", "bus_id": "b2", "port": "p1",
+            "x": 0, "y": 400, "data": {"name": "Load", "p_mw": 20.0, "q_mvar": 8.0}}},
+    ]
+    assert client.post("/session/commands", json=cmds, headers=auth(sid)).status_code == 200
+
+
+def test_svc_create_edit_delete_and_regulates(client):
+    sid = new_session(client)
+    _two_bus_svc_grid(client, sid)
+    # Without support, b2 sags below 1.0.
+    base = client.post("/session/run-loadflow", headers=auth(sid)).json()
+    b2_sag = next(r["vm_pu"] for r in base["res_bus"] if r["id"] == "b2")
+    assert b2_sag < 0.99
+
+    # Add an SVC on b2, set to hold 1.0 p.u.
+    add = {"op": "add_element", "payload": {"id": "s1", "kind": "svc", "bus_id": "b2", "port": "p2",
+        "x": 150, "y": 300, "data": {"name": "SVC", "set_vm_pu": 1.0, "x_l_ohm": 1.0,
+            "x_cvar_ohm": -10.0, "thyristor_firing_angle_degree": 145.0,
+            "min_angle_degree": 90.0, "max_angle_degree": 180.0, "controllable": True}}}
+    assert client.post("/session/commands", json=[add], headers=auth(sid)).status_code == 200
+    view = client.get("/session", headers=auth(sid)).json()
+    svcs = view["network"]["svcs"]
+    assert [v["id"] for v in svcs] == ["s1"]
+    assert svcs[0]["set_vm_pu"] == pytest.approx(1.0)
+    # It's a modeled element, not surfaced as a foreign passthrough.
+    assert view["foreign"] == []
+
+    # It regulates b2 back up to (near) the setpoint and reports a result.
+    run = client.post("/session/run-loadflow", headers=auth(sid)).json()
+    assert run["converged"] is True
+    b2_reg = next(r["vm_pu"] for r in run["res_bus"] if r["id"] == "b2")
+    assert b2_reg == pytest.approx(1.0, abs=1e-3)
+    res = next(r for r in run["res_svc"] if r["id"] == "s1")
+    assert res["q_mvar"] is not None and res["vm_pu"] == pytest.approx(1.0, abs=1e-3)
+
+    # Edit the setpoint; it holds the new value.
+    client.post("/session/commands", json=[{"op": "update", "payload": {"id": "s1", "kind": "svc",
+        "patch": {"set_vm_pu": 1.02}}}], headers=auth(sid))
+    assert client.get("/session", headers=auth(sid)).json()["network"]["svcs"][0]["set_vm_pu"] == pytest.approx(1.02)
+    run2 = client.post("/session/run-loadflow", headers=auth(sid)).json()
+    b2_reg2 = next(r["vm_pu"] for r in run2["res_bus"] if r["id"] == "b2")
+    assert b2_reg2 == pytest.approx(1.02, abs=1e-3)
+
+    # It survives an export round-trip.
+    assert '"svc"' in client.get("/session/export", headers=auth(sid)).text
+
+    # Delete it.
+    client.post("/session/commands", json=[{"op": "delete", "payload": {"id": "s1", "kind": "svc"}}], headers=auth(sid))
+    assert client.get("/session", headers=auth(sid)).json()["network"]["svcs"] == []
+
+
+def test_deleting_a_bus_cascades_its_svc(client):
+    # pandapower's drop_buses cascade doesn't cover FACTS tables, so a bus delete
+    # used to orphan the SVC (pointing at a removed bus) and crash projection.
+    sid = new_session(client)
+    cmds = [
+        {"op": "add_bus", "payload": {"id": "b1", "name": "Bus", "vn_kv": 110.0, "x": 0, "y": 0, "width": 220}},
+        {"op": "add_element", "payload": {"id": "s1", "kind": "svc", "bus_id": "b1", "port": "p0",
+            "x": 150, "y": 0, "data": {"name": "SVC", "set_vm_pu": 1.0, "x_l_ohm": 1.0,
+                "x_cvar_ohm": -10.0, "thyristor_firing_angle_degree": 145.0,
+                "min_angle_degree": 90.0, "max_angle_degree": 180.0, "controllable": True}}},
+    ]
+    assert client.post("/session/commands", json=cmds, headers=auth(sid)).status_code == 200
+    assert len(client.get("/session", headers=auth(sid)).json()["network"]["svcs"]) == 1
+
+    # Delete the bus the SVC hangs on — the SVC must go with it, and the session
+    # must still project (no 500).
+    r = client.post("/session/commands", json=[{"op": "delete", "payload": {"id": "b1", "kind": "bus"}}], headers=auth(sid))
+    assert r.status_code == 200
+    view = client.get("/session", headers=auth(sid))
+    assert view.status_code == 200
+    net = view.json()["network"]
+    assert net["buses"] == [] and net["svcs"] == []
+
+
+def test_regulating_svc_on_fixed_voltage_bus_gives_clear_error(client):
+    # A controllable SVC on the ext-grid (slack) bus collides with the fixed slack
+    # voltage; pandapower's FACTS solver then dies with an opaque scipy error. We
+    # catch it up front with a clear, actionable message instead.
+    sid = new_session(client)
+    cmds = [
+        {"op": "add_bus", "payload": {"id": "hv", "name": "HV", "vn_kv": 110.0, "x": 0, "y": 0, "width": 220}},
+        {"op": "add_bus", "payload": {"id": "lv", "name": "LV", "vn_kv": 20.0, "x": 0, "y": 300, "width": 220}},
+        {"op": "add_element", "payload": {"id": "eg", "kind": "extgrid", "bus_id": "hv", "port": "p0",
+            "x": 0, "y": -100, "data": {"name": "Grid", "vm_pu": 1.0, "va_degree": 0.0}}},
+        {"op": "add_transformer", "payload": {"id": "t1", "hv_bus": "hv", "lv_bus": "lv",
+            "std_type": "63 MVA 110/20 kV", "port_hv": "p1", "port_lv": "p0"}},
+        {"op": "add_element", "payload": {"id": "l1", "kind": "load", "bus_id": "lv", "port": "p1",
+            "x": 0, "y": 400, "data": {"name": "Load", "p_mw": 30.0, "q_mvar": 10.0}}},
+        {"op": "add_element", "payload": {"id": "s1", "kind": "svc", "bus_id": "hv", "port": "p2",
+            "x": 150, "y": 0, "data": {"name": "HV SVC", "set_vm_pu": 1.0, "x_l_ohm": 1.0,
+                "x_cvar_ohm": -10.0, "thyristor_firing_angle_degree": 145.0,
+                "min_angle_degree": 90.0, "max_angle_degree": 180.0, "controllable": True}}},
+    ]
+    assert client.post("/session/commands", json=cmds, headers=auth(sid)).status_code == 200
+
+    run = client.post("/session/run-loadflow", headers=auth(sid)).json()
+    assert run["converged"] is False
+    msg = run["message"]
+    assert "HV SVC" in msg and "Regulate voltage" in msg
+    # The opaque solver error must not leak through.
+    assert "index and data arrays" not in msg
+
+    # Turning off regulation makes it a plain susceptance, which solves fine.
+    client.post("/session/commands", json=[{"op": "update", "payload": {"id": "s1", "kind": "svc",
+        "patch": {"controllable": False}}}], headers=auth(sid))
+    assert client.post("/session/run-loadflow", headers=auth(sid)).json()["converged"] is True
+
+
 def test_picking_std_type_refills_params(client):
     sid = new_session(client)
     _two_bus_trafo(client, sid)

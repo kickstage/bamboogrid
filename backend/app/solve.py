@@ -19,6 +19,7 @@ from .schema import (
     LoadFlowResult,
     LoadFlowSettings,
     LoadResult,
+    SvcResult,
     TrafoResult,
 )
 
@@ -125,9 +126,45 @@ def _apply_line_temperature(net) -> None:
     net.line["temperature_degree_celsius"] = float(temp)
 
 
+def _voltage_regulating_svc_error(net) -> str | None:
+    """A controllable SVC regulates the voltage of its bus. If that bus is already
+    voltage-controlled — an ext_grid (slack) or a generator both hold their bus
+    voltage fixed — the two controls collide, and pandapower's FACTS solver builds
+    an inconsistent Jacobian that dies with an opaque scipy error ("all index and
+    data arrays must have the same length"). Catch it up front with a message that
+    names the SVC and says what to do. (An sgen is a PQ injection and an xward's
+    source sits behind an impedance, so neither fixes its bus voltage.)"""
+    svc = net.get("svc")
+    if svc is None or not len(svc):
+        return None
+
+    def _buses(table: str) -> set[int]:
+        df = net.get(table)
+        if df is None or not len(df):
+            return set()
+        rows = df[df["in_service"]] if "in_service" in df.columns else df
+        return {int(b) for b in rows["bus"]}
+
+    fixed_buses = _buses("ext_grid") | _buses("gen")
+    for i in svc.index:
+        if not bool(svc.at[i, "in_service"]) or not bool(svc.at[i, "controllable"]):
+            continue
+        if int(svc.at[i, "bus"]) in fixed_buses:
+            name = svc.at[i, "name"] or "SVC"
+            return (
+                f"'{name}' can't regulate voltage on a bus whose voltage is already "
+                "fixed by an external grid or a generator. Move it to another bus, "
+                "or turn off Regulate voltage."
+            )
+    return None
+
+
 def run_powerflow(net) -> str | None:
     """Run an AC power flow on ``net`` in place. Returns ``None`` on success or a
     human-readable error message (used by both the load-flow and summary APIs)."""
+    facts_error = _voltage_regulating_svc_error(net)
+    if facts_error is not None:
+        return facts_error
     try:
         _apply_line_temperature(net)
         pp.runpp(net, distributed_slack=_use_distributed_slack(net))
@@ -178,6 +215,20 @@ def solve_net(net) -> LoadFlowResult:
             for uid, idx in _uuid_index(net, table)
         ]
 
+    def _svc_res() -> list[SvcResult]:
+        res = net.res_svc
+        return [
+            SvcResult(
+                id=uid,
+                q_mvar=_f(res.at[idx, "q_mvar"]),
+                vm_pu=_f(res.at[idx, "vm_pu"]),
+                thyristor_firing_angle_degree=_f(
+                    res.at[idx, "thyristor_firing_angle_degree"]
+                ),
+            )
+            for uid, idx in _uuid_index(net, "svc")
+        ]
+
     def _trafo_like(table: str) -> list[TrafoResult]:
         res = net[f"res_{table}"]
         return [
@@ -218,6 +269,7 @@ def solve_net(net) -> LoadFlowResult:
         res_load=_load_like("load"),
         res_shunt=_load_like("shunt"),
         res_xward=_load_like("xward"),
+        res_svc=_svc_res(),
         res_impedance=_branch_load_like("impedance"),
         res_trafo=_trafo_like("trafo"),
         res_trafo3w=_trafo_like("trafo3w"),

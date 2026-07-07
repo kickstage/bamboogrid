@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 
 import pandapower as pp
+import pandapower.toolbox as pp_toolbox
 import pandas as pd
 
 from .ppjson import MAX_IMPORT_BUSES
@@ -36,6 +37,7 @@ _KIND_TABLE = {
     "trafo3w": "trafo3w",
     "line": "line",
     "xward": "xward",
+    "svc": "svc",
     "impedance": "impedance",
 }
 
@@ -170,6 +172,19 @@ def _add_element(net, p: dict) -> None:
             r_ohm=d["r_ohm"],
             x_ohm=d["x_ohm"],
             vm_pu=d["vm_pu"],
+            name=name,
+        )
+    elif kind == "svc":
+        idx = pp.create_svc(
+            net,
+            bus=bus,
+            x_l_ohm=d["x_l_ohm"],
+            x_cvar_ohm=d["x_cvar_ohm"],
+            set_vm_pu=d["set_vm_pu"],
+            thyristor_firing_angle_degree=d["thyristor_firing_angle_degree"],
+            min_angle_degree=d.get("min_angle_degree", 90.0),
+            max_angle_degree=d.get("max_angle_degree", 180.0),
+            controllable=d.get("controllable", True),
             name=name,
         )
     else:
@@ -370,12 +385,31 @@ def _update(net, p: dict) -> None:
             net[table].at[idx, key] = value
 
 
+def _drop_facts_at_buses(net, buses: set[int]) -> None:
+    """Drop FACTS elements attached to any of ``buses``. pandapower's
+    ``drop_buses`` cascade doesn't cover the FACTS tables (svc/ssc/tcsc), so
+    without this a bus delete leaves an SVC row pointing at a removed bus, which
+    then blows up projection (its bus uuid no longer exists)."""
+    for table, cols in (("svc", ("bus",)), ("ssc", ("bus",)), ("tcsc", ("from_bus", "to_bus"))):
+        df = net.get(table)
+        if df is None or not len(df):
+            continue
+        stale = [
+            i
+            for i in df.index
+            if any(c in df.columns and int(df.at[i, c]) in buses for c in cols)
+        ]
+        if stale:
+            df.drop(stale, inplace=True)
+
+
 def _delete(net, p: dict) -> None:
     table = _KIND_TABLE[p["kind"]]
     idx = _index_of(net, table, p["id"])
     if table == "bus":
         # Cascade: drop the bus and everything attached to it.
-        pp.drop_buses(net, [idx])
+        _drop_facts_at_buses(net, {idx})
+        pp_toolbox.drop_buses(net, [idx])
     else:
         net[table] = net[table].drop(idx)
     _prune_diagrams(net)

@@ -33,6 +33,7 @@ import type {
   SgenData,
   ShortCircuitResult,
   ShuntData,
+  SvcData,
   SwitchData,
   Trafo2WData,
   Trafo2WParams,
@@ -82,6 +83,7 @@ const COMPONENT_KINDS = new Set<ElementKind>([
   "load",
   "shunt",
   "xward",
+  "svc",
 ]);
 
 // Source-handle id of an element's wire -> attachment "end" understood by the
@@ -212,6 +214,20 @@ function defaultData(kind: ElementKind): ElementData {
         x_ohm: 1.0,
         vm_pu: 1.0,
       } satisfies XwardData;
+    case "svc":
+      // A shunt voltage regulator: by default controllable, holding 1 p.u. via a
+      // thyristor-controlled reactor in parallel with a fixed capacitor. Users
+      // tune the setpoint, reactances and firing-angle limits in the inspector.
+      return {
+        name: "SVC",
+        set_vm_pu: 1.0,
+        x_l_ohm: 1.0,
+        x_cvar_ohm: -10.0,
+        thyristor_firing_angle_degree: 145.0,
+        min_angle_degree: 90.0,
+        max_angle_degree: 180.0,
+        controllable: true,
+      } satisfies SvcData;
     case "impedance":
       // A per-unit series branch: default to a small reactance on a 100 MVA base
       // (symmetric from→to / to→from). Users tune R/X and the rating in the
@@ -1270,6 +1286,7 @@ export const useEditor = create<EditorState>((set, get) => ({
       const byExtGrid = new Map(result.res_ext_grid.map((r) => [r.id, r]));
       const byShunt = new Map(result.res_shunt.map((r) => [r.id, r]));
       const byXward = new Map(result.res_xward.map((r) => [r.id, r]));
+      const bySvc = new Map(result.res_svc.map((r) => [r.id, r]));
       const byImpedance = new Map(result.res_impedance.map((r) => [r.id, r]));
       const byTrafo = new Map(
         [...result.res_trafo, ...result.res_trafo3w].map((r) => [r.id, r]),
@@ -1348,6 +1365,18 @@ export const useEditor = create<EditorState>((set, get) => ({
                 ...(n.data as XwardData),
                 res_p_mw: r?.p_mw ?? undefined,
                 res_q_mvar: r?.q_mvar ?? undefined,
+              },
+            } as ElementNode;
+          }
+          if (n.type === "svc") {
+            const r = result.converged ? bySvc.get(n.id) : undefined;
+            return {
+              ...n,
+              data: {
+                ...(n.data as SvcData),
+                res_q_mvar: r?.q_mvar ?? undefined,
+                res_vm_pu: r?.vm_pu ?? undefined,
+                res_firing_angle: r?.thyristor_firing_angle_degree ?? undefined,
               },
             } as ElementNode;
           }
@@ -1639,6 +1668,35 @@ export const useEditor = create<EditorState>((set, get) => ({
         edges.push(edge);
         connect(edge, "targetHandle", x.bus_id, x.port, x.x + STUB_HALF);
         stubEdges.push({ id: x.id, busId: x.bus_id, edge, explicit: !!x.port });
+      }
+    }
+    for (const v of network.svcs ?? []) {
+      nodes.push({
+        id: v.id,
+        type: "svc",
+        position: { x: v.x, y: v.y },
+        data: {
+          name: v.name,
+          set_vm_pu: v.set_vm_pu,
+          x_l_ohm: v.x_l_ohm,
+          x_cvar_ohm: v.x_cvar_ohm,
+          thyristor_firing_angle_degree: v.thyristor_firing_angle_degree,
+          min_angle_degree: v.min_angle_degree,
+          max_angle_degree: v.max_angle_degree,
+          controllable: v.controllable,
+        },
+      });
+      if (v.bus_id) {
+        const edge: Edge = {
+          id: `${v.id}->${v.bus_id}`,
+          source: v.id,
+          target: v.bus_id,
+          type: "wire",
+          data: v.waypoint ? { waypoint: v.waypoint } : undefined,
+        };
+        edges.push(edge);
+        connect(edge, "targetHandle", v.bus_id, v.port, v.x + STUB_HALF);
+        stubEdges.push({ id: v.id, busId: v.bus_id, edge, explicit: !!v.port });
       }
     }
     for (const s of network.switches ?? []) {

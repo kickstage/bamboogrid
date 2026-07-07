@@ -115,7 +115,7 @@ def _bus_widths(net) -> dict[int, float]:
         if b in count:
             count[b] += 1
 
-    for table in ("gen", "sgen", "ext_grid", "load", "shunt", "xward"):
+    for table in ("gen", "sgen", "ext_grid", "load", "shunt", "xward", "svc"):
         for i in net[table].index:
             bump(int(net[table].at[i, "bus"]))
     for si in net.switch.index:
@@ -189,6 +189,7 @@ def _place_components(net, bus_xy: dict[int, Coord]) -> dict[str, dict[int, Coor
         "load": {},
         "shunt": {},
         "xward": {},
+        "svc": {},
         "switch": {},
         "impedance": {},
         "trafo": {},
@@ -223,6 +224,9 @@ def _place_components(net, bus_xy: dict[int, Coord]) -> dict[str, dict[int, Coor
     # An xward (network equivalent) also hangs below its bus, like a load/shunt.
     for wi in net.xward.index:
         result["xward"][wi] = place(int(net.xward.at[wi, "bus"]), "below")
+    # An SVC hangs below its bus like a shunt (its connection handle points up).
+    for vi in net.svc.index:
+        result["svc"][vi] = place(int(net.svc.at[vi, "bus"]), "below")
 
     # A transformer/switch sits at its bus-pair midpoint, which can land on a
     # source/load already placed above/below a bus. Track those slots and shuffle
@@ -230,7 +234,7 @@ def _place_components(net, bus_xy: dict[int, Coord]) -> dict[str, dict[int, Coor
     CELL = 90.0
     occupied: set[tuple[int, int]] = {
         (round(x / CELL), round(y / CELL))
-        for table in ("gen", "sgen", "ext_grid", "load", "shunt", "xward")
+        for table in ("gen", "sgen", "ext_grid", "load", "shunt", "xward", "svc")
         for x, y in result[table].values()
     }
 

@@ -42,6 +42,7 @@ _TABLE_KIND = {
     "ext_grid": "extgrid",
     "load": "load",
     "shunt": "shunt",
+    "svc": "svc",
     "switch": "switch",
     "trafo": "trafo2w",
     "trafo3w": "trafo3w",

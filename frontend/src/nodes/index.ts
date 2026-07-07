@@ -6,6 +6,7 @@ import { ExtGridNode } from "./ExtGridNode";
 import { LoadNode } from "./LoadNode";
 import { ShuntNode } from "./ShuntNode";
 import { XwardNode } from "./XwardNode";
+import { SvcNode } from "./SvcNode";
 import { ImpedanceNode } from "./ImpedanceNode";
 import { SwitchNode } from "./SwitchNode";
 import { Transformer2WNode } from "./Transformer2WNode";
@@ -20,6 +21,7 @@ export const nodeTypes: NodeTypes = {
   load: LoadNode,
   shunt: ShuntNode,
   xward: XwardNode,
+  svc: SvcNode,
   impedance: ImpedanceNode,
   switch: SwitchNode,
   trafo2w: Transformer2WNode,

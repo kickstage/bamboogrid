@@ -27,6 +27,7 @@ _MODELED = {
     "trafo3w",
     "line",
     "xward",
+    "svc",
     "impedance",
 }
 _NON_ELEMENT = {"bus_geodata", "line_geodata"}
