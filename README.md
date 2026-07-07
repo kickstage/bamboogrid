@@ -11,14 +11,15 @@ editor doesn't model yet) and edits it through commands. The long-term aim is to
 also export to CGMES.
 
 > **Status.** The editor supports **buses**, three source types (**external
-> grid**/slack, **generator**, **static generator**), **loads** and **shunts**,
-> **lines**, bus–bus **switches**, two- and three-winding **transformers**, and
+> grid**/slack, **generator**, **static generator**), **loads**, **shunts** and
+> an **SVC** (a FACTS dynamic voltage regulator), **lines**, bus–bus
+> **switches**, two- and three-winding **transformers** with tap changers, and
 > two advanced elements (an **xward** network equivalent and a series
 > **impedance**) — enough to model multi-voltage-level networks and observe
-> voltage drop, transformer loading and slack balancing under load. Besides load
-> flow it also runs an **IEC 60909 short circuit**. Networks import and export as
-> **pandapower JSON** (the file also carries the diagram layout). CGMES export is
-> a planned next step.
+> voltage drop, transformer loading, dynamic voltage support and slack balancing
+> under load. Besides load flow it also runs an **IEC 60909 short circuit**.
+> Networks import and export as **pandapower JSON** (the file also carries the
+> diagram layout). CGMES export is a planned next step.
 
 ## Elements
 
@@ -30,6 +31,7 @@ also export to CGMES.
 | Static generator | `sgen` | A PQ injection (PV / wind / storage feed-in): set active and reactive power. |
 | Load | `load` | Consumes a fixed P and Q. |
 | Shunt | `shunt` | A fixed shunt element (e.g. capacitor/reactor) at a bus. |
+| SVC | `svc` | A FACTS static var compensator: a shunt device that dynamically holds a target voltage at its bus. |
 | Switch | `switch` (`et="b"`) | Ties two buses; closed = one node, open = separated. |
 | Line | `line` | Connects two buses at the same voltage; drawn by wiring one bus directly to another. |
 | Transformer | `trafo` | 2-winding, connects an HV and an LV bus (from a standard type). |
@@ -144,7 +146,7 @@ are stored there.
 1. **Drag** elements from the left palette (grouped into *Nodes*, *Sources*,
    *Loads*, *Connections*, and *Advanced*) onto the canvas.
 2. **Connect** their handles to buses. A component (generator, static generator,
-   external grid, load, shunt) wires to one bus; a switch or an impedance wires
+   external grid, load, shunt, SVC) wires to one bus; a switch or an impedance wires
    each of its two ends to a bus; a transformer wires each winding (HV/LV, or
    HV/MV/LV) to a bus. Wiring one bus directly to another draws a **line**
    between them. Each handle carries a single wire, and the busbar grows ports as
