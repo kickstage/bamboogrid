@@ -103,16 +103,10 @@ export type ImpedanceData = {
 // no tap changer.
 export type TapChangerType = "Ratio" | "Symmetrical" | "Ideal" | "Tabular";
 
-export type Trafo2WParams = {
-  sn_mva: number;
-  vn_hv_kv: number;
-  vn_lv_kv: number;
-  vk_percent: number;
-  vkr_percent: number;
-  pfe_kw: number;
-  i0_percent: number;
-  shift_degree: number;
-  // Tap changer — null/absent means none.
+// The tap-changer columns pandapower shares between `trafo` and `trafo3w`.
+// null/absent on every field means no tap changer. `tap_side` picks the tapped
+// winding ("hv"/"lv" for 2W; "hv"/"mv"/"lv" for 3W).
+export type TapChangerFields = {
   tap_side?: string | null;
   tap_neutral?: number | null;
   tap_min?: number | null;
@@ -122,6 +116,17 @@ export type Trafo2WParams = {
   tap_pos?: number | null;
   tap_changer_type?: TapChangerType | null;
 };
+
+export type Trafo2WParams = {
+  sn_mva: number;
+  vn_hv_kv: number;
+  vn_lv_kv: number;
+  vk_percent: number;
+  vkr_percent: number;
+  pfe_kw: number;
+  i0_percent: number;
+  shift_degree: number;
+} & TapChangerFields;
 
 export type Trafo3WParams = {
   sn_hv_mva: number;
@@ -140,7 +145,7 @@ export type Trafo3WParams = {
   i0_percent: number;
   shift_mv_degree: number;
   shift_lv_degree: number;
-};
+} & TapChangerFields;
 
 export type Trafo2WData = {
   name: string;

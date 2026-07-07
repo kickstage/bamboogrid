@@ -46,6 +46,7 @@ import type {
   SgenData,
   ShuntData,
   SwitchData,
+  TapChangerFields,
   TapChangerType,
   Trafo2WData,
   Trafo2WParams,
@@ -259,24 +260,39 @@ function AdvancedParams({
   );
 }
 
-// The 2-winding transformer's tap changer. pandapower models a voltage
-// regulator and a phase shifter with the same fields, distinguished by
-// `tap_changer_type`: "Ratio" moves voltage magnitude (via tap_step_percent),
-// "Ideal"/"Symmetrical" move the phase angle (via tap_step_degree). Picking a
-// type reveals the relevant fields; "None" removes the tap changer. Tabular
-// (table-defined) presets are shown read-only — editing them isn't supported yet.
+// A transformer's tap changer. pandapower models a voltage regulator and a
+// phase shifter with the same fields — shared identically between the 2- and
+// 3-winding transformer — distinguished by `tap_changer_type`: "Ratio" moves
+// voltage magnitude (via tap_step_percent), "Ideal"/"Symmetrical" move the phase
+// angle (via tap_step_degree). Picking a type reveals the relevant fields;
+// "None" removes the tap changer. Tabular (table-defined) presets are shown
+// read-only — editing them isn't supported yet. `sides` lists the tappable
+// windings (HV/LV for 2W; HV/MV/LV for 3W).
 const TAP_TYPES = ["None", "Ratio", "Symmetrical", "Ideal"] as const;
+
+// Tappable windings per transformer kind (value = pandapower's lowercase side).
+const TAP_SIDES_2W = [
+  { value: "hv", label: "HV" },
+  { value: "lv", label: "LV" },
+];
+const TAP_SIDES_3W = [
+  { value: "hv", label: "HV" },
+  { value: "mv", label: "MV" },
+  { value: "lv", label: "LV" },
+];
 
 function TapChanger({
   params,
   onPatch,
   onTapPos,
+  sides,
 }: {
-  params: Trafo2WParams;
-  onPatch: (patch: Partial<Trafo2WParams>) => void;
+  params: TapChangerFields;
+  onPatch: (patch: Partial<TapChangerFields>) => void;
   // tap_pos is the operating setpoint — routed separately so moving the tap
   // doesn't drop the transformer's preset label (unlike every other tap edit).
   onTapPos: (pos: number) => void;
+  sides: { value: string; label: string }[];
 }) {
   const type = params.tap_changer_type ?? "None";
 
@@ -329,7 +345,7 @@ function TapChanger({
     const seed =
       type === "None"
         ? {
-            tap_side: params.tap_side ?? "hv",
+            tap_side: params.tap_side ?? sides[0].value,
             tap_neutral: params.tap_neutral ?? 0,
             tap_min: params.tap_min ?? -9,
             tap_max: params.tap_max ?? 9,
@@ -348,7 +364,7 @@ function TapChanger({
   };
 
   const numField = (
-    key: keyof Trafo2WParams,
+    key: keyof TapChangerFields,
     symbol: ReactNode,
     unit: string | undefined,
     name: string,
@@ -363,7 +379,7 @@ function TapChanger({
       step={step}
       decimalScale={dp}
       onChange={(v) =>
-        onPatch({ [key]: Number(v) || 0 } as Partial<Trafo2WParams>)
+        onPatch({ [key]: Number(v) || 0 } as Partial<TapChangerFields>)
       }
     />
   );
@@ -385,12 +401,9 @@ function TapChanger({
           <Select
             label="Tap side"
             // Displayed uppercase to match the bus labels on the diagram; the
-            // stored value stays pandapower's lowercase "hv"/"lv".
-            data={[
-              { value: "hv", label: "HV" },
-              { value: "lv", label: "LV" },
-            ]}
-            value={params.tap_side ?? "hv"}
+            // stored value stays pandapower's lowercase "hv"/"mv"/"lv".
+            data={sides}
+            value={params.tap_side ?? sides[0].value}
             onChange={(v) => v && onPatch({ tap_side: v })}
             allowDeselect={false}
           />
@@ -1002,7 +1015,8 @@ export function Inspector() {
                 <TapChanger
                   params={params}
                   onPatch={patchParams}
-                  onTapPos={(pos) => setTrafoTapPos(node.id, pos)}
+                  onTapPos={(pos) => setTrafoTapPos(node.id, pos, params)}
+                  sides={TAP_SIDES_2W}
                 />
               )}
             </>
@@ -1040,6 +1054,12 @@ export function Inspector() {
           const editParam = (key: string, value: number) => {
             if (!params) return;
             update({ std_type: "", params: { ...params, [key]: value } });
+          };
+          // Editing any field (incl. the tap changer) makes the transformer
+          // custom, dropping the preset label but keeping its parameters.
+          const patchParams = (patch: Partial<Trafo3WParams>) => {
+            if (!params) return;
+            update({ std_type: "", params: { ...params, ...patch } });
           };
           // Custom blanks the inputs; a named type fills them — overwriting any
           // hand-entered values, so confirm before leaving a custom transformer.
@@ -1094,6 +1114,14 @@ export function Inspector() {
                   groups={TRAFO3W_GROUPS}
                   params={params}
                   onChange={editParam}
+                />
+              )}
+              {params && (
+                <TapChanger
+                  params={params}
+                  onPatch={patchParams}
+                  onTapPos={(pos) => setTrafoTapPos(node.id, pos, params)}
+                  sides={TAP_SIDES_3W}
                 />
               )}
             </>

@@ -716,6 +716,89 @@ def test_phase_shifter_tap_changer_round_trips_and_solves(client):
     assert "Ideal" in client.get("/session/export", headers=auth(sid)).text
 
 
+def _three_bus_trafo3w(
+    client, sid: str, std_type: str = "63/25/38 MVA 110/20/10 kV"
+) -> None:
+    """110/20/10 kV buses joined by a std_type 3W transformer."""
+    cmds = [
+        {"op": "add_bus", "payload": {"id": "b1", "name": "HV", "vn_kv": 110.0, "x": 0, "y": 0, "width": 220}},
+        {"op": "add_bus", "payload": {"id": "b2", "name": "MV", "vn_kv": 20.0, "x": 0, "y": 200, "width": 220}},
+        {"op": "add_bus", "payload": {"id": "b3", "name": "LV", "vn_kv": 10.0, "x": 200, "y": 200, "width": 220}},
+        {"op": "add_transformer3w", "payload": {"id": "t1", "hv_bus": "b1", "mv_bus": "b2", "lv_bus": "b3",
+            "std_type": std_type, "port_hv": "", "port_mv": "", "port_lv": ""}},
+    ]
+    assert client.post("/session/commands", json=cmds, headers=auth(sid)).status_code == 200
+
+
+def _trafo3w(client, sid: str) -> dict:
+    return client.get("/session", headers=auth(sid)).json()["network"]["transformers3w"][0]
+
+
+def test_setting_tap_position_keeps_the_preset_3w(client):
+    # As for the 2W transformer: tap_pos is an operating setpoint sent as a bare
+    # column write, so it must leave the preset label intact.
+    sid = new_session(client)
+    _three_bus_trafo3w(client, sid)
+    std_type = _trafo3w(client, sid)["std_type"]
+    assert std_type  # started life as a recognized preset
+
+    patch = {"op": "update", "payload": {"id": "t1", "kind": "trafo3w",
+        "patch": {"tap_pos": 2}}}
+    assert client.post("/session/commands", json=[patch], headers=auth(sid)).status_code == 200
+
+    t = _trafo3w(client, sid)
+    assert t["std_type"] == std_type  # preset survived
+    assert t["params"]["tap_pos"] == pytest.approx(2)
+
+
+def test_std_types_3w_include_tap_changer(client):
+    # The catalog must forward a 3W preset's tap changer too (the default
+    # 110/20/10 kV transformer has a ratio tap changer on the HV winding).
+    p = client.get("/std-types/trafo3w").json()["63/25/38 MVA 110/20/10 kV"]
+    assert p.get("tap_changer_type") == "Ratio"
+    assert p.get("tap_side") in ("hv", "mv", "lv")
+    assert "tap_step_percent" in p
+
+
+def test_phase_shifter_tap_changer_round_trips_and_solves_3w(client):
+    sid = new_session(client)
+    _three_bus_trafo3w(client, sid)
+    # A slack source on the HV bus and loads on the MV and LV buses so it solves.
+    grid = [
+        {"op": "add_element", "payload": {"id": "g1", "kind": "generator", "bus_id": "b1",
+            "port": "p1", "x": -100, "y": 0,
+            "data": {"name": "Slack", "p_mw": 0.0, "vm_pu": 1.0, "slack": True, "slack_weight": 1.0}}},
+        {"op": "add_element", "payload": {"id": "l1", "kind": "load", "bus_id": "b2",
+            "port": "p1", "x": 0, "y": 400,
+            "data": {"name": "MV Load", "p_mw": 5.0, "q_mvar": 1.0}}},
+        {"op": "add_element", "payload": {"id": "l2", "kind": "load", "bus_id": "b3",
+            "port": "p1", "x": 200, "y": 400,
+            "data": {"name": "LV Load", "p_mw": 3.0, "q_mvar": 0.5}}},
+    ]
+    assert client.post("/session/commands", json=grid, headers=auth(sid)).status_code == 200
+
+    # Turn the transformer into an ideal phase shifter, tapped off neutral.
+    params = _trafo3w(client, sid)["params"]
+    params["tap_changer_type"] = "Ideal"
+    params["tap_step_degree"] = 5.0
+    params["tap_step_percent"] = 0.0  # an ideal phase shifter is pure angle
+    params["tap_pos"] = (params["tap_neutral"] or 0) + 1
+    patch = {"op": "update", "payload": {"id": "t1", "kind": "trafo3w",
+        "patch": {"std_type": "", "params": params}}}
+    assert client.post("/session/commands", json=[patch], headers=auth(sid)).status_code == 200
+
+    t = _trafo3w(client, sid)
+    assert t["params"]["tap_changer_type"] == "Ideal"
+    assert t["params"]["tap_step_degree"] == pytest.approx(5.0)
+
+    # It actually solves with the phase shifter active...
+    run = client.post("/session/run-loadflow", headers=auth(sid))
+    assert run.status_code == 200
+    assert run.json()["converged"] is True
+    # ...and the tap changer survives an export round-trip.
+    assert "Ideal" in client.get("/session/export", headers=auth(sid)).text
+
+
 def test_scenarios_list_includes_known_cases(client):
     body = client.get("/scenarios").json()
     ids = {s["id"] for s in body}

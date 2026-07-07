@@ -35,7 +35,9 @@ import type {
   ShuntData,
   SwitchData,
   Trafo2WData,
+  Trafo2WParams,
   Trafo3WData,
+  Trafo3WParams,
   ViewModel,
   VoltageUnit,
   XwardData,
@@ -297,8 +299,15 @@ interface EditorState {
   // Set a transformer's tap position. tap_pos is an operating setpoint, not part
   // of the std_type definition, so this writes it as a plain column (keeping the
   // preset label) rather than routing through the params — which would drop the
-  // transformer to "custom" like any other electrical edit.
-  setTrafoTapPos: (id: string, pos: number) => void;
+  // transformer to "custom" like any other electrical edit. `params` is the
+  // inspector's effective param set (a preset's local node carries no params of
+  // its own — they come from the std_type catalog), so we seed the local params
+  // from it to reflect the new position without touching the preset label.
+  setTrafoTapPos: (
+    id: string,
+    pos: number,
+    params: Trafo2WParams | Trafo3WParams,
+  ) => void;
   removeNode: (id: string) => void;
   removeEdge: (id: string) => void;
   removeElements: (nodeIds: string[], edgeIds: string[]) => void;
@@ -999,20 +1008,18 @@ export const useEditor = create<EditorState>((set, get) => ({
       enqueue({ op: "update", payload: { id, kind: "line", patch } });
   },
 
-  setTrafoTapPos: (id, pos) => {
+  setTrafoTapPos: (id, pos, params) => {
     if (get().readOnly) return;
     const node = get().nodes.find((n) => n.id === id);
     if (!node || (node.type !== "trafo2w" && node.type !== "trafo3w")) return;
-    // Update the tap position inside the projected params locally (leaving the
-    // std_type label untouched)…
+    // Reflect the new position locally, leaving the std_type label untouched.
     set((s) => ({
       nodes: s.nodes.map((n) => {
         if (n.id !== id) return n;
         const data = n.data as Trafo2WData | Trafo3WData;
-        if (!data.params) return n;
         return {
           ...n,
-          data: { ...data, params: { ...data.params, tap_pos: pos } },
+          data: { ...data, params: { ...params, tap_pos: pos } },
         } as ElementNode;
       }),
     }));
