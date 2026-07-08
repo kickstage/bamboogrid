@@ -10,6 +10,7 @@ import {
   Tooltip,
 } from "@mantine/core";
 import { Switch } from "../ui/Switch";
+import { PanelTitle } from "../ui/Section";
 import { useEffect, useState, type ReactNode } from "react";
 import "./inspector.css";
 import { fetchStdTypes, type StdTrafoTypes } from "../api";
@@ -237,9 +238,7 @@ function AdvancedParams({
           <Stack gap="md">
             {groups.map((g) => (
               <Stack gap="xs" key={g.title}>
-                <Text size="xs" fw={700} c="dimmed" tt="uppercase">
-                  {g.title}
-                </Text>
+                <Divider label={g.title} labelPosition="left" />
                 {g.fields.map((f) => (
                   <ParamInput
                     key={f.key}
@@ -481,9 +480,7 @@ export function Inspector() {
     );
     return (
       <Stack gap="sm" p="sm">
-        <Text size="sm" fw={700} c="dimmed">
-          LINE
-        </Text>
+        <PanelTitle>Line</PanelTitle>
         <TextInput
           label="Name"
           value={d.name}
@@ -514,9 +511,7 @@ export function Inspector() {
     const d = node.data as ForeignData;
     return (
       <Stack gap="sm" p="sm">
-        <Text size="sm" fw={700} c="dimmed">
-          {d.table.toUpperCase()}
-        </Text>
+        <PanelTitle>{d.table}</PanelTitle>
         <Text size="sm">{d.label}</Text>
         <Text size="xs" c="dimmed">
           This pandapower element type isn't editable in the diagram yet. It stays
@@ -536,9 +531,7 @@ export function Inspector() {
   if (!node) {
     return (
       <Stack p="sm">
-        <Text size="sm" fw={700} c="dimmed">
-          PROPERTIES
-        </Text>
+        <PanelTitle>Properties</PanelTitle>
         <Text size="xs" c="dimmed">
           Select an element to edit its parameters.
         </Text>
@@ -557,9 +550,7 @@ export function Inspector() {
 
   return (
     <Stack gap="sm" p="sm">
-      <Text size="sm" fw={700} c="dimmed">
-        {HEADERS[node.type ?? ""] ?? node.type?.toUpperCase()}
-      </Text>
+      <PanelTitle>{HEADERS[node.type ?? ""] ?? node.type}</PanelTitle>
       <TextInput
         label="Name"
         value={(node.data as { name: string }).name}

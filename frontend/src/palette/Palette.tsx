@@ -1,4 +1,5 @@
 import { Group, Stack, Text, Paper } from "@mantine/core";
+import { SectionLabel } from "../ui/Section";
 import type { ElementKind } from "../types";
 import {
   BusGlyph,
@@ -148,9 +149,7 @@ export function Palette() {
     <Stack gap="md" p="sm">
       {GROUPS.map((group) => (
         <Stack key={group.title} gap="xs">
-          <Text size="xs" fw={700} c="dimmed" tt="uppercase">
-            {group.title}
-          </Text>
+          <SectionLabel>{group.title}</SectionLabel>
           {group.items.map((item) => (
             <PaletteItem
               key={item.kind}
