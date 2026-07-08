@@ -530,7 +530,7 @@ export function Inspector() {
 
   if (!node) {
     return (
-      <Stack p="sm">
+      <Stack gap="sm" p="sm">
         <PanelTitle>Properties</PanelTitle>
         <Text size="xs" c="dimmed">
           Select an element to edit its parameters.
@@ -654,7 +654,7 @@ export function Inspector() {
               onChange={(v) => update({ slack_weight: Number(v) || 0 })}
             />
           )}
-          <Divider my={4} label="Short-circuit" labelPosition="left" />
+          <Divider label="Short-circuit" labelPosition="left" />
           <ParamInput
             name="Rated apparent power"
             symbol={<Sym sub="N">S</Sym>}
@@ -735,7 +735,7 @@ export function Inspector() {
           <Text size="xs" c="dimmed">
             Always a slack (voltage reference) that balances the network.
           </Text>
-          <Divider my={4} label="Short-circuit" labelPosition="left" />
+          <Divider label="Short-circuit" labelPosition="left" />
           <ParamInput
             name="Fault level — max short-circuit power at this connection"
             symbol={<Sym sub="k" sup="″">S</Sym>}
@@ -838,13 +838,13 @@ export function Inspector() {
                 A reduced equivalent of an external network: a fixed injection plus
                 an impedance plus a voltage source behind it.
               </Text>
-              <Divider my={4} label="Constant power" labelPosition="left" />
+              <Divider label="Constant power" labelPosition="left" />
               {num("Constant active power", <Sym sub="s">P</Sym>, "MW", "ps_mw", 0.1, 4)}
               {num("Constant reactive power", <Sym sub="s">Q</Sym>, "Mvar", "qs_mvar", 0.1, 4)}
-              <Divider my={4} label="Constant impedance (at 1 p.u.)" labelPosition="left" />
+              <Divider label="Constant impedance (at 1 p.u.)" labelPosition="left" />
               {num("Constant-impedance active power", <Sym sub="z">P</Sym>, "MW", "pz_mw", 0.1, 4)}
               {num("Constant-impedance reactive power", <Sym sub="z">Q</Sym>, "Mvar", "qz_mvar", 0.1, 4)}
-              <Divider my={4} label="Internal source" labelPosition="left" />
+              <Divider label="Internal source" labelPosition="left" />
               {num("Internal resistance", <Sym sub="int">R</Sym>, "Ω", "r_ohm", 0.1, 4, 0)}
               {num("Internal reactance", <Sym sub="int">X</Sym>, "Ω", "x_ohm", 0.1, 4, 0)}
               {num("Internal voltage setpoint", <Sym sub="m">V</Sym>, "p.u.", "vm_pu", 0.01, 4, 0)}
@@ -888,12 +888,12 @@ export function Inspector() {
               {d.controllable
                 ? num("Target voltage the SVC holds", <Sym sub="set">V</Sym>, "p.u.", "set_vm_pu", 0.01, 4)
                 : num("Fixed thyristor firing angle", <>α</>, "deg", "thyristor_firing_angle_degree", 1, 2)}
-              <Divider my={4} label="Susceptance range" labelPosition="left" />
+              <Divider label="Susceptance range" labelPosition="left" />
               {num("Reactor reactance", <Sym sub="L">X</Sym>, "Ω", "x_l_ohm", 0.1, 4)}
               {num("Capacitor reactance (negative)", <Sym sub="Cvar">X</Sym>, "Ω", "x_cvar_ohm", 0.1, 4)}
               {d.controllable && (
                 <>
-                  <Divider my={4} label="Firing-angle limits" labelPosition="left" />
+                  <Divider label="Firing-angle limits" labelPosition="left" />
                   {num("Minimum firing angle", <>α<sub>min</sub></>, "deg", "min_angle_degree", 1, 2)}
                   {num("Maximum firing angle", <>α<sub>max</sub></>, "deg", "max_angle_degree", 1, 2)}
                 </>

@@ -89,7 +89,7 @@ function SummaryTab({
     <Stack gap="md" mt="md">
       {s.balance && (
         <div>
-          <Divider label="Power balance" labelPosition="left" mb={4} />
+          <Divider label="Power balance" labelPosition="left" mb="sm" />
           <Table withRowBorders={false} verticalSpacing={2}>
             <Table.Tbody>
               <Row label="Generation" value={pq(s.balance.gen_p_mw, s.balance.gen_q_mvar)} />
@@ -102,7 +102,7 @@ function SummaryTab({
 
       {s.converged && (
         <div>
-          <Divider label="Voltage & loading" labelPosition="left" mb={4} />
+          <Divider label="Voltage & loading" labelPosition="left" mb="sm" />
           <Table withRowBorders={false} verticalSpacing={2}>
             <Table.Tbody>
               <Row label="Min voltage" value={extreme(s.min_voltage, "p.u.", 4, onReveal)} />
@@ -118,7 +118,7 @@ function SummaryTab({
       )}
 
       <div>
-        <Divider label="Composition" labelPosition="left" mb={4} />
+        <Divider label="Composition" labelPosition="left" mb="sm" />
         <Table withRowBorders={false} verticalSpacing={2}>
           <Table.Tbody>
             <Row label="Buses" value={c.buses} />
