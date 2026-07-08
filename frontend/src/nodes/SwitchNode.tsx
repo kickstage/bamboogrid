@@ -2,10 +2,11 @@ import { Handle, Position, type NodeProps, useUpdateNodeInternals } from "@xyflo
 import { useEffect } from "react";
 import type { SwitchData } from "../types";
 import { SwitchGlyph } from "./glyphs";
+import { ACCENT, NODE_WIDTH } from "../theme";
 import { useEditor } from "../store";
 import { switchLayout } from "./windingFlip";
 
-const GLYPH = 64; // width; the glyph is half as tall, so its terminals sit at GLYPH/4.
+const GLYPH = NODE_WIDTH; // width; the glyph is half as tall, so its terminals sit at GLYPH/4.
 
 // Two-port element: terminal "a" and "b", each wired to a bus. The glyph is
 // symmetric, so it orients along the axis between its buses — horizontal (a-left /
@@ -20,7 +21,7 @@ export function SwitchNode({
   positionAbsoluteY,
 }: NodeProps) {
   const d = data as SwitchData;
-  const stroke = selected ? "#0ea5e9" : "currentColor";
+  const stroke = selected ? ACCENT : "currentColor";
   const { vertical, flip } = useEditor((s) =>
     switchLayout(s.nodes, s.edges, id, positionAbsoluteX ?? 0, positionAbsoluteY ?? 0),
   );

@@ -1,5 +1,6 @@
 import { type NodeProps } from "@xyflow/react";
 import type { ForeignData } from "../types";
+import { ACCENT } from "../theme";
 
 // A pandapower element the editor doesn't model yet (e.g. dcline, impedance,
 // motor, storage). It stays on the authoritative server net and is solved with
@@ -13,7 +14,7 @@ export function ForeignNode({ data, selected }: NodeProps) {
       style={{
         padding: "4px 8px",
         borderRadius: 6,
-        border: `1px dashed ${selected ? "#0ea5e9" : "#9ca3af"}`,
+        border: `1px dashed ${selected ? ACCENT : "#9ca3af"}`,
         background: "var(--mantine-color-body)",
         color: "var(--mantine-color-dimmed)",
         fontSize: 10,

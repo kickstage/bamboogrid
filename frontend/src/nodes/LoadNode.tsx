@@ -1,6 +1,7 @@
 import { Handle, Position, type NodeProps } from "@xyflow/react";
 import type { LoadData } from "../types";
 import { CANVAS_GLYPH_SIZE, LoadGlyph } from "./glyphs";
+import { ACCENT, NODE_WIDTH } from "../theme";
 import { Value } from "./Readout";
 import { useBusBelow } from "./useBusBelow";
 
@@ -15,7 +16,7 @@ export function LoadNode({ id, data, selected, positionAbsoluteY }: NodeProps) {
   );
   const glyph = (
     <div style={busBelow ? { transform: "scaleY(-1)" } : undefined}>
-      <LoadGlyph size={CANVAS_GLYPH_SIZE.load} stroke={selected ? "#0ea5e9" : "currentColor"} />
+      <LoadGlyph size={CANVAS_GLYPH_SIZE.load} stroke={selected ? ACCENT : "currentColor"} />
     </div>
   );
   const label = (
@@ -27,7 +28,7 @@ export function LoadNode({ id, data, selected, positionAbsoluteY }: NodeProps) {
   // Keep the handle next to the glyph (and the label on the far side) so the wire
   // exits at the symbol, whichever way the load is flipped.
   return (
-    <div style={{ width: 64, textAlign: "center", color: "var(--mantine-color-text)" }}>
+    <div style={{ width: NODE_WIDTH, textAlign: "center", color: "var(--mantine-color-text)" }}>
       {busBelow ? (
         <>
           {label}

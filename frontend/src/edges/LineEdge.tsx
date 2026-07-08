@@ -8,6 +8,7 @@ import {
 import { useEditor } from "../store";
 import type { LineData } from "../types";
 import { Readout } from "../nodes/Readout";
+import { ACCENT } from "../theme";
 import { fixed } from "../format";
 
 type Point = { x: number; y: number };
@@ -158,7 +159,7 @@ export function LineEdge({
               pointerEvents: "none",
             }}
           >
-            <Readout color={loading! > 100 ? "#dc2626" : "#0ea5e9"}>
+            <Readout color={loading! > 100 ? "#dc2626" : ACCENT}>
               <div>{fixed(loading!, 1)}%</div>
               {resI !== undefined && <div>{fixed(resI * 1000, 1)} A</div>}
             </Readout>
@@ -180,8 +181,8 @@ export function LineEdge({
               width: 12,
               height: 12,
               borderRadius: "50%",
-              border: "2px solid #0ea5e9",
-              background: waypoint ? "#0ea5e9" : "#fff",
+              border: `2px solid ${ACCENT}`,
+              background: waypoint ? ACCENT : "#fff",
               cursor: "grab",
             }}
           />

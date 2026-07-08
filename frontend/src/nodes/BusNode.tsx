@@ -8,6 +8,7 @@ import {
 import { useEffect } from "react";
 import type { BusData } from "../types";
 import { Readout, Value } from "./Readout";
+import { ACCENT } from "../theme";
 import { fixed } from "../format";
 import { useEditor } from "../store";
 
@@ -139,7 +140,7 @@ export function BusNode({ id, data, selected, width, positionAbsoluteY }: NodePr
       {/* Horizontal-only resize: drag the left/right edges to lengthen the bus. */}
       <NodeResizer
         isVisible={selected}
-        color="#0ea5e9"
+        color={ACCENT}
         minWidth={BUS_MIN_WIDTH}
         shouldResize={(_e, params) => params.direction[1] === 0}
       />
@@ -171,7 +172,7 @@ export function BusNode({ id, data, selected, width, positionAbsoluteY }: NodePr
           height={6}
           rx={3}
           fill={color}
-          stroke={selected ? "#0ea5e9" : "transparent"}
+          stroke={selected ? ACCENT : "transparent"}
           strokeWidth={2}
         />
       </svg>

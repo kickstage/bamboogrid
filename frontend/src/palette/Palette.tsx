@@ -41,6 +41,13 @@ const GROUPS: { title: string; items: Item[] }[] = [
     title: "Loads",
     items: [
       { kind: "load", label: "Load", hint: "Consumes power" },
+    ],
+  },
+  {
+    // Shunt-connected reactive devices — they support voltage, they don't
+    // consume power, so they're kept apart from Loads.
+    title: "Compensation",
+    items: [
       {
         kind: "shunt",
         label: "Shunt",
@@ -160,9 +167,8 @@ export function Palette() {
         </Stack>
       ))}
       <Text size="xs" c="dimmed" mt="xs">
-        Drag onto the canvas. Connect a generator/load handle to a bus. Drag bus
-        → bus and pick what to add (line or switch; a transformer across
-        voltages).
+        Drag an element onto the canvas, then connect its handle to a bus. Drag
+        from one bus to another to add a line, switch, or transformer.
       </Text>
     </Stack>
   );

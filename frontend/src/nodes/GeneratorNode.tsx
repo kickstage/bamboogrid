@@ -1,6 +1,7 @@
 import { Handle, Position, type NodeProps } from "@xyflow/react";
 import type { GeneratorData } from "../types";
 import { CANVAS_GLYPH_SIZE, GeneratorGlyph } from "./glyphs";
+import { ACCENT, NODE_WIDTH } from "../theme";
 import { Readout, Value } from "./Readout";
 import { signed } from "../format";
 import { useEditor } from "../store";
@@ -17,7 +18,7 @@ export function GeneratorNode({ id, data, selected, positionAbsoluteY }: NodePro
     <Handle type="source" position={position} style={{ background: "currentColor" }} />
   );
   const glyph = (
-    <GeneratorGlyph size={CANVAS_GLYPH_SIZE.generator} stroke={selected ? "#0ea5e9" : "currentColor"} />
+    <GeneratorGlyph size={CANVAS_GLYPH_SIZE.generator} stroke={selected ? ACCENT : "currentColor"} />
   );
   const label = (
     <>
@@ -34,7 +35,7 @@ export function GeneratorNode({ id, data, selected, positionAbsoluteY }: NodePro
     </>
   );
   return (
-    <div style={{ width: 64, textAlign: "center", color: "var(--mantine-color-text)" }}>
+    <div style={{ width: NODE_WIDTH, textAlign: "center", color: "var(--mantine-color-text)" }}>
       {busBelow ? (
         <>
           {label}

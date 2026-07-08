@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { ACCENT } from "../theme";
 
 // The inner block: monospace so figures line up column-wise; left-aligned; nowrap
 // so a value never breaks from its unit ("1.234" / "MW"). It's inline-block so it
@@ -32,7 +33,7 @@ export function Value({ children }: { children: ReactNode }) {
 // The blue load-flow readout shown once a flow has solved. `color` overrides the
 // default (e.g. red for an overloaded transformer/line).
 export function Readout({
-  color = "#0ea5e9",
+  color = ACCENT,
   children,
 }: {
   color?: string;

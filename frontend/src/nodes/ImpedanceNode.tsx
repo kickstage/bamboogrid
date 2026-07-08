@@ -2,12 +2,13 @@ import { Handle, Position, type NodeProps, useUpdateNodeInternals } from "@xyflo
 import { useEffect } from "react";
 import type { ImpedanceData } from "../types";
 import { ImpedanceGlyph } from "./glyphs";
+import { ACCENT, NODE_WIDTH } from "../theme";
 import { Readout } from "./Readout";
 import { signed } from "../format";
 import { useEditor } from "../store";
 import { switchLayout } from "./windingFlip";
 
-const GLYPH = 64; // width; the glyph is half as tall, so its terminals sit at GLYPH/4.
+const GLYPH = NODE_WIDTH; // width; the glyph is half as tall, so its terminals sit at GLYPH/4.
 
 // Two-port series-impedance element: terminals "from" and "to", each wired to a
 // bus. Like the switch, the glyph is symmetric, so it orients along the axis
@@ -21,7 +22,7 @@ export function ImpedanceNode({
   positionAbsoluteY,
 }: NodeProps) {
   const d = data as ImpedanceData;
-  const stroke = selected ? "#0ea5e9" : "currentColor";
+  const stroke = selected ? ACCENT : "currentColor";
   const showResults = useEditor((s) => s.showResults);
   const hasResult = showResults && d.res_p_mw !== undefined;
   const { vertical, flip } = useEditor((s) =>
