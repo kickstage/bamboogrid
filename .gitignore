@@ -12,3 +12,5 @@ frontend/dist/
 
 # Editor / OS
 .DS_Store
+
+ backend/build/
