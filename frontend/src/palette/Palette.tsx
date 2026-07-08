@@ -1,5 +1,15 @@
-import { Group, Stack, Text, Paper } from "@mantine/core";
+import { useState } from "react";
+import {
+  CloseButton,
+  Collapse,
+  Group,
+  Stack,
+  Text,
+  TextInput,
+  UnstyledButton,
+} from "@mantine/core";
 import { SectionLabel } from "../ui/Section";
+import "./palette.css";
 import type { ElementKind } from "../types";
 import {
   BusGlyph,
@@ -106,6 +116,34 @@ function Glyph({ kind }: { kind: ElementKind }) {
   return <BusGlyph width={34} />;
 }
 
+// A disclosure chevron that points right when collapsed, down when open.
+function Chevron({ open }: { open: boolean }) {
+  return (
+    <svg
+      width={9}
+      height={9}
+      viewBox="0 0 10 10"
+      aria-hidden
+      style={{
+        flex: "none",
+        transform: open ? "rotate(90deg)" : "none",
+        transition: "transform 150ms ease",
+      }}
+    >
+      <path
+        d="M3 1 L7 5 L3 9"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={1.6}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+// A compact, draggable element row: the glyph and its label on one line, with
+// the longer description on hover so the palette stays short.
 function PaletteItem({
   item,
   onDragStart,
@@ -114,62 +152,176 @@ function PaletteItem({
   onDragStart: (e: React.DragEvent, kind: ElementKind) => void;
 }) {
   return (
-    <Paper
-      withBorder
-      p="xs"
-      radius="md"
+    <Group
+      className="paletteRow"
+      title={item.hint}
+      gap="xs"
+      wrap="nowrap"
       draggable
       onDragStart={(e) => onDragStart(e, item.kind)}
-      style={{ cursor: "grab" }}
     >
-      <Group gap="sm" wrap="nowrap">
-        <div
-          style={{
-            width: 40,
-            display: "flex",
-            justifyContent: "center",
-            color: "var(--mantine-color-text)",
-          }}
-        >
-          <Glyph kind={item.kind} />
-        </div>
-        <div>
-          <Text size="sm" fw={600}>
-            {item.label}
-          </Text>
-          <Text size="xs" c="dimmed">
-            {item.hint}
-          </Text>
-        </div>
-      </Group>
-    </Paper>
+      <div
+        style={{
+          width: 40,
+          flex: "none",
+          display: "flex",
+          justifyContent: "center",
+          color: "var(--mantine-color-text)",
+        }}
+      >
+        <Glyph kind={item.kind} />
+      </div>
+      <Text size="sm" fw={500}>
+        {item.label}
+      </Text>
+    </Group>
+  );
+}
+
+// Which groups the user has collapsed, persisted so the palette reopens the way
+// they left it. Stored as the collapsed set, so the default (nothing stored) is
+// every group open.
+const COLLAPSE_KEY = "bamboogrid:paletteCollapsed";
+
+function loadCollapsed(): Set<string> {
+  try {
+    const raw = localStorage.getItem(COLLAPSE_KEY);
+    if (raw) return new Set(JSON.parse(raw) as string[]);
+  } catch {
+    // best-effort
+  }
+  return new Set();
+}
+
+// A small magnifier for the search field's left section.
+function SearchIcon() {
+  return (
+    <svg
+      width={14}
+      height={14}
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.6}
+      aria-hidden
+    >
+      <circle cx={7} cy={7} r={4.5} />
+      <line x1={10.5} y1={10.5} x2={14} y2={14} strokeLinecap="round" />
+    </svg>
   );
 }
 
 export function Palette() {
+  const [collapsed, setCollapsed] = useState<Set<string>>(loadCollapsed);
+  const [query, setQuery] = useState("");
+
   const onDragStart = (e: React.DragEvent, kind: ElementKind) => {
     e.dataTransfer.setData("application/bamboogrid", kind);
     e.dataTransfer.effectAllowed = "move";
   };
 
+  const toggle = (title: string) =>
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(title)) next.delete(title);
+      else next.add(title);
+      try {
+        localStorage.setItem(COLLAPSE_KEY, JSON.stringify([...next]));
+      } catch {
+        // best-effort
+      }
+      return next;
+    });
+
+  // While searching, keep only matching items (matched on name, description or
+  // element kind) and drop groups that end up empty.
+  const q = query.trim().toLowerCase();
+  const searching = q.length > 0;
+  const groups = searching
+    ? GROUPS.map((group) => ({
+        ...group,
+        items: group.items.filter(
+          (it) =>
+            it.label.toLowerCase().includes(q) ||
+            it.hint.toLowerCase().includes(q) ||
+            it.kind.includes(q),
+        ),
+      })).filter((group) => group.items.length > 0)
+    : GROUPS;
+
   return (
-    <Stack gap="md" p="sm">
-      {GROUPS.map((group) => (
-        <Stack key={group.title} gap="xs">
-          <SectionLabel>{group.title}</SectionLabel>
-          {group.items.map((item) => (
-            <PaletteItem
-              key={item.kind}
-              item={item}
-              onDragStart={onDragStart}
+    <Stack gap="xs" p="sm">
+      <TextInput
+        size="xs"
+        placeholder="Search elements…"
+        value={query}
+        onChange={(e) => setQuery(e.currentTarget.value)}
+        onKeyDown={(e) => e.key === "Escape" && setQuery("")}
+        leftSection={<SearchIcon />}
+        rightSection={
+          query ? (
+            <CloseButton
+              size="xs"
+              aria-label="Clear search"
+              onClick={() => setQuery("")}
             />
-          ))}
-        </Stack>
-      ))}
-      <Text size="xs" c="dimmed" mt="xs">
-        Drag an element onto the canvas, then connect its handle to a bus. Drag
-        from one bus to another to add a line, switch, or transformer.
-      </Text>
+          ) : null
+        }
+      />
+
+      {groups.map((group) => {
+        // Searching forces every matching group open so results are never
+        // hidden behind a collapsed header; otherwise honor the saved state.
+        const open = searching || !collapsed.has(group.title);
+        return (
+          <div key={group.title}>
+            {searching ? (
+              <div style={{ padding: "3px 4px" }}>
+                <SectionLabel>{group.title}</SectionLabel>
+              </div>
+            ) : (
+              <UnstyledButton
+                className="paletteGroupHeader"
+                onClick={() => toggle(group.title)}
+                aria-expanded={open}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                  color: "var(--mantine-color-dimmed)",
+                }}
+              >
+                <Chevron open={open} />
+                <SectionLabel>{group.title}</SectionLabel>
+              </UnstyledButton>
+            )}
+            <Collapse in={open}>
+              <Stack gap={0} pt={2}>
+                {group.items.map((item) => (
+                  <PaletteItem
+                    key={item.kind}
+                    item={item}
+                    onDragStart={onDragStart}
+                  />
+                ))}
+              </Stack>
+            </Collapse>
+          </div>
+        );
+      })}
+
+      {searching && groups.length === 0 && (
+        <Text size="xs" c="dimmed" ta="center" mt="xs">
+          No elements match “{query.trim()}”.
+        </Text>
+      )}
+
+      {!searching && (
+        <Text size="xs" c="dimmed" mt="xs">
+          Drag an element onto the canvas, then connect its handle to a bus. Drag
+          from one bus to another to add a line, switch, or transformer.
+        </Text>
+      )}
     </Stack>
   );
 }

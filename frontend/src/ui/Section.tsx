@@ -20,8 +20,10 @@ export function PanelTitle({ children }: { children: ReactNode }) {
 // group, the load-flow result block, a legend, the element type on the mobile
 // sheet. Smaller than a PanelTitle; several can appear within one panel.
 export function SectionLabel({ children }: { children: ReactNode }) {
+  // Rendered as a span (not the default block <p>) so it can sit inside an
+  // interactive element like the palette's collapsible group header button.
   return (
-    <Text size="xs" fw={700} c="dimmed" tt="uppercase">
+    <Text component="span" size="xs" fw={700} c="dimmed" tt="uppercase">
       {children}
     </Text>
   );
