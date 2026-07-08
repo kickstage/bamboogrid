@@ -88,12 +88,19 @@ function ParamInput({
   name,
   symbol,
   unit,
+  value,
+  onChange,
   ...rest
 }: {
   name: string;
   symbol: ReactNode;
   unit?: string;
 } & Omit<NumberInputProps, "label">) {
+  const [display, setDisplay] = useState<number | string>(value ?? "");
+  const [editing, setEditing] = useState(false);
+  useEffect(() => {
+    if (!editing) setDisplay(value ?? "");
+  }, [value, editing]);
   return (
     <NumberInput
       label={
@@ -103,6 +110,17 @@ function ParamInput({
         </span>
       }
       {...rest}
+      value={display}
+      onChange={onChange}
+      onValueChange={(payload, event) => {
+        if (event.source === "prop") return;
+        setDisplay(payload.value);
+      }}
+      onFocus={() => setEditing(true)}
+      onBlur={() => {
+        setEditing(false);
+        setDisplay(value ?? "");
+      }}
     />
   );
 }
@@ -125,29 +143,93 @@ const TRAFO2W_GROUPS: ParamGroup[] = [
   {
     title: "Ratings",
     fields: [
-      { key: "sn_mva", symbol: <Sym sub="N">S</Sym>, unit: "MVA", name: "Rated apparent power", step: 0.1, dp: 4 },
-      { key: "vn_hv_kv", symbol: <>HV <Sym sub="N">V</Sym></>, unit: "kV", name: "HV rated voltage", step: 1, dp: 3 },
-      { key: "vn_lv_kv", symbol: <>LV <Sym sub="N">V</Sym></>, unit: "kV", name: "LV rated voltage", step: 0.1, dp: 3 },
+      {
+        key: "sn_mva",
+        symbol: <Sym sub="N">S</Sym>,
+        unit: "MVA",
+        name: "Rated apparent power",
+        step: 0.1,
+        dp: 4,
+      },
+      {
+        key: "vn_hv_kv",
+        symbol: (
+          <>
+            HV <Sym sub="N">V</Sym>
+          </>
+        ),
+        unit: "kV",
+        name: "HV rated voltage",
+        step: 1,
+        dp: 3,
+      },
+      {
+        key: "vn_lv_kv",
+        symbol: (
+          <>
+            LV <Sym sub="N">V</Sym>
+          </>
+        ),
+        unit: "kV",
+        name: "LV rated voltage",
+        step: 0.1,
+        dp: 3,
+      },
     ],
   },
   {
     title: "Short-circuit voltage",
     fields: [
-      { key: "vk_percent", symbol: <Sym sub="k">v</Sym>, unit: "%", name: "Short-circuit voltage", step: 0.1, dp: 3 },
-      { key: "vkr_percent", symbol: <Sym sub="kr">v</Sym>, unit: "%", name: "Short-circuit voltage (real part)", step: 0.1, dp: 4 },
+      {
+        key: "vk_percent",
+        symbol: <Sym sub="k">v</Sym>,
+        unit: "%",
+        name: "Short-circuit voltage",
+        step: 0.1,
+        dp: 3,
+      },
+      {
+        key: "vkr_percent",
+        symbol: <Sym sub="kr">v</Sym>,
+        unit: "%",
+        name: "Short-circuit voltage (real part)",
+        step: 0.1,
+        dp: 4,
+      },
     ],
   },
   {
     title: "No-load (magnetising)",
     fields: [
-      { key: "pfe_kw", symbol: <Sym sub="Fe">P</Sym>, unit: "kW", name: "Iron (no-load) losses", step: 0.1, dp: 3 },
-      { key: "i0_percent", symbol: <Sym sub="0">i</Sym>, unit: "%", name: "No-load current", step: 0.01, dp: 4 },
+      {
+        key: "pfe_kw",
+        symbol: <Sym sub="Fe">P</Sym>,
+        unit: "kW",
+        name: "Iron (no-load) losses",
+        step: 0.1,
+        dp: 3,
+      },
+      {
+        key: "i0_percent",
+        symbol: <Sym sub="0">i</Sym>,
+        unit: "%",
+        name: "No-load current",
+        step: 0.01,
+        dp: 4,
+      },
     ],
   },
   {
     title: "Phase shift",
     fields: [
-      { key: "shift_degree", symbol: <em>θ</em>, unit: "deg", name: "Phase shift", step: 30, dp: 1 },
+      {
+        key: "shift_degree",
+        symbol: <em>θ</em>,
+        unit: "deg",
+        name: "Phase shift",
+        step: 30,
+        dp: 1,
+      },
     ],
   },
 ];
@@ -156,42 +238,210 @@ const TRAFO3W_GROUPS: ParamGroup[] = [
   {
     title: "Rated power",
     fields: [
-      { key: "sn_hv_mva", symbol: <>HV <Sym sub="N">S</Sym></>, unit: "MVA", name: "HV rated apparent power", step: 0.1, dp: 4 },
-      { key: "sn_mv_mva", symbol: <>MV <Sym sub="N">S</Sym></>, unit: "MVA", name: "MV rated apparent power", step: 0.1, dp: 4 },
-      { key: "sn_lv_mva", symbol: <>LV <Sym sub="N">S</Sym></>, unit: "MVA", name: "LV rated apparent power", step: 0.1, dp: 4 },
+      {
+        key: "sn_hv_mva",
+        symbol: (
+          <>
+            HV <Sym sub="N">S</Sym>
+          </>
+        ),
+        unit: "MVA",
+        name: "HV rated apparent power",
+        step: 0.1,
+        dp: 4,
+      },
+      {
+        key: "sn_mv_mva",
+        symbol: (
+          <>
+            MV <Sym sub="N">S</Sym>
+          </>
+        ),
+        unit: "MVA",
+        name: "MV rated apparent power",
+        step: 0.1,
+        dp: 4,
+      },
+      {
+        key: "sn_lv_mva",
+        symbol: (
+          <>
+            LV <Sym sub="N">S</Sym>
+          </>
+        ),
+        unit: "MVA",
+        name: "LV rated apparent power",
+        step: 0.1,
+        dp: 4,
+      },
     ],
   },
   {
     title: "Rated voltage",
     fields: [
-      { key: "vn_hv_kv", symbol: <>HV <Sym sub="N">V</Sym></>, unit: "kV", name: "HV rated voltage", step: 1, dp: 3 },
-      { key: "vn_mv_kv", symbol: <>MV <Sym sub="N">V</Sym></>, unit: "kV", name: "MV rated voltage", step: 1, dp: 3 },
-      { key: "vn_lv_kv", symbol: <>LV <Sym sub="N">V</Sym></>, unit: "kV", name: "LV rated voltage", step: 0.1, dp: 3 },
+      {
+        key: "vn_hv_kv",
+        symbol: (
+          <>
+            HV <Sym sub="N">V</Sym>
+          </>
+        ),
+        unit: "kV",
+        name: "HV rated voltage",
+        step: 1,
+        dp: 3,
+      },
+      {
+        key: "vn_mv_kv",
+        symbol: (
+          <>
+            MV <Sym sub="N">V</Sym>
+          </>
+        ),
+        unit: "kV",
+        name: "MV rated voltage",
+        step: 1,
+        dp: 3,
+      },
+      {
+        key: "vn_lv_kv",
+        symbol: (
+          <>
+            LV <Sym sub="N">V</Sym>
+          </>
+        ),
+        unit: "kV",
+        name: "LV rated voltage",
+        step: 0.1,
+        dp: 3,
+      },
     ],
   },
   {
     title: "Short-circuit voltage",
     fields: [
-      { key: "vk_hv_percent", symbol: <>HV <Sym sub="k">v</Sym></>, unit: "%", name: "HV short-circuit voltage", step: 0.1, dp: 3 },
-      { key: "vk_mv_percent", symbol: <>MV <Sym sub="k">v</Sym></>, unit: "%", name: "MV short-circuit voltage", step: 0.1, dp: 3 },
-      { key: "vk_lv_percent", symbol: <>LV <Sym sub="k">v</Sym></>, unit: "%", name: "LV short-circuit voltage", step: 0.1, dp: 3 },
-      { key: "vkr_hv_percent", symbol: <>HV <Sym sub="kr">v</Sym></>, unit: "%", name: "HV short-circuit voltage (real part)", step: 0.1, dp: 4 },
-      { key: "vkr_mv_percent", symbol: <>MV <Sym sub="kr">v</Sym></>, unit: "%", name: "MV short-circuit voltage (real part)", step: 0.1, dp: 4 },
-      { key: "vkr_lv_percent", symbol: <>LV <Sym sub="kr">v</Sym></>, unit: "%", name: "LV short-circuit voltage (real part)", step: 0.1, dp: 4 },
+      {
+        key: "vk_hv_percent",
+        symbol: (
+          <>
+            HV <Sym sub="k">v</Sym>
+          </>
+        ),
+        unit: "%",
+        name: "HV short-circuit voltage",
+        step: 0.1,
+        dp: 3,
+      },
+      {
+        key: "vk_mv_percent",
+        symbol: (
+          <>
+            MV <Sym sub="k">v</Sym>
+          </>
+        ),
+        unit: "%",
+        name: "MV short-circuit voltage",
+        step: 0.1,
+        dp: 3,
+      },
+      {
+        key: "vk_lv_percent",
+        symbol: (
+          <>
+            LV <Sym sub="k">v</Sym>
+          </>
+        ),
+        unit: "%",
+        name: "LV short-circuit voltage",
+        step: 0.1,
+        dp: 3,
+      },
+      {
+        key: "vkr_hv_percent",
+        symbol: (
+          <>
+            HV <Sym sub="kr">v</Sym>
+          </>
+        ),
+        unit: "%",
+        name: "HV short-circuit voltage (real part)",
+        step: 0.1,
+        dp: 4,
+      },
+      {
+        key: "vkr_mv_percent",
+        symbol: (
+          <>
+            MV <Sym sub="kr">v</Sym>
+          </>
+        ),
+        unit: "%",
+        name: "MV short-circuit voltage (real part)",
+        step: 0.1,
+        dp: 4,
+      },
+      {
+        key: "vkr_lv_percent",
+        symbol: (
+          <>
+            LV <Sym sub="kr">v</Sym>
+          </>
+        ),
+        unit: "%",
+        name: "LV short-circuit voltage (real part)",
+        step: 0.1,
+        dp: 4,
+      },
     ],
   },
   {
     title: "No-load (magnetising)",
     fields: [
-      { key: "pfe_kw", symbol: <Sym sub="Fe">P</Sym>, unit: "kW", name: "Iron (no-load) losses", step: 0.1, dp: 3 },
-      { key: "i0_percent", symbol: <Sym sub="0">i</Sym>, unit: "%", name: "No-load current", step: 0.01, dp: 4 },
+      {
+        key: "pfe_kw",
+        symbol: <Sym sub="Fe">P</Sym>,
+        unit: "kW",
+        name: "Iron (no-load) losses",
+        step: 0.1,
+        dp: 3,
+      },
+      {
+        key: "i0_percent",
+        symbol: <Sym sub="0">i</Sym>,
+        unit: "%",
+        name: "No-load current",
+        step: 0.01,
+        dp: 4,
+      },
     ],
   },
   {
     title: "Phase shift",
     fields: [
-      { key: "shift_mv_degree", symbol: <>MV <em>θ</em></>, unit: "deg", name: "MV phase shift", step: 30, dp: 1 },
-      { key: "shift_lv_degree", symbol: <>LV <em>θ</em></>, unit: "deg", name: "LV phase shift", step: 30, dp: 1 },
+      {
+        key: "shift_mv_degree",
+        symbol: (
+          <>
+            MV <em>θ</em>
+          </>
+        ),
+        unit: "deg",
+        name: "MV phase shift",
+        step: 30,
+        dp: 1,
+      },
+      {
+        key: "shift_lv_degree",
+        symbol: (
+          <>
+            LV <em>θ</em>
+          </>
+        ),
+        unit: "deg",
+        name: "LV phase shift",
+        step: 30,
+        dp: 1,
+      },
     ],
   },
 ];
@@ -407,7 +657,14 @@ function TapChanger({
             onChange={(v) => v && onPatch({ tap_side: v })}
             allowDeselect={false}
           />
-          {numField("tap_neutral", "Neutral", undefined, "Neutral (mid) tap position", 1, 0)}
+          {numField(
+            "tap_neutral",
+            "Neutral",
+            undefined,
+            "Neutral (mid) tap position",
+            1,
+            0,
+          )}
           {numField("tap_min", "Min", undefined, "Minimum tap position", 1, 0)}
           {numField("tap_max", "Max", undefined, "Maximum tap position", 1, 0)}
           <ParamInput
@@ -419,9 +676,27 @@ function TapChanger({
             onChange={(v) => onTapPos(Number(v) || 0)}
           />
           {ratio &&
-            numField("tap_step_percent", <>Δ<Sym sub="tap">V</Sym></>, "%", "Voltage change per tap step", 0.1, 3)}
+            numField(
+              "tap_step_percent",
+              <>
+                Δ<Sym sub="tap">V</Sym>
+              </>,
+              "%",
+              "Voltage change per tap step",
+              0.1,
+              3,
+            )}
           {phase &&
-            numField("tap_step_degree", <>Δ<Sym sub="tap">θ</Sym></>, "deg", "Angle change per tap step", 0.5, 2)}
+            numField(
+              "tap_step_degree",
+              <>
+                Δ<Sym sub="tap">θ</Sym>
+              </>,
+              "deg",
+              "Angle change per tap step",
+              0.5,
+              2,
+            )}
         </>
       )}
     </Stack>,
@@ -446,12 +721,18 @@ export function Inspector() {
   const [trafo2wStd, setTrafo2wStd] = useState<StdTrafoTypes>();
   const [trafo3wStd, setTrafo3wStd] = useState<StdTrafoTypes>();
   useEffect(() => {
-    fetchStdTypes("trafo").then(setTrafo2wStd).catch(() => {});
-    fetchStdTypes("trafo3w").then(setTrafo3wStd).catch(() => {});
+    fetchStdTypes("trafo")
+      .then(setTrafo2wStd)
+      .catch(() => {});
+    fetchStdTypes("trafo3w")
+      .then(setTrafo3wStd)
+      .catch(() => {});
   }, []);
 
   const node = nodes.find((n) => n.id === selectedId);
-  const lineEdge = edges.find((e) => e.id === selectedEdgeId && e.type === "line");
+  const lineEdge = edges.find(
+    (e) => e.id === selectedEdgeId && e.type === "line",
+  );
 
   // A line is a bus-to-bus edge; edit its explicit electrical parameters (the
   // solver builds the line straight from these).
@@ -487,10 +768,44 @@ export function Inspector() {
           onChange={(e) => set({ name: e.currentTarget.value })}
         />
         {num("Length", <em>l</em>, "km", "length_km", 0.1, 3)}
-        {num("Resistance per length", <><em>R</em>′</>, "Ω/km", "r_ohm_per_km", 0.01, 4)}
-        {num("Reactance per length", <><em>X</em>′</>, "Ω/km", "x_ohm_per_km", 0.01, 4)}
-        {num("Capacitance per length", <><em>C</em>′</>, "nF/km", "c_nf_per_km", 1, 2)}
-        {num("Max current (thermal limit)", <Sym sub="max">I</Sym>, "kA", "max_i_ka", 0.01, 4)}
+        {num(
+          "Resistance per length",
+          <>
+            <em>R</em>′
+          </>,
+          "Ω/km",
+          "r_ohm_per_km",
+          0.01,
+          4,
+        )}
+        {num(
+          "Reactance per length",
+          <>
+            <em>X</em>′
+          </>,
+          "Ω/km",
+          "x_ohm_per_km",
+          0.01,
+          4,
+        )}
+        {num(
+          "Capacitance per length",
+          <>
+            <em>C</em>′
+          </>,
+          "nF/km",
+          "c_nf_per_km",
+          1,
+          2,
+        )}
+        {num(
+          "Max current (thermal limit)",
+          <Sym sub="max">I</Sym>,
+          "kA",
+          "max_i_ka",
+          0.01,
+          4,
+        )}
         {d.res_loading_percent !== undefined && (
           <ResultList
             rows={[
@@ -498,7 +813,9 @@ export function Inspector() {
               ["P", `${fixed(d.res_p_mw ?? 0, 4)} MW`],
               ["Q", `${fixed(d.res_q_mvar ?? 0, 4)} Mvar`],
               ...(d.res_i_ka !== undefined
-                ? ([["Current", `${fixed(d.res_i_ka * 1000, 1)} A`]] as ResultRow[])
+                ? ([
+                    ["Current", `${fixed(d.res_i_ka * 1000, 1)} A`],
+                  ] as ResultRow[])
                 : []),
             ]}
           />
@@ -514,9 +831,9 @@ export function Inspector() {
         <PanelTitle>{d.table}</PanelTitle>
         <Text size="sm">{d.label}</Text>
         <Text size="xs" c="dimmed">
-          This pandapower element type isn't editable in the diagram yet. It stays
-          on the network and is included in the load flow; edit it in pandapower
-          or re-import to change it.
+          This pandapower element type isn't editable in the diagram yet. It
+          stays on the network and is included in the load flow; edit it in
+          pandapower or re-import to change it.
         </Text>
         {d.bus_ids.length > 0 && (
           <Text size="xs" c="dimmed">
@@ -564,7 +881,8 @@ export function Inspector() {
           // to keep both ends consistent.
           const lineConnected = edges.some(
             (e) =>
-              e.type === "line" && (e.source === node.id || e.target === node.id),
+              e.type === "line" &&
+              (e.source === node.id || e.target === node.id),
           );
           // Switch/impedance nodes wired to this bus (branch = wire source, bus =
           // target)…
@@ -667,7 +985,11 @@ export function Inspector() {
           />
           <ParamInput
             name="Subtransient reactance — drives the machine's fault contribution"
-            symbol={<Sym sub="d" sup="″">X</Sym>}
+            symbol={
+              <Sym sub="d" sup="″">
+                X
+              </Sym>
+            }
             unit="p.u."
             value={(node.data as GeneratorData).xdss_pu}
             min={0}
@@ -738,7 +1060,11 @@ export function Inspector() {
           <Divider label="Short-circuit" labelPosition="left" />
           <ParamInput
             name="Fault level — max short-circuit power at this connection"
-            symbol={<Sym sub="k" sup="″">S</Sym>}
+            symbol={
+              <Sym sub="k" sup="″">
+                S
+              </Sym>
+            }
             unit="MVA"
             value={(node.data as ExtGridData).s_sc_max_mva}
             min={0}
@@ -803,8 +1129,8 @@ export function Inspector() {
             onChange={(v) => update({ q_mvar: Number(v) || 0 })}
           />
           <Text size="xs" c="dimmed">
-            Negative MVar = capacitor (injects reactive power); positive = reactor
-            (absorbs it).
+            Negative MVar = capacitor (injects reactive power); positive =
+            reactor (absorbs it).
           </Text>
         </>
       )}
@@ -835,19 +1161,74 @@ export function Inspector() {
           return (
             <>
               <Text size="xs" c="dimmed">
-                A reduced equivalent of an external network: a fixed injection plus
-                an impedance plus a voltage source behind it.
+                A reduced equivalent of an external network: a fixed injection
+                plus an impedance plus a voltage source behind it.
               </Text>
               <Divider label="Constant power" labelPosition="left" />
-              {num("Constant active power", <Sym sub="s">P</Sym>, "MW", "ps_mw", 0.1, 4)}
-              {num("Constant reactive power", <Sym sub="s">Q</Sym>, "Mvar", "qs_mvar", 0.1, 4)}
-              <Divider label="Constant impedance (at 1 p.u.)" labelPosition="left" />
-              {num("Constant-impedance active power", <Sym sub="z">P</Sym>, "MW", "pz_mw", 0.1, 4)}
-              {num("Constant-impedance reactive power", <Sym sub="z">Q</Sym>, "Mvar", "qz_mvar", 0.1, 4)}
+              {num(
+                "Constant active power",
+                <Sym sub="s">P</Sym>,
+                "MW",
+                "ps_mw",
+                0.1,
+                4,
+              )}
+              {num(
+                "Constant reactive power",
+                <Sym sub="s">Q</Sym>,
+                "Mvar",
+                "qs_mvar",
+                0.1,
+                4,
+              )}
+              <Divider
+                label="Constant impedance (at 1 p.u.)"
+                labelPosition="left"
+              />
+              {num(
+                "Constant-impedance active power",
+                <Sym sub="z">P</Sym>,
+                "MW",
+                "pz_mw",
+                0.1,
+                4,
+              )}
+              {num(
+                "Constant-impedance reactive power",
+                <Sym sub="z">Q</Sym>,
+                "Mvar",
+                "qz_mvar",
+                0.1,
+                4,
+              )}
               <Divider label="Internal source" labelPosition="left" />
-              {num("Internal resistance", <Sym sub="int">R</Sym>, "Ω", "r_ohm", 0.1, 4, 0)}
-              {num("Internal reactance", <Sym sub="int">X</Sym>, "Ω", "x_ohm", 0.1, 4, 0)}
-              {num("Internal voltage setpoint", <Sym sub="m">V</Sym>, "p.u.", "vm_pu", 0.01, 4, 0)}
+              {num(
+                "Internal resistance",
+                <Sym sub="int">R</Sym>,
+                "Ω",
+                "r_ohm",
+                0.1,
+                4,
+                0,
+              )}
+              {num(
+                "Internal reactance",
+                <Sym sub="int">X</Sym>,
+                "Ω",
+                "x_ohm",
+                0.1,
+                4,
+                0,
+              )}
+              {num(
+                "Internal voltage setpoint",
+                <Sym sub="m">V</Sym>,
+                "p.u.",
+                "vm_pu",
+                0.01,
+                4,
+                0,
+              )}
             </>
           );
         })()}
@@ -876,26 +1257,75 @@ export function Inspector() {
           return (
             <>
               <Text size="xs" c="dimmed">
-                A shunt FACTS regulator: a thyristor-controlled reactor in parallel
-                with a fixed capacitor. When regulating it solves for a firing
-                angle to hold the target voltage; otherwise the angle is fixed.
+                A shunt FACTS regulator: a thyristor-controlled reactor in
+                parallel with a fixed capacitor. When regulating it solves for a
+                firing angle to hold the target voltage; otherwise the angle is
+                fixed.
               </Text>
               <Switch
                 label="Regulate voltage"
                 checked={d.controllable}
-                onChange={(e) => update({ controllable: e.currentTarget.checked })}
+                onChange={(e) =>
+                  update({ controllable: e.currentTarget.checked })
+                }
               />
               {d.controllable
-                ? num("Target voltage the SVC holds", <Sym sub="set">V</Sym>, "p.u.", "set_vm_pu", 0.01, 4)
-                : num("Fixed thyristor firing angle", <>α</>, "deg", "thyristor_firing_angle_degree", 1, 2)}
+                ? num(
+                    "Target voltage the SVC holds",
+                    <Sym sub="set">V</Sym>,
+                    "p.u.",
+                    "set_vm_pu",
+                    0.01,
+                    4,
+                  )
+                : num(
+                    "Fixed thyristor firing angle",
+                    <>α</>,
+                    "deg",
+                    "thyristor_firing_angle_degree",
+                    1,
+                    2,
+                  )}
               <Divider label="Susceptance range" labelPosition="left" />
-              {num("Reactor reactance", <Sym sub="L">X</Sym>, "Ω", "x_l_ohm", 0.1, 4)}
-              {num("Capacitor reactance (negative)", <Sym sub="Cvar">X</Sym>, "Ω", "x_cvar_ohm", 0.1, 4)}
+              {num(
+                "Reactor reactance",
+                <Sym sub="L">X</Sym>,
+                "Ω",
+                "x_l_ohm",
+                0.1,
+                4,
+              )}
+              {num(
+                "Capacitor reactance (negative)",
+                <Sym sub="Cvar">X</Sym>,
+                "Ω",
+                "x_cvar_ohm",
+                0.1,
+                4,
+              )}
               {d.controllable && (
                 <>
                   <Divider label="Firing-angle limits" labelPosition="left" />
-                  {num("Minimum firing angle", <>α<sub>min</sub></>, "deg", "min_angle_degree", 1, 2)}
-                  {num("Maximum firing angle", <>α<sub>max</sub></>, "deg", "max_angle_degree", 1, 2)}
+                  {num(
+                    "Minimum firing angle",
+                    <>
+                      α<sub>min</sub>
+                    </>,
+                    "deg",
+                    "min_angle_degree",
+                    1,
+                    2,
+                  )}
+                  {num(
+                    "Maximum firing angle",
+                    <>
+                      α<sub>max</sub>
+                    </>,
+                    "deg",
+                    "max_angle_degree",
+                    1,
+                    2,
+                  )}
                 </>
               )}
             </>
@@ -908,8 +1338,8 @@ export function Inspector() {
           return (
             <>
               <Text size="xs" c="dimmed">
-                A per-unit series impedance tying two buses together, on the rating
-                base below. Modeled symmetrically (from→to = to→from).
+                A per-unit series impedance tying two buses together, on the
+                rating base below. Modeled symmetrically (from→to = to→from).
               </Text>
               <ParamInput
                 name="Rating base — the per-unit R/X below are referenced to this"
@@ -919,7 +1349,9 @@ export function Inspector() {
                 min={0}
                 step={1}
                 decimalScale={4}
-                onChange={(v) => update({ sn_mva: Math.max(0, Number(v) || 0) })}
+                onChange={(v) =>
+                  update({ sn_mva: Math.max(0, Number(v) || 0) })
+                }
               />
               <ParamInput
                 name="Resistance"
@@ -1125,7 +1557,8 @@ export function Inspector() {
           return (
             <>
               <Text size="xs" c="dimmed">
-                Connected buses: {formatTrafoVoltages(volts, ["hv", "mv", "lv"])}
+                Connected buses:{" "}
+                {formatTrafoVoltages(volts, ["hv", "mv", "lv"])}
               </Text>
               {mismatch && (
                 <Text size="xs" c="orange">
@@ -1184,7 +1617,11 @@ export function Inspector() {
       {node.type === "bus" && (
         <>
           <Divider my="xs" />
-          {studyMode === "shortcircuit" ? <FaultCurrentLegend /> : <VoltageLegend />}
+          {studyMode === "shortcircuit" ? (
+            <FaultCurrentLegend />
+          ) : (
+            <VoltageLegend />
+          )}
         </>
       )}
     </Stack>
