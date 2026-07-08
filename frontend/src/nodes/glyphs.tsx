@@ -6,6 +6,31 @@
 
 type GlyphProps = { size?: number; stroke?: string };
 
+// --- On-canvas glyph sizes -------------------------------------------------
+// A point element (one that hangs off a single bus) should occupy the same
+// vertical extent on the canvas whatever symbol it is, so a row of bus
+// attachments reads evenly — a generator shouldn't tower over a load, and the
+// static generator must match the plain generator exactly (same circle motif).
+//
+// The glyphs have different viewBoxes, so equal `size` props do NOT give equal
+// on-screen size. We normalize on *ink height* instead: `size` scales the whole
+// viewBox, so to render an ink block of CANVAS_INK_PX px tall we set
+//   size = CANVAS_INK_PX * viewBoxHeight / inkHeight.
+// Keep every point element here (not hardcoded per node) so the family stays in
+// lockstep and this stays a single knob to turn.
+// Anchored to the generator's existing on-canvas size (its circle already reads
+// at ~31px), so the reference element is unchanged and the outliers move to it.
+const CANVAS_INK_PX = 31;
+export const CANVAS_GLYPH_SIZE = {
+  generator: Math.round((CANVAS_INK_PX * 60) / 48), // circle, ink 48 of 60
+  sgen: Math.round((CANVAS_INK_PX * 60) / 48), // same circle as the generator
+  extgrid: Math.round((CANVAS_INK_PX * 60) / 48), // square, ink 48 of 60
+  load: Math.round((CANVAS_INK_PX * 56) / 44), // stub + triangle, ink 44 of 56
+  shunt: Math.round((CANVAS_INK_PX * 56) / 40), // capacitor, ink 40 of 56
+  svc: Math.round((CANVAS_INK_PX * 56) / 46), // box + arrow, ink 46 of 56
+  xward: Math.round((CANVAS_INK_PX * 56) / 48), // stacked boxes, ink 48 of 56
+} as const;
+
 // pandapower/gen.svg — circle with "G".
 export function GeneratorGlyph({ size = 52, stroke = "currentColor" }: GlyphProps) {
   return (

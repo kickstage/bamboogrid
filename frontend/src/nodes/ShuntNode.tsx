@@ -1,6 +1,6 @@
 import { Handle, Position, type NodeProps } from "@xyflow/react";
 import type { ShuntData } from "../types";
-import { ShuntGlyph } from "./glyphs";
+import { CANVAS_GLYPH_SIZE, ShuntGlyph } from "./glyphs";
 import { Readout, Value } from "./Readout";
 import { signed } from "../format";
 import { useEditor } from "../store";
@@ -19,7 +19,7 @@ export function ShuntNode({ id, data, selected, positionAbsoluteY }: NodeProps) 
   );
   const glyph = (
     <div style={busBelow ? { transform: "scaleY(-1)" } : undefined}>
-      <ShuntGlyph size={50} stroke={selected ? "#0ea5e9" : "currentColor"} />
+      <ShuntGlyph size={CANVAS_GLYPH_SIZE.shunt} stroke={selected ? "#0ea5e9" : "currentColor"} />
     </div>
   );
   const label = (

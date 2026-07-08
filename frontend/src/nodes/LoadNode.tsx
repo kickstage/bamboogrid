@@ -1,6 +1,6 @@
 import { Handle, Position, type NodeProps } from "@xyflow/react";
 import type { LoadData } from "../types";
-import { LoadGlyph } from "./glyphs";
+import { CANVAS_GLYPH_SIZE, LoadGlyph } from "./glyphs";
 import { Value } from "./Readout";
 import { useBusBelow } from "./useBusBelow";
 
@@ -15,7 +15,7 @@ export function LoadNode({ id, data, selected, positionAbsoluteY }: NodeProps) {
   );
   const glyph = (
     <div style={busBelow ? { transform: "scaleY(-1)" } : undefined}>
-      <LoadGlyph size={38} stroke={selected ? "#0ea5e9" : "currentColor"} />
+      <LoadGlyph size={CANVAS_GLYPH_SIZE.load} stroke={selected ? "#0ea5e9" : "currentColor"} />
     </div>
   );
   const label = (

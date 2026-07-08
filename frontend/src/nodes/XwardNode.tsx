@@ -1,6 +1,6 @@
 import { Handle, Position, type NodeProps } from "@xyflow/react";
 import type { XwardData } from "../types";
-import { XwardGlyph } from "./glyphs";
+import { CANVAS_GLYPH_SIZE, XwardGlyph } from "./glyphs";
 import { Readout, Value } from "./Readout";
 import { signed } from "../format";
 import { useEditor } from "../store";
@@ -20,7 +20,7 @@ export function XwardNode({ id, data, selected, positionAbsoluteY }: NodeProps) 
   );
   const glyph = (
     <div style={busBelow ? { transform: "scaleY(-1)" } : undefined}>
-      <XwardGlyph size={50} stroke={selected ? "#0ea5e9" : "currentColor"} />
+      <XwardGlyph size={CANVAS_GLYPH_SIZE.xward} stroke={selected ? "#0ea5e9" : "currentColor"} />
     </div>
   );
   const label = (
