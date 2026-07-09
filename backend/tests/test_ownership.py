@@ -1,5 +1,5 @@
-"""Phase 2: session ownership — enforcement in ``current_session``, owner-stamping
-on create, and the ``/sessions`` / claim / delete endpoints.
+"""Session ownership — enforcement in ``current_session``, owner-stamping on
+create, and the ``/sessions`` / claim / delete endpoints.
 
 Tokens are minted directly (Google verification isn't involved once signed in),
 so a "user" here is just an ``Authorization: Bearer`` header carrying an app token.

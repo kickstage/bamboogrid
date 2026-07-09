@@ -516,6 +516,29 @@ export interface Command {
   payload: Record<string, unknown>;
 }
 
+// --- Authentication (optional Google sign-in) ------------------------------
+
+// A signed-in account. `id` is Google's stable `sub`. A guest has no `User`.
+export interface User {
+  id: string;
+  email: string;
+  name: string | null;
+}
+
+// The result of exchanging a Google credential at /auth/google: our own app
+// token (sent as `Authorization: Bearer` afterwards) and the resolved user.
+export interface AuthResponse {
+  token: string;
+  user: User;
+}
+
+// One entry in a signed-in user's saved-grids list
+export interface GridSummary {
+  id: string;
+  name: string;
+  updated_at: number;
+}
+
 // --- Network summary / diagnostics ----------------------------------------
 
 export interface PowerBalance {

@@ -27,6 +27,8 @@ import { applySavedLoadFlowSettings } from "./study/loadFlowSettings";
 import { SummaryModal } from "./study/SummaryModal";
 import { MobileApp } from "./mobile/MobileApp";
 import { useIsMobile } from "./mobile/useIsMobile";
+import { AuthControls } from "./auth/GoogleSignIn";
+import { useAuth } from "./auth/authStore";
 import { useEditor } from "./store";
 import { toast } from "./toast";
 import { flushPending } from "./sync";
@@ -176,6 +178,12 @@ export default function App() {
   const [scenarios, setScenarios] = useState<Scenario[]>([]);
   useEffect(() => {
     fetchScenarios().then(setScenarios).catch(() => {});
+  }, []);
+  // Validate any persisted sign-in token once on load; a guest resolves straight
+  // through. The api client's auth header is already seeded synchronously from
+  // localStorage (see authStore), so session requests carry the token before this.
+  useEffect(() => {
+    void useAuth.getState().hydrate();
   }, []);
   const { setColorScheme } = useMantineColorScheme();
   const scheme = useComputedColorScheme("light");
@@ -671,6 +679,7 @@ export default function App() {
                 Run
               </Button>
             </Tooltip>
+            <AuthControls />
           </Group>
         </Group>
       </Paper>

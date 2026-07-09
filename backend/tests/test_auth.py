@@ -1,5 +1,5 @@
-"""Sign-in foundation (Phase 1): app-token minting, the ``current_user``
-resolution, and the ``/auth/google`` + ``/me`` endpoints.
+"""Sign-in foundation: app-token minting, the ``current_user`` resolution, and
+the ``/auth/google`` + ``/me`` endpoints.
 
 Google's own token verification is stubbed out — these tests exercise our layer
 (config gating, app-token round-trip, guest fallback), not Google's library.
