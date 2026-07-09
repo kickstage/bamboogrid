@@ -163,8 +163,10 @@ function PaletteItem({
       <div
         style={{
           width: 40,
+          height: 40,
           flex: "none",
           display: "flex",
+          alignItems: "center",
           justifyContent: "center",
           color: "var(--mantine-color-text)",
         }}
