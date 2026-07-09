@@ -630,6 +630,44 @@ class SessionInfo(BaseModel):
     view: ViewModel
 
 
+# --- Authentication --------------------------------------------------------
+
+
+class User(BaseModel):
+    """A signed-in account. ``id`` is Google's stable ``sub`` claim (unique per
+    Google account, consistent across OAuth clients/projects). A guest has no
+    ``User`` at all — see ``auth.current_user``."""
+
+    id: str
+    email: str = ""
+    name: str | None = None
+
+
+class GoogleAuthRequest(BaseModel):
+    """The Google Identity Services credential (an ID token JWT) the browser gets
+    from the sign-in button and posts to ``/auth/google`` to exchange for an app
+    token."""
+
+    credential: str
+
+
+class AuthResponse(BaseModel):
+    """The result of a successful sign-in: our own signed app token (sent back as
+    ``Authorization: Bearer`` on later requests) and the resolved user."""
+
+    token: str
+    user: User
+
+
+class GridSummary(BaseModel):
+    """One entry in a signed-in user's saved-grids list. ``updated_at`` is a Unix
+    timestamp (seconds) of the last edit, for sorting/display."""
+
+    id: str
+    name: str
+    updated_at: float
+
+
 # --- Commands (browser -> server edits applied to the authoritative net) ----
 
 

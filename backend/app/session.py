@@ -129,6 +129,10 @@ class Session:
     id: str
     net: object
     version: int = 0
+    # The owning user's id, or None for a guest session (the default). Carried on
+    # the live session so authorization needs no extra query per request; kept in
+    # sync with the ``sessions.owner_id`` column on create/rehydrate/claim.
+    owner_id: str | None = None
     lock: threading.RLock = field(default_factory=threading.RLock)
     last_access: float = field(default_factory=time.monotonic)
     history: History = field(default_factory=History)
@@ -171,15 +175,36 @@ class SessionStore:
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS shares_session ON shares (session_id)"
             )
+            # Optional sign-in (see app/auth.py). A user owns the sessions whose
+            # owner_id matches their id; owner_id NULL is a guest session (the
+            # default and the only kind before sign-in existed), so existing rows
+            # need no backfill. Both are inert unless the feature is used.
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS users (
+                    id          text PRIMARY KEY,
+                    email       text NOT NULL,
+                    name        text,
+                    created_at  double precision NOT NULL
+                )
+                """
+            )
+            conn.execute(
+                "ALTER TABLE sessions ADD COLUMN IF NOT EXISTS owner_id text"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS sessions_owner ON sessions (owner_id)"
+            )
 
     def _insert(self, session: Session, net_json: str) -> str:
         now = time.time()
         name = session.net.get("name") or "Untitled network"
         with self._pool.connection() as conn:
             conn.execute(
-                "INSERT INTO sessions (id, name, net_json, version, created_at, updated_at) "
-                "VALUES (%s, %s, %s, %s, %s, %s)",
-                (session.id, name, net_json, session.version, now, now),
+                "INSERT INTO sessions "
+                "(id, name, net_json, owner_id, version, created_at, updated_at) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s)",
+                (session.id, name, net_json, session.owner_id, session.version, now, now),
             )
         return net_json
 
@@ -213,8 +238,12 @@ class SessionStore:
     def _purge_expired(self) -> None:
         cutoff = time.time() - _TTL_S
         with self._pool.connection() as conn:
+            # Only guest (unowned) sessions age out. A signed-in user's grids are
+            # kept until they delete them, so idle time never loses saved work.
             rows = conn.execute(
-                "DELETE FROM sessions WHERE updated_at < %s RETURNING id", (cutoff,)
+                "DELETE FROM sessions WHERE owner_id IS NULL AND updated_at < %s "
+                "RETURNING id",
+                (cutoff,),
             ).fetchall()
             ids = [r[0] for r in rows]
             if ids:
@@ -226,16 +255,63 @@ class SessionStore:
                 for i in ids:
                     self._live.pop(i, None)
 
+    # --- users -------------------------------------------------------------
+
+    def upsert_user(self, user_id: str, email: str, name: str | None) -> None:
+        """Record (or refresh) a signed-in user, keyed by their Google ``sub``.
+        Called on every sign-in so the stored email/name stay current."""
+        with self._pool.connection() as conn:
+            conn.execute(
+                "INSERT INTO users (id, email, name, created_at) "
+                "VALUES (%s, %s, %s, %s) "
+                "ON CONFLICT (id) DO UPDATE SET email=EXCLUDED.email, name=EXCLUDED.name",
+                (user_id, email, name, time.time()),
+            )
+
+    def list_for_owner(self, owner_id: str) -> list[dict]:
+        """A user's saved grids, most-recently-edited first, for the grids list."""
+        with self._pool.connection() as conn:
+            rows = conn.execute(
+                "SELECT id, name, updated_at FROM sessions WHERE owner_id=%s "
+                "ORDER BY updated_at DESC",
+                (owner_id,),
+            ).fetchall()
+        return [{"id": r[0], "name": r[1], "updated_at": r[2]} for r in rows]
+
+    def claim(self, session_id: str, owner_id: str) -> bool:
+        """Attach an unowned (guest) session to a user — how a signed-in user keeps
+        the grid they built as a guest. Atomic and idempotent: the ``owner_id IS
+        NULL`` guard makes it a no-op (returns False) if the session is already
+        owned or gone. Mirrors the change onto the live session if it's cached."""
+        with self._pool.connection() as conn:
+            cur = conn.execute(
+                "UPDATE sessions SET owner_id=%s WHERE id=%s AND owner_id IS NULL",
+                (owner_id, session_id),
+            )
+            claimed = cur.rowcount > 0
+        if claimed:
+            with self._guard:
+                live = self._live.get(session_id)
+                if live is not None:
+                    live.owner_id = owner_id
+        return claimed
+
+    def delete(self, session_id: str) -> None:
+        """Remove a session and its shares (used by the owner deleting a grid)."""
+        self._delete(session_id)
+
     # --- lifecycle ---------------------------------------------------------
 
-    def create(self, net=None, name: str = "Untitled network") -> Session:
+    def create(
+        self, net=None, name: str = "Untitled network", owner_id: str | None = None
+    ) -> Session:
         self._purge_expired()
         session_id = uuid.uuid4().hex
         if net is None:
             net = pp.create_empty_network(name=name)
         needs_layout = ensure_diagram_tables(net)
         _set_meta(net, session_id, name, needs_layout)
-        session = Session(id=session_id, net=net)
+        session = Session(id=session_id, net=net, owner_id=owner_id)
         with self._guard:
             self._live[session_id] = session
             self._evict_locked()
@@ -252,17 +328,19 @@ class SessionStore:
         # Rehydrate outside the guard (DB read + parse can be slow).
         with self._pool.connection() as conn:
             row = conn.execute(
-                "SELECT net_json, updated_at, version FROM sessions WHERE id=%s",
+                "SELECT net_json, updated_at, version, owner_id FROM sessions WHERE id=%s",
                 (session_id,),
             ).fetchone()
         if row is None:
             raise KeyError(session_id)
-        net_json, updated_at, version = row
-        if time.time() - updated_at > _TTL_S:
+        net_json, updated_at, version, owner_id = row
+        # A guest session past its TTL is gone; an owned one never expires (it is
+        # excluded from purge), so only unowned sessions are evicted here.
+        if owner_id is None and time.time() - updated_at > _TTL_S:
             self._delete(session_id)
             raise KeyError(session_id)
         net = pp.from_json_string(net_json)
-        session = Session(id=session_id, net=net, version=version)
+        session = Session(id=session_id, net=net, version=version, owner_id=owner_id)
         session.history.reset(net_json)
         with self._guard:
             existing = self._live.get(session_id)
@@ -337,24 +415,26 @@ class SessionStore:
                     continue
         raise RuntimeError("Could not allocate a unique share token.")
 
-    def clone_from_share(self, token: str) -> Session:
-        """Clone the session a share token points at into a fresh, independent one."""
+    def clone_from_share(self, token: str, owner_id: str | None = None) -> Session:
+        """Clone the session a share token points at into a fresh, independent one.
+        The copy belongs to ``owner_id`` (the opener), or is a guest copy if None."""
         with self._pool.connection() as conn:
             row = conn.execute(
                 "SELECT session_id FROM shares WHERE token=%s", (token,)
             ).fetchone()
         if row is None:
             raise KeyError(token)
-        return self.clone(row[0])
+        return self.clone(row[0], owner_id=owner_id)
 
-    def clone(self, source_id: str) -> Session:
+    def clone(self, source_id: str, owner_id: str | None = None) -> Session:
         """Deep-copy a session's net into a new session (element ids preserved, a
-        new network identity assigned)."""
+        new network identity assigned). The copy is owned by ``owner_id``, or a
+        guest session if None."""
         src = self.get(source_id)
         with src.lock:
             net = pp.from_json_string(pp.to_json(src.net))
             name = src.net.get("name") or "Untitled network"
-        return self.create(net=net, name=f"{name} (copy)")
+        return self.create(net=net, name=f"{name} (copy)", owner_id=owner_id)
 
     # --- eviction ----------------------------------------------------------
 

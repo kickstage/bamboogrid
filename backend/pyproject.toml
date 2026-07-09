@@ -14,6 +14,10 @@ dependencies = [
     "networkx>=3.0",
     "psycopg[binary]>=3.1",
     "psycopg-pool>=3.2",
+    # Optional Google sign-in (see app/auth.py): verifying Google ID tokens and
+    # signing our own app session tokens. Inert unless GOOGLE_CLIENT_ID is set.
+    "google-auth>=2.28",
+    "pyjwt>=2.8",
     "opentelemetry-api>=1.25",
     "opentelemetry-sdk>=1.25",
     "opentelemetry-exporter-otlp-proto-http>=1.25",

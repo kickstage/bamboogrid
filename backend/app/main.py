@@ -18,18 +18,29 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
 
+from .auth import (
+    auth_configured,
+    current_user,
+    mint_app_token,
+    require_user,
+    verify_google_credential,
+)
 from .commands import CommandError, apply_commands
 from .ppjson import MAX_IMPORT_BUSES, MAX_IMPORT_BYTES, std_trafo_types
 from .scenarios import build_scenario, list_scenarios
 from .projection import net_to_view
 from .safe_import import UnsafeImportError, validate_import_json
 from .schema import (
+    AuthResponse,
     Command,
+    GoogleAuthRequest,
+    GridSummary,
     LoadFlowResult,
     LoadFlowSettings,
     NetworkSummary,
     SessionInfo,
     ShortCircuitResult,
+    User,
     ViewModel,
 )
 from .sc import run_shortcircuit
@@ -71,14 +82,25 @@ app.add_middleware(
 )
 
 
-def current_session(x_session_id: str = Header(..., alias="X-Session-Id")) -> Session:
+def current_session(
+    x_session_id: str = Header(..., alias="X-Session-Id"),
+    user: User | None = Depends(current_user),
+) -> Session:
     """Resolve the session from the ``X-Session-Id`` header (its bearer token).
 
-    The id is held by the browser, not embedded in each URL."""
+    The id is held by the browser, not embedded in each URL.
+
+    A guest (unowned) session stays open to any holder of its id — the id *is* the
+    capability, unchanged from before sign-in. An *owned* session requires the
+    matching signed-in user; anyone else is refused (404, not 403, so an owned id
+    is indistinguishable from a non-existent one)."""
     try:
-        return store.get(x_session_id)
+        session = store.get(x_session_id)
     except KeyError:
         raise HTTPException(status_code=404, detail="Session not found.")
+    if session.owner_id is not None and (user is None or user.id != session.owner_id):
+        raise HTTPException(status_code=404, detail="Session not found.")
+    return session
 
 
 def _view(session: Session) -> ViewModel:
@@ -94,6 +116,27 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+@app.post("/auth/google", response_model=AuthResponse)
+def auth_google(body: GoogleAuthRequest) -> AuthResponse:
+    """Exchange a Google Identity Services credential for an app token. Verifies
+    the Google ID token, records the user, and returns our own signed token for
+    subsequent requests. 503 if sign-in isn't configured on this server."""
+    if not auth_configured():
+        raise HTTPException(
+            status_code=503, detail="Sign-in is not configured on this server."
+        )
+    user = verify_google_credential(body.credential)
+    store.upsert_user(user.id, user.email, user.name)
+    return AuthResponse(token=mint_app_token(user), user=user)
+
+
+@app.get("/me", response_model=User)
+def me(user: User = Depends(require_user)) -> User:
+    """The currently signed-in user (401 for a guest). Lets the client rehydrate
+    its auth state on load from a stored app token."""
+    return user
+
+
 @app.get("/std-types/{table}")
 def get_std_types(table: str) -> dict[str, dict[str, float | str]]:
     """The library transformer types and their editable parameters. The inspector
@@ -105,21 +148,22 @@ def get_std_types(table: str) -> dict[str, dict[str, float | str]]:
 
 
 @app.post("/session", response_model=SessionInfo)
-def create_session() -> SessionInfo:
-    """Start an empty session and return its id plus the (empty) projection."""
-    session = store.create()
+def create_session(user: User | None = Depends(current_user)) -> SessionInfo:
+    """Start an empty session and return its id plus the (empty) projection. A
+    signed-in user owns it immediately; a guest's is unowned until claimed."""
+    session = store.create(owner_id=user.id if user else None)
     with session.lock:
         return SessionInfo(id=session.id, view=_view(session))
 
 
 @app.post("/session/demo", response_model=SessionInfo)
-def create_demo_session() -> SessionInfo:
+def create_demo_session(user: User | None = Depends(current_user)) -> SessionInfo:
     """Start a session pre-loaded with the IEEE 14-bus network (the mobile
     read-only demo's default when no share link is opened) — the same built-in
     example offered under File ▸ Open example."""
     with tracer.start_as_current_span("session.create_demo"):
         net = build_scenario("case14")
-        session = store.create(net=net, name=net.name)
+        session = store.create(net=net, name=net.name, owner_id=user.id if user else None)
         with session.lock:
             return SessionInfo(id=session.id, view=_view(session))
 
@@ -131,14 +175,16 @@ def get_scenarios() -> list[dict[str, str]]:
 
 
 @app.post("/session/scenario/{scenario_id}", response_model=SessionInfo)
-def create_scenario_session(scenario_id: str) -> SessionInfo:
+def create_scenario_session(
+    scenario_id: str, user: User | None = Depends(current_user)
+) -> SessionInfo:
     """Start a session from a built-in pandapower example, built on demand."""
     with tracer.start_as_current_span("session.create_scenario") as span:
         span.set_attribute("scenario.id", scenario_id)
         net = build_scenario(scenario_id)
         if net is None:
             raise HTTPException(status_code=404, detail="Unknown scenario.")
-        session = store.create(net=net, name=net.name)
+        session = store.create(net=net, name=net.name, owner_id=user.id if user else None)
         with session.lock:
             return SessionInfo(id=session.id, view=_view(session))
 
@@ -198,17 +244,62 @@ def share_session(session: Session = Depends(current_session)) -> dict[str, str]
 
 
 @app.post("/share/{token}", response_model=SessionInfo)
-def open_share(token: str) -> SessionInfo:
-    """Clone the shared session into a fresh, independent session."""
+def open_share(token: str, user: User | None = Depends(current_user)) -> SessionInfo:
+    """Clone the shared session into a fresh, independent session. The copy belongs
+    to the opener if signed in, otherwise it's a guest session."""
     with tracer.start_as_current_span("share.open"):
         try:
-            session = store.clone_from_share(token)
+            session = store.clone_from_share(token, owner_id=user.id if user else None)
         except KeyError:
             raise HTTPException(
                 status_code=404, detail="Share link not found or expired."
             )
         with session.lock:
             return SessionInfo(id=session.id, view=_view(session))
+
+
+@app.get("/sessions", response_model=list[GridSummary])
+def list_sessions(user: User = Depends(require_user)) -> list[GridSummary]:
+    """The signed-in user's saved grids, newest first (401 for a guest)."""
+    return [GridSummary(**g) for g in store.list_for_owner(user.id)]
+
+
+@app.post("/session/{session_id}/claim", response_model=SessionInfo)
+def claim_session(
+    session_id: str, user: User = Depends(require_user)
+) -> SessionInfo:
+    """Attach a guest session to the signed-in user so it's saved to their account
+    (e.g. after signing in while editing as a guest). Idempotent if already theirs.
+
+    A session owned by someone else is treated as non-existent (404), the same as
+    ``current_session`` and ``delete_session`` — another account's grids are never
+    revealed."""
+    try:
+        session = store.get(session_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Session not found.")
+    if session.owner_id not in (None, user.id):
+        raise HTTPException(status_code=404, detail="Session not found.")
+    if session.owner_id is None and not store.claim(session_id, user.id):
+        raise HTTPException(status_code=404, detail="Session not found.")
+    with session.lock:
+        return SessionInfo(id=session.id, view=_view(session))
+
+
+@app.delete("/session/{session_id}")
+def delete_session(
+    session_id: str, user: User = Depends(require_user)
+) -> dict[str, bool]:
+    """Delete one of the signed-in user's grids. 404 if it isn't theirs (an owned
+    id is not distinguishable from a missing one)."""
+    try:
+        session = store.get(session_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Session not found.")
+    if session.owner_id != user.id:
+        raise HTTPException(status_code=404, detail="Session not found.")
+    store.delete(session_id)
+    return {"ok": True}
 
 
 @app.post("/session/run-loadflow", response_model=LoadFlowResult)
