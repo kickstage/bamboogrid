@@ -1,6 +1,7 @@
 import { Handle, Position, type NodeProps } from "@xyflow/react";
 import type { ExtGridData } from "../types";
-import { ExtGridGlyph } from "./glyphs";
+import { CANVAS_GLYPH_SIZE, ExtGridGlyph } from "./glyphs";
+import { ACCENT, NODE_WIDTH } from "../theme";
 import { Readout, Value } from "./Readout";
 import { signed } from "../format";
 import { useEditor } from "../store";
@@ -16,7 +17,7 @@ export function ExtGridNode({ id, data, selected, positionAbsoluteY }: NodeProps
     <Handle type="source" position={position} style={{ background: "currentColor" }} />
   );
   const glyph = (
-    <ExtGridGlyph size={39} stroke={selected ? "#0ea5e9" : "currentColor"} />
+    <ExtGridGlyph size={CANVAS_GLYPH_SIZE.extgrid} stroke={selected ? ACCENT : "currentColor"} />
   );
   const label = (
     <>
@@ -31,7 +32,7 @@ export function ExtGridNode({ id, data, selected, positionAbsoluteY }: NodeProps
     </>
   );
   return (
-    <div style={{ width: 64, textAlign: "center", color: "var(--mantine-color-text)" }}>
+    <div style={{ width: NODE_WIDTH, textAlign: "center", color: "var(--mantine-color-text)" }}>
       {busBelow ? (
         <>
           {label}

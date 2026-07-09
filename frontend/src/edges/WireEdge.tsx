@@ -6,6 +6,7 @@ import {
   type EdgeProps,
 } from "@xyflow/react";
 import { useEditor } from "../store";
+import { ACCENT } from "../theme";
 
 type WireData = { waypoint?: { x: number; y: number } };
 type Point = { x: number; y: number };
@@ -134,8 +135,8 @@ export function WireEdge({
               width: 12,
               height: 12,
               borderRadius: "50%",
-              border: "2px solid #0ea5e9",
-              background: waypoint ? "#0ea5e9" : "#fff",
+              border: `2px solid ${ACCENT}`,
+              background: waypoint ? ACCENT : "#fff",
               cursor: "grab",
             }}
           />

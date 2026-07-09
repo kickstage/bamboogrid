@@ -2,6 +2,7 @@ import { Handle, Position, type NodeProps, useUpdateNodeInternals } from "@xyflo
 import { useEffect, type CSSProperties } from "react";
 import type { Trafo2WData } from "../types";
 import { TransformerGlyph } from "./glyphs";
+import { ACCENT } from "../theme";
 import { useEditor } from "../store";
 import { WINDING_LABEL } from "../trafo";
 import { windingFlip } from "./windingFlip";
@@ -50,7 +51,7 @@ export function Transformer2WNode({ id, data, selected, positionAbsoluteY }: Nod
 
   const hvSide: Side = flip ? "bottom" : "top";
   const lvSide: Side = flip ? "top" : "bottom";
-  const stroke = selected ? "#0ea5e9" : "currentColor";
+  const stroke = selected ? ACCENT : "currentColor";
   return (
     <div style={{ position: "relative", width: W, height: (W * 48) / 40, color: "var(--mantine-color-text)" }}>
       <Handle id="hv" type="source" position={POS[hvSide]} style={{ background: "currentColor" }} />

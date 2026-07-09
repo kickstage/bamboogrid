@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { Group, Stack, Text } from "@mantine/core";
+import { SectionLabel } from "../ui/Section";
 import { fixed } from "../format";
 import { phaseAngleDeg, powerFactor, type BusInjection } from "../power";
 import type {
@@ -45,19 +46,20 @@ const SYM = {
   ),
 } as const;
 
+// Natural-case element names; PanelTitle/SectionLabel uppercase them for display.
 export const HEADERS: Record<string, string> = {
-  bus: "BUS",
-  generator: "GENERATOR",
-  sgen: "STATIC GENERATOR",
-  extgrid: "EXTERNAL GRID",
-  load: "LOAD",
-  shunt: "SHUNT",
-  xward: "XWARD",
+  bus: "Bus",
+  generator: "Generator",
+  sgen: "Static generator",
+  extgrid: "External grid",
+  load: "Load",
+  shunt: "Shunt",
+  xward: "XWard",
   svc: "SVC",
-  impedance: "IMPEDANCE",
-  switch: "SWITCH",
-  trafo2w: "TRANSFORMER",
-  trafo3w: "3W TRANSFORMER",
+  impedance: "Impedance",
+  switch: "Switch",
+  trafo2w: "Transformer",
+  trafo3w: "3W transformer",
 };
 
 // A quantity row in the load-flow result block: its symbol (the "sign", e.g. P,
@@ -75,9 +77,7 @@ export function ResultList({
   if (rows.length === 0) return null;
   return (
     <Stack gap={4} mt="md">
-      <Text size="xs" fw={600} c="dimmed" tt="uppercase">
-        {label}
-      </Text>
+      <SectionLabel>{label}</SectionLabel>
       <Stack gap={2}>
         {rows.map(([label, value], i) => (
           <Group key={i} justify="space-between" gap="xs" wrap="nowrap">
@@ -202,9 +202,7 @@ export function VoltageLegend() {
   );
   return (
     <Stack gap={4}>
-      <Text size="xs" fw={600} c="dimmed">
-        BUS VOLTAGE AFTER LOAD FLOW
-      </Text>
+      <SectionLabel>Bus voltage after load flow</SectionLabel>
       <Row color="#16a34a" label="Green — within 5% of nominal" />
       <Row color="#d97706" label="Orange — 5–10% off nominal" />
       <Row color="#dc2626" label="Red — more than 10% off" />
@@ -227,9 +225,7 @@ export function FaultCurrentLegend() {
   );
   return (
     <Stack gap={4}>
-      <Text size="xs" fw={600} c="dimmed">
-        BUS FAULT CURRENT (IEC 60909)
-      </Text>
+      <SectionLabel>Bus fault current (IEC 60909)</SectionLabel>
       <Row color="rgb(125, 211, 252)" label={<>Light — lower {SYM.ikss}</>} />
       <Row color="rgb(190, 24, 93)" label={<>Dark — network's peak {SYM.ikss}</>} />
     </Stack>

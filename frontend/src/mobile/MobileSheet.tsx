@@ -1,4 +1,5 @@
 import { Divider, Drawer, Group, Stack, Text } from "@mantine/core";
+import { SectionLabel } from "../ui/Section";
 import { useEditor } from "../store";
 import { fixed } from "../format";
 import { busInjection } from "../power";
@@ -134,9 +135,7 @@ export function MobileSheet() {
     title = d.name || "Line";
     body = (
       <Stack gap="sm">
-        <Text size="xs" fw={700} c="dimmed">
-          LINE
-        </Text>
+        <SectionLabel>Line</SectionLabel>
         <ParamList rows={lineParamRows(d)} />
         {d.res_loading_percent !== undefined && (
           <ResultList
@@ -170,9 +169,7 @@ export function MobileSheet() {
       bus && bus.vm_pu !== undefined ? busInjection(node.id, nodes, edges) : null;
     body = (
       <Stack gap="sm">
-        <Text size="xs" fw={700} c="dimmed">
-          {HEADERS[node.type ?? ""] ?? node.type?.toUpperCase()}
-        </Text>
+        <SectionLabel>{HEADERS[node.type ?? ""] ?? node.type}</SectionLabel>
         <ParamList rows={nodeParamRows(node.type, node.data)} />
         <ResultList
           rows={[
