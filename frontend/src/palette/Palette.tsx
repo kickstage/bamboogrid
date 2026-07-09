@@ -1,14 +1,7 @@
 import { useState } from "react";
-import {
-  CloseButton,
-  Collapse,
-  Group,
-  Stack,
-  Text,
-  TextInput,
-  UnstyledButton,
-} from "@mantine/core";
+import { CloseButton, Group, Stack, Text, TextInput } from "@mantine/core";
 import { SectionLabel } from "../ui/Section";
+import { CollapsibleSection } from "../ui/Collapsible";
 import "./palette.css";
 import type { ElementKind } from "../types";
 import {
@@ -112,32 +105,6 @@ function Glyph({ kind }: { kind: ElementKind }) {
   if (kind === "trafo2w") return <TransformerGlyph size={26} />;
   if (kind === "trafo3w") return <Transformer3WGlyph size={34} />;
   return <BusGlyph width={34} />;
-}
-
-// A disclosure chevron that points right when collapsed, down when open.
-function Chevron({ open }: { open: boolean }) {
-  return (
-    <svg
-      width={9}
-      height={9}
-      viewBox="0 0 10 10"
-      aria-hidden
-      style={{
-        flex: "none",
-        transform: open ? "rotate(90deg)" : "none",
-        transition: "transform 150ms ease",
-      }}
-    >
-      <path
-        d="M3 1 L7 5 L3 9"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth={1.6}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
 }
 
 // A compact, draggable element row: the glyph and its label on one line, with
@@ -270,43 +237,39 @@ export function Palette() {
       />
 
       {groups.map((group) => {
-        // Searching forces every matching group open so results are never
-        // hidden behind a collapsed header; otherwise honor the saved state.
-        const open = searching || !collapsed.has(group.title);
-        return (
-          <div key={group.title}>
-            {searching ? (
+        const items = (
+          <Stack gap={0} pt={2}>
+            {group.items.map((item) => (
+              <PaletteItem
+                key={item.kind}
+                item={item}
+                onDragStart={onDragStart}
+              />
+            ))}
+          </Stack>
+        );
+        // Searching forces every matching group open (and static, so results are
+        // never hidden behind a collapsed header); otherwise honor the saved
+        // state via the shared collapsible.
+        if (searching) {
+          return (
+            <div key={group.title}>
               <div style={{ padding: "3px 4px" }}>
                 <SectionLabel>{group.title}</SectionLabel>
               </div>
-            ) : (
-              <UnstyledButton
-                className="paletteGroupHeader"
-                onClick={() => toggle(group.title)}
-                aria-expanded={open}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 6,
-                  color: "var(--mantine-color-dimmed)",
-                }}
-              >
-                <Chevron open={open} />
-                <SectionLabel>{group.title}</SectionLabel>
-              </UnstyledButton>
-            )}
-            <Collapse in={open}>
-              <Stack gap={0} pt={2}>
-                {group.items.map((item) => (
-                  <PaletteItem
-                    key={item.kind}
-                    item={item}
-                    onDragStart={onDragStart}
-                  />
-                ))}
-              </Stack>
-            </Collapse>
-          </div>
+              {items}
+            </div>
+          );
+        }
+        return (
+          <CollapsibleSection
+            key={group.title}
+            label={group.title}
+            open={!collapsed.has(group.title)}
+            onToggle={() => toggle(group.title)}
+          >
+            {items}
+          </CollapsibleSection>
         );
       })}
 

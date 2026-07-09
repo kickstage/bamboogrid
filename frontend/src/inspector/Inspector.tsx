@@ -1,5 +1,4 @@
 import {
-  Accordion,
   Divider,
   NumberInput,
   type NumberInputProps,
@@ -11,8 +10,8 @@ import {
 } from "@mantine/core";
 import { Switch } from "../ui/Switch";
 import { PanelTitle } from "../ui/Section";
+import { CollapsibleSection } from "../ui/Collapsible";
 import { useEffect, useState, type ReactNode } from "react";
-import "./inspector.css";
 import { fetchStdTypes, type StdTrafoTypes } from "../api";
 import { useEditor } from "../store";
 import { fixed } from "../format";
@@ -135,13 +134,15 @@ type ParamField = {
   step: number;
   dp: number;
 };
-// Advanced parameters grouped by what they describe (see pandapower's trafo
-// model), each shown under a small heading.
-type ParamGroup = { title: string; fields: ParamField[] };
+// Transformer parameters grouped by what they describe (see pandapower's trafo
+// model), each shown under a small heading. `standard` groups (the ratings) are
+// shown inline; the rest live in the collapsible "Advanced parameters" section.
+type ParamGroup = { title: string; standard?: boolean; fields: ParamField[] };
 
 const TRAFO2W_GROUPS: ParamGroup[] = [
   {
     title: "Ratings",
+    standard: true,
     fields: [
       {
         key: "sn_mva",
@@ -237,6 +238,7 @@ const TRAFO2W_GROUPS: ParamGroup[] = [
 const TRAFO3W_GROUPS: ParamGroup[] = [
   {
     title: "Rated power",
+    standard: true,
     fields: [
       {
         key: "sn_hv_mva",
@@ -278,6 +280,7 @@ const TRAFO3W_GROUPS: ParamGroup[] = [
   },
   {
     title: "Rated voltage",
+    standard: true,
     fields: [
       {
         key: "vn_hv_kv",
@@ -449,6 +452,11 @@ const TRAFO3W_GROUPS: ParamGroup[] = [
 const TRAFO2W_KEYS = TRAFO2W_GROUPS.flatMap((g) => g.fields.map((f) => f.key));
 const TRAFO3W_KEYS = TRAFO3W_GROUPS.flatMap((g) => g.fields.map((f) => f.key));
 
+const TRAFO2W_STD = TRAFO2W_GROUPS.filter((g) => g.standard);
+const TRAFO2W_ADV = TRAFO2W_GROUPS.filter((g) => !g.standard);
+const TRAFO3W_STD = TRAFO3W_GROUPS.filter((g) => g.standard);
+const TRAFO3W_ADV = TRAFO3W_GROUPS.filter((g) => !g.standard);
+
 // Sentinel shown in the Standard type dropdown for hand-entered parameters.
 const CUSTOM_TYPE = "Custom";
 
@@ -458,55 +466,68 @@ const CUSTOM_TYPE = "Custom";
 const emptyParams = (keys: string[]): Record<string, null> =>
   Object.fromEntries(keys.map((k) => [k, null]));
 
-// The "Advanced" expander: editable NumberInputs grouped by purpose. Rendered
-// without the Accordion's separated card so the inputs span the full panel
-// width. A std_type only fills these — editing any one makes the trafo custom.
-function AdvancedParams({
-  groups,
+// One parameter group: a labeled divider over its editable inputs. Shared by
+// the inline (standard) ratings and the collapsible advanced section.
+function GroupFields({
+  group,
   params,
   onChange,
 }: {
-  groups: ParamGroup[];
+  group: ParamGroup;
   // Only the numeric group fields are read here; string tap fields on the wider
   // param type are ignored.
   params: Record<string, number | string | null | undefined>;
   onChange: (key: string, value: number) => void;
 }) {
   return (
-    <Accordion
-      chevronPosition="right"
-      classNames={{ control: "advancedControl" }}
-      styles={{
-        item: { border: "none" },
-        control: { paddingInline: 0 },
-        content: { paddingInline: 0 },
-      }}
+    <Stack gap="xs">
+      <Divider label={group.title} labelPosition="left" />
+      {group.fields.map((f) => (
+        <ParamInput
+          key={f.key}
+          name={f.name}
+          symbol={f.symbol}
+          unit={f.unit}
+          value={params[f.key] ?? ""}
+          step={f.step}
+          decimalScale={f.dp}
+          onChange={(v) => onChange(f.key, Number(v) || 0)}
+        />
+      ))}
+    </Stack>
+  );
+}
+
+// The "Advanced parameters" expander: editable NumberInputs grouped by purpose,
+// spanning the full panel width. A std_type only fills these — editing any one
+// makes the trafo custom.
+function AdvancedParams({
+  groups,
+  params,
+  onChange,
+}: {
+  groups: ParamGroup[];
+  params: Record<string, number | string | null | undefined>;
+  onChange: (key: string, value: number) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <CollapsibleSection
+      label="Advanced parameters"
+      open={open}
+      onToggle={() => setOpen((o) => !o)}
     >
-      <Accordion.Item value="advanced">
-        <Accordion.Control>Advanced parameters</Accordion.Control>
-        <Accordion.Panel>
-          <Stack gap="md">
-            {groups.map((g) => (
-              <Stack gap="xs" key={g.title}>
-                <Divider label={g.title} labelPosition="left" />
-                {g.fields.map((f) => (
-                  <ParamInput
-                    key={f.key}
-                    name={f.name}
-                    symbol={f.symbol}
-                    unit={f.unit}
-                    value={params[f.key] ?? ""}
-                    step={f.step}
-                    decimalScale={f.dp}
-                    onChange={(v) => onChange(f.key, Number(v) || 0)}
-                  />
-                ))}
-              </Stack>
-            ))}
-          </Stack>
-        </Accordion.Panel>
-      </Accordion.Item>
-    </Accordion>
+      <Stack gap="md" pt="xs">
+        {groups.map((g) => (
+          <GroupFields
+            key={g.title}
+            group={g}
+            params={params}
+            onChange={onChange}
+          />
+        ))}
+      </Stack>
+    </CollapsibleSection>
   );
 }
 
@@ -545,23 +566,16 @@ function TapChanger({
   sides: { value: string; label: string }[];
 }) {
   const type = params.tap_changer_type ?? "None";
+  const [open, setOpen] = useState(false);
 
-  // Collapsible like the Advanced parameters section (same Accordion styling).
   const section = (body: ReactNode) => (
-    <Accordion
-      chevronPosition="right"
-      classNames={{ control: "advancedControl" }}
-      styles={{
-        item: { border: "none" },
-        control: { paddingInline: 0 },
-        content: { paddingInline: 0 },
-      }}
+    <CollapsibleSection
+      label="Tap changer"
+      open={open}
+      onToggle={() => setOpen((o) => !o)}
     >
-      <Accordion.Item value="tap">
-        <Accordion.Control>Tap changer</Accordion.Control>
-        <Accordion.Panel>{body}</Accordion.Panel>
-      </Accordion.Item>
-    </Accordion>
+      <div style={{ paddingTop: "var(--mantine-spacing-xs)" }}>{body}</div>
+    </CollapsibleSection>
   );
 
   if (type === "Tabular") {
@@ -1478,9 +1492,18 @@ export function Inspector() {
                 allowDeselect={false}
                 searchable
               />
+              {params &&
+                TRAFO2W_STD.map((g) => (
+                  <GroupFields
+                    key={g.title}
+                    group={g}
+                    params={params}
+                    onChange={editParam}
+                  />
+                ))}
               {params && (
                 <AdvancedParams
-                  groups={TRAFO2W_GROUPS}
+                  groups={TRAFO2W_ADV}
                   params={params}
                   onChange={editParam}
                 />
@@ -1584,9 +1607,18 @@ export function Inspector() {
                 onChange={onTypeChange}
                 allowDeselect={false}
               />
+              {params &&
+                TRAFO3W_STD.map((g) => (
+                  <GroupFields
+                    key={g.title}
+                    group={g}
+                    params={params}
+                    onChange={editParam}
+                  />
+                ))}
               {params && (
                 <AdvancedParams
-                  groups={TRAFO3W_GROUPS}
+                  groups={TRAFO3W_ADV}
                   params={params}
                   onChange={editParam}
                 />

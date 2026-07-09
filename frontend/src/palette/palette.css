@@ -1,22 +1,12 @@
-/* A draggable element row and a collapsible group header both get a subtle
-   hover fill so they read as interactive without a permanent border. */
-.paletteRow,
-.paletteGroupHeader {
+/* A draggable element row gets a subtle hover fill so it reads as interactive
+   without a permanent border. */
+.paletteRow {
   border-radius: var(--mantine-radius-sm);
   transition: background-color 120ms ease;
-}
-
-.paletteRow {
   cursor: grab;
   padding: 3px 6px;
 }
 
-.paletteGroupHeader {
-  width: 100%;
-  padding: 3px 4px;
-}
-
-.paletteRow:hover,
-.paletteGroupHeader:hover {
+.paletteRow:hover {
   background-color: var(--mantine-color-default-hover);
 }
