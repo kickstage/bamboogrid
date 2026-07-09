@@ -670,7 +670,7 @@ function TapChanger({
           <ParamInput
             name="Current tap position"
             symbol="Position"
-            value={params.tap_pos ?? ""}
+            value={params.tap_pos ?? params.tap_neutral ?? 0}
             step={1}
             decimalScale={0}
             onChange={(v) => onTapPos(Number(v) || 0)}

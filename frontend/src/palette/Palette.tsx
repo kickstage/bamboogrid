@@ -49,9 +49,7 @@ const GROUPS: { title: string; items: Item[] }[] = [
   },
   {
     title: "Loads",
-    items: [
-      { kind: "load", label: "Load", hint: "Consumes power" },
-    ],
+    items: [{ kind: "load", label: "Load", hint: "Consumes power" }],
   },
   {
     // Shunt-connected reactive devices — they support voltage, they don't
@@ -320,8 +318,8 @@ export function Palette() {
 
       {!searching && (
         <Text size="xs" c="dimmed" mt="xs">
-          Drag an element onto the canvas, then connect its handle to a bus. Drag
-          from one bus to another to add a line, switch, or transformer.
+          Drag an element onto the canvas, then connect its handle to a bus.
+          Drag from one bus to another to add a line, switch, or transformer.
         </Text>
       )}
     </Stack>
