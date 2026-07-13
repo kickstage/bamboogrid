@@ -1,7 +1,7 @@
 // Google sign-in controls: renders the official Google Identity Services (GIS)
 // button for a guest, or the account menu (email + sign out) when signed in.
 //
-// The whole thing is gated on VITE_GOOGLE_CLIENT_ID: with no client id the
+// The whole thing is gated on the Google Client ID: with no client id the
 // feature is off and this renders nothing, so the app stays guest-only.
 
 import { useEffect, useRef } from "react";
@@ -16,13 +16,22 @@ import {
 import { useAuth } from "./authStore";
 import { toast } from "../toast";
 
-// The OAuth Client ID from the environment (dev: personal project; prod: the
-// company's). Public by design — it's embedded in the GIS button.
+// Runtime config injected by the backend into index.html at request time (see
+// main.py). Falls back to the Vite dev-server env var so local development
+// (where the backend doesn't serve the HTML) still works without changes.
+declare global {
+  interface Window {
+    __BAMBOOGRID_CONFIG__?: { googleClientId?: string | null };
+  }
+}
+
 const GOOGLE_CLIENT_ID =
-  (import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined) ?? "";
+  window.__BAMBOOGRID_CONFIG__?.googleClientId ??
+  (import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined) ??
+  "";
 
 export function authEnabled(): boolean {
-  return GOOGLE_CLIENT_ID.length > 0;
+  return Boolean(GOOGLE_CLIENT_ID);
 }
 
 // --- GIS script + minimal typings ------------------------------------------
@@ -116,7 +125,7 @@ export function AuthControls() {
           </UnstyledButton>
         </Menu.Target>
         <Menu.Dropdown>
-          <Menu.Label>{user.email}</Menu.Label>
+          <Menu.Label><Text size="xs" truncate="end">{user.email}</Text></Menu.Label>
           <Menu.Divider />
           <Menu.Item
             onClick={() => {

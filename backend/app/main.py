@@ -8,13 +8,15 @@ editor doesn't model still influence the result.
 
 from __future__ import annotations
 
+import json
 import os
+from pathlib import Path
 
 import anyio
 import pandapower as pp
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
 
@@ -480,4 +482,24 @@ def export_pandapower(session: Session = Depends(current_session)) -> Response:
 # above win; skipped in dev when the build dir is absent.
 _STATIC_DIR = os.getenv("STATIC_DIR", "/app/static")
 if os.path.isdir(_STATIC_DIR):
+    # Cache the index.html contents once at startup — it never changes between
+    # requests, and we inject a small runtime config block into it so the
+    # frontend can read GOOGLE_CLIENT_ID without it being baked into the bundle.
+    _index_html_path = Path(_STATIC_DIR) / "index.html"
+    _index_html_template: str = _index_html_path.read_text(encoding="utf-8")
+
+    @app.get("/", include_in_schema=False)
+    def serve_index() -> HTMLResponse:
+        """Serve index.html with a runtime config block injected before </head>.
+
+        This lets the frontend read GOOGLE_CLIENT_ID at runtime instead of
+        requiring it to be baked in at Docker build time, so the published image
+        is config-neutral and self-hosters supply their own credentials."""
+        config_json = json.dumps(
+            {"googleClientId": os.getenv("GOOGLE_CLIENT_ID") or None}
+        )
+        script = f"<script>window.__BAMBOOGRID_CONFIG__={config_json};</script>"
+        html = _index_html_template.replace("</head>", f"{script}\n</head>", 1)
+        return HTMLResponse(content=html)
+
     app.mount("/", StaticFiles(directory=_STATIC_DIR, html=True), name="static")
