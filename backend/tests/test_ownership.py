@@ -97,6 +97,30 @@ def test_list_sessions_401_for_guest(client):
     assert client.get("/sessions").status_code == 401
 
 
+def test_rename_updates_name_in_view_and_list(client):
+    sid = make_session(client, bearer("alice"))
+    res = client.put(
+        "/session/name",
+        headers={**sid_header(sid), **bearer("alice")},
+        json={"name": "My feeder"},
+    )
+    assert res.status_code == 200
+    assert res.json()["network"]["name"] == "My feeder"
+    # The saved-grids list reflects the new name.
+    grids = client.get("/sessions", headers=bearer("alice")).json()
+    assert grids[0]["name"] == "My feeder"
+
+
+def test_rename_blank_falls_back_to_untitled(client):
+    sid = make_session(client, bearer("alice"))
+    res = client.put(
+        "/session/name",
+        headers={**sid_header(sid), **bearer("alice")},
+        json={"name": "   "},
+    )
+    assert res.json()["network"]["name"] == "Untitled scenario"
+
+
 # --- claim -----------------------------------------------------------------
 
 

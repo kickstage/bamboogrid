@@ -16,6 +16,10 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+# Placeholder name a scenario carries until the user names it (mirrored on the
+# frontend as DEFAULT_SCENARIO_NAME).
+DEFAULT_SCENARIO_NAME = "Untitled scenario"
+
 
 class Point(BaseModel):
     x: float
@@ -367,7 +371,7 @@ class Line(BaseModel):
 
 class Network(BaseModel):
     id: str
-    name: str = "Untitled network"
+    name: str = DEFAULT_SCENARIO_NAME
     # System frequency and per-unit base — preserved from an imported net so line
     # charging (∝ f) and reported per-unit values match the source exactly.
     f_hz: float = Field(default=50.0, gt=0, description="System frequency [Hz]")
@@ -666,6 +670,12 @@ class GridSummary(BaseModel):
     id: str
     name: str
     updated_at: float
+
+
+class RenameRequest(BaseModel):
+    """A new display name for a session's network."""
+
+    name: str
 
 
 # --- Commands (browser -> server edits applied to the authoritative net) ----

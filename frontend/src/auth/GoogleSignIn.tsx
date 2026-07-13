@@ -15,7 +15,6 @@ import {
 } from "@mantine/core";
 import { useAuth } from "./authStore";
 import { toast } from "../toast";
-import type { User } from "../types";
 
 // The OAuth Client ID from the environment (dev: personal project; prod: the
 // company's). Public by design — it's embedded in the GIS button.
@@ -63,12 +62,7 @@ function loadGsi(): Promise<void> {
 
 // --- component -------------------------------------------------------------
 
-export function AuthControls({
-  onSignedIn,
-}: {
-  // Invoked with the signed-in user after a successful sign-in.
-  onSignedIn?: (user: User) => void;
-}) {
+export function AuthControls() {
   const { user, loading, login, logout } = useAuth();
   const buttonRef = useRef<HTMLDivElement>(null);
   const scheme = useComputedColorScheme("light");
@@ -83,11 +77,9 @@ export function AuthControls({
         window.google.accounts.id.initialize({
           client_id: GOOGLE_CLIENT_ID,
           callback: ({ credential }) => {
-            login(credential)
-              .then((u) => onSignedIn?.(u))
-              .catch((err) =>
-                toast.error(`Sign-in failed: ${(err as Error).message}`),
-              );
+            login(credential).catch((err) =>
+              toast.error(`Sign-in failed: ${(err as Error).message}`),
+            );
           },
         });
         window.google.accounts.id.renderButton(buttonRef.current, {
@@ -102,7 +94,7 @@ export function AuthControls({
     return () => {
       cancelled = true;
     };
-  }, [user, loading, scheme, login, onSignedIn]);
+  }, [user, loading, scheme, login]);
 
   if (!authEnabled() || loading) return null;
 
@@ -125,6 +117,7 @@ export function AuthControls({
         </Menu.Target>
         <Menu.Dropdown>
           <Menu.Label>{user.email}</Menu.Label>
+          <Menu.Divider />
           <Menu.Item
             onClick={() => {
               // Stop GIS from silently re-selecting this account next load.

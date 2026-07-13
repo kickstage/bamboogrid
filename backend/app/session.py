@@ -39,6 +39,7 @@ import psycopg
 from psycopg_pool import ConnectionPool
 
 from .ppjson import SCHEMA_VERSION, ensure_diagram_tables
+from .schema import DEFAULT_SCENARIO_NAME
 
 _DATABASE_URL = os.getenv("DATABASE_URL")
 if not _DATABASE_URL:
@@ -198,7 +199,7 @@ class SessionStore:
 
     def _insert(self, session: Session, net_json: str) -> str:
         now = time.time()
-        name = session.net.get("name") or "Untitled network"
+        name = session.net.get("name") or DEFAULT_SCENARIO_NAME
         with self._pool.connection() as conn:
             conn.execute(
                 "INSERT INTO sessions "
@@ -212,7 +213,7 @@ class SessionStore:
         """Persist an edit, guarded by the session's optimistic version. Raises
         ``ConflictError`` if the row was advanced elsewhere since it was loaded."""
         now = time.time()
-        name = session.net.get("name") or "Untitled network"
+        name = session.net.get("name") or DEFAULT_SCENARIO_NAME
         next_version = session.version + 1
         with self._pool.connection() as conn:
             cur = conn.execute(
@@ -303,7 +304,7 @@ class SessionStore:
     # --- lifecycle ---------------------------------------------------------
 
     def create(
-        self, net=None, name: str = "Untitled network", owner_id: str | None = None
+        self, net=None, name: str = DEFAULT_SCENARIO_NAME, owner_id: str | None = None
     ) -> Session:
         self._purge_expired()
         session_id = uuid.uuid4().hex
@@ -365,6 +366,17 @@ class SessionStore:
         """Persist the session and push the new state onto its undo history."""
         net_json = self._update(session, pp.to_json(session.net))
         session.history.record(net_json, _HISTORY_LIMIT)
+
+    def rename(self, session: Session, name: str) -> None:
+        """Set the network's display name, kept on both ``net.name`` (the source
+        the sessions row syncs from) and ``diagram_meta.network_name`` (what the
+        projection reports). Persisted without an undo step — a rename is metadata,
+        not a modeled edit."""
+        session.net["name"] = name
+        meta = session.net.get("diagram_meta")
+        if meta is not None and len(meta):
+            meta.at[meta.index[0], "network_name"] = name
+        self.update_settings(session)
 
     def update_settings(self, session: Session) -> None:
         """Persist a preference change carried on the net (e.g. load-flow
@@ -433,7 +445,7 @@ class SessionStore:
         src = self.get(source_id)
         with src.lock:
             net = pp.from_json_string(pp.to_json(src.net))
-            name = src.net.get("name") or "Untitled network"
+            name = src.net.get("name") or DEFAULT_SCENARIO_NAME
         return self.create(net=net, name=f"{name} (copy)", owner_id=owner_id)
 
     # --- eviction ----------------------------------------------------------

@@ -29,22 +29,27 @@ import { MobileApp } from "./mobile/MobileApp";
 import { useIsMobile } from "./mobile/useIsMobile";
 import { AuthControls } from "./auth/GoogleSignIn";
 import { useAuth } from "./auth/authStore";
-import { useEditor } from "./store";
+import { DEFAULT_SCENARIO_NAME, useEditor } from "./store";
 import { toast } from "./toast";
 import { flushPending } from "./sync";
 import {
+  claimGrid,
   createScenarioSession,
   createSession,
+  deleteGrid,
   exportPandapower,
   fetchScenarios,
   getView,
   importPandapower,
   openShare,
+  renameGrid,
   runLoadFlow,
   runShortCircuit,
   type Scenario,
   shareSession,
 } from "./api";
+import { GridsModal } from "./auth/GridsModal";
+import { ScenarioTitle } from "./ScenarioTitle";
 
 // A pointer to the server-side document this browser is editing. The model
 // itself lives on the server; this is just which session to reattach to on
@@ -170,6 +175,10 @@ export default function App() {
   >(null);
   const [summaryOpen, setSummaryOpen] = useState(false);
   const [loadFlowSettingsOpen, setLoadFlowSettingsOpen] = useState(false);
+  const [gridsOpen, setGridsOpen] = useState(false);
+  // True while the open scenario is unclaimed (not yet in the signed-in user's
+  // library); cleared once claimed. Unused for guests.
+  const [scenarioUnsaved, setScenarioUnsaved] = useState(false);
   const [leftW, setLeftW] = useState(() => readWidth(PANELS.left));
   const [rightW, setRightW] = useState(() => readWidth(PANELS.right));
   const ppInputRef = useRef<HTMLInputElement>(null);
@@ -188,6 +197,26 @@ export default function App() {
   const { setColorScheme } = useMantineColorScheme();
   const scheme = useComputedColorScheme("light");
   const isMobile = useIsMobile();
+  // Signed-in users get "My scenarios" in the File menu; guests never see it.
+  const { user } = useAuth();
+  const nodeCount = useEditor((s) => s.nodes.length);
+
+  // Claim an unclaimed scenario into the library once it has any content.
+  // claimGrid is idempotent if it's already owned.
+  useEffect(() => {
+    if (!user || !scenarioUnsaved || !sessionId || nodeCount === 0) return;
+    let cancelled = false;
+    claimGrid(sessionId)
+      .then(() => {
+        if (!cancelled) setScenarioUnsaved(false);
+      })
+      .catch(() => {
+        // Best-effort; scenarioUnsaved stays set, so the next edit retries.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [user, scenarioUnsaved, sessionId, nodeCount]);
 
   // Fixed-width checkmark gutter so menu items align whether ticked or not.
   const check = (on: boolean) => (
@@ -207,12 +236,17 @@ export default function App() {
     setOpenMenu((cur) => (cur ? menu : cur));
 
   // On first load, reattach to a session (URL ?session wins, then the last one
-  // used) or start a fresh one.
+  // used) or start a fresh one. Runs exactly once via a ref guard: it fires
+  // resource-creating POSTs (openShare/createSession), so a second run (e.g.
+  // StrictMode's double-invoke) would create duplicate sessions. A cleanup flag
+  // can't prevent this — the in-flight POST still lands after cancellation.
+  const bootstrappedRef = useRef(false);
   useEffect(() => {
     // Mobile renders the read-only demo (MobileApp), which runs its own
     // bootstrap. Skip the desktop session bootstrap there.
     if (isMobile) return;
-    let cancelled = false;
+    if (bootstrappedRef.current) return;
+    bootstrappedRef.current = true;
     (async () => {
       const url = new URL(window.location.href);
       // A share token always wins: clone it into a fresh copy to edit.
@@ -226,13 +260,14 @@ export default function App() {
         if (shareToken) {
           try {
             const { id, view } = await openShare(shareToken);
-            if (cancelled) return;
             await attachSession(id, view);
             rememberSession(id);
+            // Owned already when signed in; if opened as a guest, claimed on
+            // sign-in once there's content (claim is idempotent either way).
+            setScenarioUnsaved(true);
             toast.success("Opened an editable copy of a shared network.");
             return;
           } catch (err) {
-            if (cancelled) return;
             toast.error(`Could not open shared link: ${(err as Error).message}`);
             // Fall through to a normal/fresh session.
           }
@@ -240,29 +275,29 @@ export default function App() {
         if (candidate) {
           try {
             const view = await getView(candidate);
-            if (cancelled) return;
             await attachSession(candidate, view);
             rememberSession(candidate);
+            // Might be a not-yet-claimed blank we're returning to; leave it
+            // pending so its first content still saves it (claim is idempotent
+            // if it's actually already owned).
+            setScenarioUnsaved(true);
             return;
           } catch {
             // Stale/unknown id — fall through and create a new session.
           }
         }
-        const { id, view } = await createSession();
-        if (cancelled) return;
+        const { id, view } = await createSession(false);
         await applySavedLoadFlowSettings(id);
         await attachSession(id, view);
         rememberSession(id);
+        // A blank landing scenario stays out of the library until it has content.
+        setScenarioUnsaved(true);
       } catch (err) {
-        if (!cancelled)
-          toast.error(`Could not start session: ${(err as Error).message}`);
+        toast.error(`Could not start session: ${(err as Error).message}`);
       } finally {
-        if (!cancelled) setLoadingMsg(null);
+        setLoadingMsg(null);
       }
     })();
-    return () => {
-      cancelled = true;
-    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isMobile]);
 
@@ -328,20 +363,27 @@ export default function App() {
     }
   };
 
-  // Clear the canvas by starting a brand-new server session. Destructive, so
-  // confirm first (skip the prompt when there's nothing to lose).
+  // Start a brand-new, blank scenario, created unclaimed. A signed-in user's
+  // previous scenario is already saved, so no confirm; a guest confirms first,
+  // since clearing loses their work.
   const onReset = async () => {
-    const { nodes, edges } = useEditor.getState();
-    const empty = nodes.length === 0 && edges.length === 0;
-    if (!empty && !window.confirm("Clear the editor and start a new network?"))
-      return;
+    if (!user) {
+      const { nodes, edges } = useEditor.getState();
+      const empty = nodes.length === 0 && edges.length === 0;
+      if (
+        !empty &&
+        !window.confirm("Clear the editor and start a new scenario?")
+      )
+        return;
+    }
     setBusy(true);
     try {
-      const { id, view } = await createSession();
+      const { id, view } = await createSession(false);
       await applySavedLoadFlowSettings(id);
       await attachSession(id, view);
       rememberSession(id);
-      toast.success("Started a new network.");
+      setScenarioUnsaved(true);
+      toast.success("Started a new scenario.");
     } catch (err) {
       toast.error(`Could not start session: ${(err as Error).message}`);
     } finally {
@@ -363,12 +405,74 @@ export default function App() {
       await applySavedLoadFlowSettings(id);
       await attachSession(id, view);
       rememberSession(id);
+      // Owned already when signed in; if opened as a guest, claimed on sign-in.
+      setScenarioUnsaved(true);
       toast.success(`Opened "${scenario.label}".`);
     } catch (err) {
       toast.error(`Could not open example: ${(err as Error).message}`);
     } finally {
       setBusy(false);
       setLoadingMsg(null);
+    }
+  };
+
+  // Switch the editor to one of the user's saved grids.
+  const openGrid = async (id: string) => {
+    if (id === sessionId) return;
+    setBusy(true);
+    setLoadingMsg("Loading scenario…");
+    try {
+      await flushPending();
+      const view = await getView(id);
+      await attachSession(id, view);
+      rememberSession(id);
+      setScenarioUnsaved(false); // opened from the library — already owned
+    } catch (err) {
+      toast.error(`Could not open scenario: ${(err as Error).message}`);
+    } finally {
+      setBusy(false);
+      setLoadingMsg(null);
+    }
+  };
+
+  // Start a fresh, blank scenario, created unclaimed (used as the fallback after
+  // deleting the one you're viewing).
+  const onNewGrid = async () => {
+    setBusy(true);
+    try {
+      const { id, view } = await createSession(false);
+      await applySavedLoadFlowSettings(id);
+      await attachSession(id, view);
+      rememberSession(id);
+      setScenarioUnsaved(true);
+      toast.success("Started a new scenario.");
+    } catch (err) {
+      toast.error(`Could not start scenario: ${(err as Error).message}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const onDeleteGrid = async (id: string) => {
+    await deleteGrid(id);
+    toast.success("Scenario deleted.");
+    // Deleting the scenario you're viewing: fall back to a fresh one.
+    if (id === sessionId) await onNewGrid();
+  };
+
+  const onRenameGrid = async (id: string, name: string) => {
+    await renameGrid(id, name);
+    if (id === sessionId) useEditor.setState({ networkName: name });
+  };
+
+  // Rename the scenario currently open (from the inline title in the top bar).
+  const onRenameCurrent = async (name: string) => {
+    if (!sessionId) return;
+    try {
+      await renameGrid(sessionId, name);
+      useEditor.setState({ networkName: name });
+    } catch (err) {
+      toast.error(`Could not rename scenario: ${(err as Error).message}`);
     }
   };
 
@@ -449,13 +553,37 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
+  // Cmd/Ctrl+S: edits already stream to the server, so this just traps the
+  // browser's "save page" dialog, flushes any in-flight edits, and confirms.
+  const saveNow = async () => {
+    if (!useEditor.getState().sessionId) return;
+    try {
+      await flushPending();
+      toast.success("All changes saved.");
+    } catch (err) {
+      toast.error(`Could not save: ${(err as Error).message}`);
+    }
+  };
+  const saveNowRef = useRef(saveNow);
+  saveNowRef.current = saveNow;
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") {
+        e.preventDefault();
+        void saveNowRef.current();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
   // Phones/tablets get the read-only demo instead of the full editor.
   if (isMobile) return <MobileApp />;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100vh" }}>
       <Paper shadow="xs" p="sm" radius={0} onPointerDown={deselectAll}>
-        <Group justify="space-between">
+        <Group justify="space-between" style={{ position: "relative" }}>
           <Group gap="xs">
             <Logo height={21} style={{ margin: "2px 10px" }} />
 
@@ -478,8 +606,16 @@ export default function App() {
                 </Button>
               </Menu.Target>
               <Menu.Dropdown>
+                {user && (
+                  <>
+                    <Menu.Item onClick={() => setGridsOpen(true)}>
+                      My scenarios…
+                    </Menu.Item>
+                    <Menu.Divider />
+                  </>
+                )}
                 <Menu.Item onClick={onReset} disabled={busy}>
-                  New network
+                  New scenario
                 </Menu.Item>
                 {scenarios.length > 0 && (
                   <Submenu
@@ -655,6 +791,30 @@ export default function App() {
               </Menu.Dropdown>
             </Menu>
           </Group>
+
+          {/* Scenario title, absolutely centered on the bar. The wrapper ignores
+              pointer events so only the title itself is clickable. */}
+          <div
+            style={{
+              position: "absolute",
+              left: "50%",
+              top: "50%",
+              transform: "translate(-50%, -50%)",
+              display: "flex",
+              justifyContent: "center",
+              pointerEvents: "none",
+            }}
+          >
+            <div style={{ pointerEvents: "auto" }}>
+              <ScenarioTitle
+                name={networkName}
+                defaultName={DEFAULT_SCENARIO_NAME}
+                disabled={busy}
+                onRename={onRenameCurrent}
+              />
+            </div>
+          </div>
+
           <Group>
             <input
               ref={ppInputRef}
@@ -798,6 +958,14 @@ export default function App() {
       <LoadFlowSettingsModal
         opened={loadFlowSettingsOpen}
         onClose={() => setLoadFlowSettingsOpen(false)}
+      />
+      <GridsModal
+        opened={gridsOpen}
+        onClose={() => setGridsOpen(false)}
+        currentId={sessionId}
+        onOpen={openGrid}
+        onDelete={onDeleteGrid}
+        onRename={onRenameGrid}
       />
     </div>
   );

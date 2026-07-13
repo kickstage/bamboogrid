@@ -95,6 +95,10 @@ function handleToEnd(handle: string | null | undefined): string {
 export const DEFAULT_TRAFO_STD = "0.25 MVA 20/0.4 kV";
 export const DEFAULT_TRAFO3W_STD = "63/25/38 MVA 110/20/10 kV";
 
+// Placeholder name a scenario carries until the user names it (mirrors the
+// backend's DEFAULT_SCENARIO_NAME).
+export const DEFAULT_SCENARIO_NAME = "Untitled scenario";
+
 // A freshly drawn line: a 1 km 110 kV overhead line (our default level). Users
 // tune it in the inspector; the explicit params (not a std_type) are what the
 // solver uses.
@@ -657,7 +661,7 @@ function foreignNode(f: ForeignElement): ElementNode {
 }
 
 export const useEditor = create<EditorState>((set, get) => ({
-  networkName: "Untitled network",
+  networkName: DEFAULT_SCENARIO_NAME,
   f_hz: 50.0,
   sn_mva: 1.0,
   nodes: [],
@@ -1986,7 +1990,7 @@ export const useEditor = create<EditorState>((set, get) => ({
   resetNetwork: () => {
     resetServerIds([]);
     set((s) => ({
-      networkName: "Untitled network",
+      networkName: DEFAULT_SCENARIO_NAME,
       f_hz: 50.0,
       sn_mva: 1.0,
       nodes: [],

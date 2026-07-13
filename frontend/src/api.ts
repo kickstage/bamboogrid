@@ -68,10 +68,12 @@ export interface SessionInfo {
 }
 
 // Start a fresh, empty server session and return its id and (empty) projection.
-// Owned by the signed-in user (via the auth header), or a guest session.
-export async function createSession(): Promise<SessionInfo> {
+// Owned by the signed-in user (via the auth header), or a guest session. Pass
+// claim=false to start it unowned even when signed in.
+export async function createSession(claim = true): Promise<SessionInfo> {
+  const q = claim ? "" : "?claim=false";
   return json(
-    await fetch(`${BASE}/session`, { method: "POST", headers: authHeader() }),
+    await fetch(`${BASE}/session${q}`, { method: "POST", headers: authHeader() }),
   );
 }
 
@@ -152,6 +154,17 @@ export async function deleteGrid(id: string): Promise<void> {
     headers: authHeader(),
   });
   if (!res.ok) throw new Error(await errorMessage(res));
+}
+
+// Rename a session's network; returns the updated projection.
+export async function renameGrid(id: string, name: string): Promise<ViewModel> {
+  return json(
+    await fetch(`${BASE}/session/name`, {
+      method: "PUT",
+      headers: sessionHeaders(id, JSON_HEADERS),
+      body: JSON.stringify({ name }),
+    }),
+  );
 }
 
 // The library transformer types keyed by name → their editable parameter set.

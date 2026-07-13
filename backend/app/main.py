@@ -31,6 +31,7 @@ from .scenarios import build_scenario, list_scenarios
 from .projection import net_to_view
 from .safe_import import UnsafeImportError, validate_import_json
 from .schema import (
+    DEFAULT_SCENARIO_NAME,
     AuthResponse,
     Command,
     GoogleAuthRequest,
@@ -38,6 +39,7 @@ from .schema import (
     LoadFlowResult,
     LoadFlowSettings,
     NetworkSummary,
+    RenameRequest,
     SessionInfo,
     ShortCircuitResult,
     User,
@@ -148,10 +150,14 @@ def get_std_types(table: str) -> dict[str, dict[str, float | str]]:
 
 
 @app.post("/session", response_model=SessionInfo)
-def create_session(user: User | None = Depends(current_user)) -> SessionInfo:
-    """Start an empty session and return its id plus the (empty) projection. A
-    signed-in user owns it immediately; a guest's is unowned until claimed."""
-    session = store.create(owner_id=user.id if user else None)
+def create_session(
+    claim: bool = True, user: User | None = Depends(current_user)
+) -> SessionInfo:
+    """Start an empty session and return its id plus the (empty) projection.
+
+    A signed-in user owns it immediately; pass ``claim=false`` to start it
+    unowned even so. A guest's session is always unowned until claimed."""
+    session = store.create(owner_id=user.id if (user and claim) else None)
     with session.lock:
         return SessionInfo(id=session.id, view=_view(session))
 
@@ -193,6 +199,17 @@ def create_scenario_session(
 def get_session(session: Session = Depends(current_session)) -> ViewModel:
     """The current projection — used to (re)hydrate the editor on load/refresh."""
     with session.lock:
+        return _view(session)
+
+
+@app.put("/session/name", response_model=ViewModel)
+def rename_session(
+    body: RenameRequest, session: Session = Depends(current_session)
+) -> ViewModel:
+    """Rename the session's network. Ownership is enforced by current_session."""
+    name = body.name.strip() or DEFAULT_SCENARIO_NAME
+    with session.lock:
+        store.rename(session, name)
         return _view(session)
 
 
