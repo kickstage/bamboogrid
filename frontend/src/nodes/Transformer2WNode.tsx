@@ -7,6 +7,8 @@ import { useEditor } from "../store";
 import { WINDING_LABEL } from "../trafo";
 import { windingFlip } from "./windingFlip";
 import { TransformerResult } from "./TransformerResult";
+import { TrafoTapBadge } from "./TrafoTapBadge";
+import { useTrafoParams } from "./useTrafoParams";
 
 const W = 40;
 
@@ -42,6 +44,7 @@ export function Transformer2WNode({ id, data, selected, positionAbsoluteY }: Nod
   const flip = useEditor((s) =>
     windingFlip(s.nodes, s.edges, id, positionAbsoluteY ?? 0, "2w"),
   );
+  const params = useTrafoParams(d, "trafo");
   // Moving a handle (Top↔Bottom) changes the node's handle layout; React Flow
   // must re-measure or the wire detaches and a ghost handle is left behind.
   const updateNodeInternals = useUpdateNodeInternals();
@@ -59,6 +62,14 @@ export function Transformer2WNode({ id, data, selected, positionAbsoluteY }: Nod
       <TransformerGlyph size={W} stroke={stroke} />
       <Handle id="lv" type="source" position={POS[lvSide]} style={{ background: "currentColor" }} />
       <div style={portLabel(lvSide)}>{WINDING_LABEL.lv}</div>
+      {params && (
+        <TrafoTapBadge
+          nodeId={id}
+          params={params}
+          right={-13}
+          selected={!!selected}
+        />
+      )}
       <div
         style={{
           position: "absolute",

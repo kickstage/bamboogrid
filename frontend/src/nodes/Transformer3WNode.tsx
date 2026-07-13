@@ -7,6 +7,8 @@ import { useEditor } from "../store";
 import { WINDING_LABEL } from "../trafo";
 import { windingFlip } from "./windingFlip";
 import { TransformerResult } from "./TransformerResult";
+import { TrafoTapBadge } from "./TrafoTapBadge";
+import { useTrafoParams } from "./useTrafoParams";
 
 const W = 48;
 
@@ -45,6 +47,7 @@ export function Transformer3WNode({ id, data, selected, positionAbsoluteY }: Nod
   const flip = useEditor((s) =>
     windingFlip(s.nodes, s.edges, id, positionAbsoluteY ?? 0, "3w"),
   );
+  const params = useTrafoParams(d, "trafo3w");
   const updateNodeInternals = useUpdateNodeInternals();
   useEffect(() => {
     updateNodeInternals(id);
@@ -64,6 +67,14 @@ export function Transformer3WNode({ id, data, selected, positionAbsoluteY }: Nod
       <div style={portLabel(pairSide, "35%", "left")}>{WINDING_LABEL.mv}</div>
       <Handle id="lv" type="source" position={POS[pairSide]} style={{ left: "65%", background: "currentColor" }} />
       <div style={portLabel(pairSide, "65%")}>{WINDING_LABEL.lv}</div>
+      {params && (
+        <TrafoTapBadge
+          nodeId={id}
+          params={params}
+          right={-9}
+          selected={!!selected}
+        />
+      )}
       <div
         style={{
           position: "absolute",
