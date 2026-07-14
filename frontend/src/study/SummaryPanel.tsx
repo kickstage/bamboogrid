@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import {
   Alert,
   Badge,
@@ -7,7 +7,6 @@ import {
   Divider,
   Group,
   Loader,
-  Modal,
   Stack,
   Table,
   Tabs,
@@ -18,12 +17,14 @@ import { networkSummary } from "../api";
 import { fixed } from "../format";
 import { flushPending } from "../sync";
 import { useEditor } from "../store";
+import { ToolWindow } from "../ui/ToolWindow";
 import type {
   Diagnostic,
   Extreme,
   NetworkSummary,
   SummaryCounts,
 } from "../types";
+import { useLiveRefresh } from "./useLiveRefresh";
 
 const SEVERITY_COLOR: Record<Diagnostic["severity"], string> = {
   error: "red",
@@ -197,53 +198,53 @@ function DiagnosticsTab({
   );
 }
 
-// A modal overview of the network: power balance, voltage/loading extremes,
+// A floating overview of the network: power balance, voltage/loading extremes,
 // element counts and pandapower diagnostic findings. Re-solves on each open so
-// the figures reflect the latest edits.
-export function SummaryModal({
-  opened,
-  onClose,
-}: {
-  opened: boolean;
-  onClose: () => void;
-}) {
+// the figures reflect the latest edits. Non-blocking, so revealing an element
+// keeps the panel open (handy when popped out to a second screen).
+export function SummaryPanel() {
+  const opened = useEditor((s) => s.summaryOpen);
+  const setOpen = useEditor((s) => s.setSummaryOpen);
   const sessionId = useEditor((s) => s.sessionId);
   const revealElement = useEditor((s) => s.revealElement);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [summary, setSummary] = useState<NetworkSummary | null>(null);
 
-  useEffect(() => {
-    if (!opened || !sessionId) return;
-    let cancelled = false;
-    setLoading(true);
-    setError(null);
-    (async () => {
+  // A quiet reload (live auto-refresh) keeps the current figures on screen and
+  // swaps them when new ones arrive, rather than flashing the loader. The
+  // request id guards against an earlier fetch overwriting a newer one.
+  const reqIdRef = useRef(0);
+  const load = useCallback(
+    async (quiet = false) => {
+      if (!sessionId) return;
+      const myId = ++reqIdRef.current;
+      if (!quiet) setLoading(true);
+      setError(null);
       try {
         await flushPending();
         const result = await networkSummary(sessionId);
-        if (!cancelled) setSummary(result);
+        if (reqIdRef.current === myId) setSummary(result);
       } catch (err) {
-        if (!cancelled) setError((err as Error).message);
+        if (reqIdRef.current === myId) setError((err as Error).message);
       } finally {
-        if (!cancelled) setLoading(false);
+        if (reqIdRef.current === myId && !quiet) setLoading(false);
       }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [opened, sessionId]);
+    },
+    [sessionId],
+  );
+
+  useLiveRefresh(opened, load);
 
   const issues = summary?.diagnostics.length ?? 0;
 
-  // Select the element on the canvas/inspector and close the modal so it's
-  // visible behind it.
-  const reveal = (id: string) => {
-    if (revealElement(id)) onClose();
-  };
-
   return (
-    <Modal opened={opened} onClose={onClose} title="Network summary" size="lg">
+    <ToolWindow
+      title="Network summary"
+      opened={opened}
+      onClose={() => setOpen(false)}
+      width={600}
+    >
       {loading || !summary ? (
         <Center py="xl">
           {error ? (
@@ -290,14 +291,14 @@ export function SummaryModal({
               </Tabs.Tab>
             </Tabs.List>
             <Tabs.Panel value="summary">
-              <SummaryTab s={summary} onReveal={reveal} />
+              <SummaryTab s={summary} onReveal={revealElement} />
             </Tabs.Panel>
             <Tabs.Panel value="diagnostics">
-              <DiagnosticsTab items={summary.diagnostics} onReveal={reveal} />
+              <DiagnosticsTab items={summary.diagnostics} onReveal={revealElement} />
             </Tabs.Panel>
           </Tabs>
         </Stack>
       )}
-    </Modal>
+    </ToolWindow>
   );
 }

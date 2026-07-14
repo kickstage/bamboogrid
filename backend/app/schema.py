@@ -500,6 +500,39 @@ class LoadFlowResult(BaseModel):
     res_line: list[LineResult] = Field(default_factory=list)
 
 
+# --- Admittance matrix (Y-bus) --------------------------------------------
+
+
+class YbusBus(BaseModel):
+    """One row/column of the admittance matrix. Usually a single bus, but buses
+    fused by a closed bus-bus switch collapse into one node, and pandapower's
+    internal nodes (e.g. a 3W transformer's star point) appear with no editor
+    element behind them (empty ``ids``)."""
+
+    ids: list[str] = Field(default_factory=list)  # editor uuids for highlighting
+    label: str  # "Bus 3", "Bus 3 + Bus 4", or "Internal node"
+    vn_kv: float | None = None
+
+
+class YbusEntry(BaseModel):
+    """A non-zero matrix cell ``Y[i, j] = g + jb`` in per-unit."""
+
+    i: int
+    j: int
+    g: float
+    b: float
+
+
+class YbusResult(BaseModel):
+    converged: bool
+    message: str = ""
+    buses: list[YbusBus] = Field(default_factory=list)  # row/column order
+    entries: list[YbusEntry] = Field(default_factory=list)
+    sn_mva: float = 1.0
+    # In-service buses with no matrix row (isolated) plus out-of-service buses.
+    omitted_buses: int = 0
+
+
 # --- Short-circuit (IEC 60909) result types --------------------------------
 
 

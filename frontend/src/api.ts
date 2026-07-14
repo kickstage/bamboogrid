@@ -5,6 +5,7 @@ import type {
   NetworkSummary,
   ShortCircuitResult,
   ViewModel,
+  YbusResult,
 } from "./types";
 
 const BASE = "";
@@ -214,6 +215,17 @@ export async function updateLoadFlowSettings(
 export async function networkSummary(id: string): Promise<NetworkSummary> {
   return json(
     await fetch(`${BASE}/session/summary`, {
+      method: "POST",
+      headers: { [SESSION_HEADER]: id },
+    }),
+  );
+}
+
+// Solve the retained net and return its admittance matrix (Y-bus) as labeled
+// sparse triplets, keyed back to editor bus ids.
+export async function fetchYbus(id: string): Promise<YbusResult> {
+  return json(
+    await fetch(`${BASE}/session/ybus`, {
       method: "POST",
       headers: { [SESSION_HEADER]: id },
     }),

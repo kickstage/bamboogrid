@@ -22,9 +22,7 @@ import { Submenu } from "./ui/Submenu";
 import { Canvas } from "./canvas/Canvas";
 import { Inspector } from "./inspector/Inspector";
 import { Palette } from "./palette/Palette";
-import { LoadFlowSettingsModal } from "./study/LoadFlowSettingsModal";
 import { applySavedLoadFlowSettings } from "./study/loadFlowSettings";
-import { SummaryModal } from "./study/SummaryModal";
 import { MobileApp } from "./mobile/MobileApp";
 import { useIsMobile } from "./mobile/useIsMobile";
 import { useEditor } from "./store";
@@ -155,6 +153,9 @@ export default function App() {
     undo,
     redo,
     setSearchOpen,
+    setYbusOpen,
+    setSummaryOpen,
+    setSettingsOpen,
   } = useEditor();
   const [busy, setBusy] = useState(false);
   // A blocking message shown over the canvas while a network is being built
@@ -166,8 +167,6 @@ export default function App() {
   const [openMenu, setOpenMenu] = useState<
     "file" | "edit" | "view" | "study" | null
   >(null);
-  const [summaryOpen, setSummaryOpen] = useState(false);
-  const [loadFlowSettingsOpen, setLoadFlowSettingsOpen] = useState(false);
   const [leftW, setLeftW] = useState(() => readWidth(PANELS.left));
   const [rightW, setRightW] = useState(() => readWidth(PANELS.right));
   const ppInputRef = useRef<HTMLInputElement>(null);
@@ -584,7 +583,13 @@ export default function App() {
                 <Menu.Item onClick={() => setSummaryOpen(true)}>
                   Network summary…
                 </Menu.Item>
-                <Menu.Item onClick={() => setLoadFlowSettingsOpen(true)}>
+                <Menu.Item
+                  onClick={() => setYbusOpen(true)}
+                  disabled={studyMode === "shortcircuit"}
+                >
+                  Admittance matrix…
+                </Menu.Item>
+                <Menu.Item onClick={() => setSettingsOpen(true)}>
                   Load flow settings…
                 </Menu.Item>
               </Menu.Dropdown>
@@ -784,12 +789,6 @@ export default function App() {
           </svg>
         </Anchor>
       </Text>
-
-      <SummaryModal opened={summaryOpen} onClose={() => setSummaryOpen(false)} />
-      <LoadFlowSettingsModal
-        opened={loadFlowSettingsOpen}
-        onClose={() => setLoadFlowSettingsOpen(false)}
-      />
     </div>
   );
 }

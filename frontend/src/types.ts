@@ -647,6 +647,28 @@ export interface LoadFlowResult {
   }[];
 }
 
+export interface YbusBus {
+  ids: string[]; // editor uuids for highlighting (empty for internal nodes)
+  label: string; // "Bus 3", "Bus 3 + Bus 4", or "Internal node"
+  vn_kv: number | null;
+}
+
+export interface YbusEntry {
+  i: number;
+  j: number;
+  g: number; // conductance, p.u.
+  b: number; // susceptance, p.u.
+}
+
+export interface YbusResult {
+  converged: boolean;
+  message: string;
+  buses: YbusBus[]; // row/column order
+  entries: YbusEntry[];
+  sn_mva: number;
+  omitted_buses: number;
+}
+
 export interface BusScResult {
   id: string;
   ikss_ka: number | null;
