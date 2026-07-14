@@ -118,7 +118,7 @@ function GridRow({
           )}
         </Text>
         <Text size="xs" c="dimmed">
-          Edited {relativeTime(grid.updated_at)}
+          Saved {relativeTime(grid.saved_at)}
         </Text>
       </div>
       <Menu position="bottom-end" withinPortal>

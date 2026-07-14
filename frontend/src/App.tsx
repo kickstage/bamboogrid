@@ -30,13 +30,15 @@ import { useIsMobile } from "./mobile/useIsMobile";
 import { authEnabled, AuthControls } from "./auth/GoogleSignIn";
 import { SignInModal } from "./auth/SignInModal";
 import { useAuth } from "./auth/authStore";
-import { DEFAULT_SCENARIO_NAME, useEditor } from "./store";
+import { DEFAULT_SCENARIO_NAME, useEditor, willDiscard } from "./store";
 import { toast } from "./toast";
-import { flushPending } from "./sync";
+import { dropPending, flushPending } from "./sync";
 import {
-  claimGrid,
   createScenarioSession,
   createSession,
+  detachSession,
+  revertSession,
+  saveSession,
   deleteGrid,
   exportPandapower,
   fetchScenarios,
@@ -64,6 +66,7 @@ const isMac =
 const UNDO_HINT = isMac ? "⌘Z" : "Ctrl+Z";
 const REDO_HINT = isMac ? "⇧⌘Z" : "Ctrl+Y";
 const FIND_HINT = isMac ? "⌘F" : "Ctrl+F";
+const SAVE_HINT = isMac ? "⌘S" : "Ctrl+S";
 
 const PANELS = {
   left: { key: "bamboogrid:leftW", default: 220, min: 160, max: 460 },
@@ -132,6 +135,35 @@ function ResizeHandle({
   );
 }
 
+// The guest copy signing out left on the canvas, and the saved scenario it came
+// from. Kept only while returning to the original would lose nothing (see
+// onSignOut), so signing back in can undo the detach.
+const DETACHED_KEY = "bamboogrid:detached";
+
+interface Detached {
+  copy: string;
+  origin: string;
+}
+
+function readDetached(): Detached | null {
+  try {
+    const raw = localStorage.getItem(DETACHED_KEY);
+    const d = raw ? (JSON.parse(raw) as Detached) : null;
+    return d?.copy && d?.origin ? d : null;
+  } catch {
+    return null;
+  }
+}
+
+function rememberDetached(d: Detached | null): void {
+  try {
+    if (d) localStorage.setItem(DETACHED_KEY, JSON.stringify(d));
+    else localStorage.removeItem(DETACHED_KEY);
+  } catch {
+    // best-effort
+  }
+}
+
 function rememberSession(id: string): void {
   try {
     localStorage.setItem(SESSION_KEY, id);
@@ -178,9 +210,9 @@ export default function App() {
   const [loadFlowSettingsOpen, setLoadFlowSettingsOpen] = useState(false);
   const [gridsOpen, setGridsOpen] = useState(false);
   const [signInOpen, setSignInOpen] = useState(false);
-  // True while the open scenario is unclaimed (not yet in the signed-in user's
-  // library); cleared once claimed. Unused for guests.
-  const [scenarioUnsaved, setScenarioUnsaved] = useState(false);
+  const [saving, setSaving] = useState(false);
+  // A guest hit Save: run it once they've signed in.
+  const pendingSaveRef = useRef(false);
   const [leftW, setLeftW] = useState(() => readWidth(PANELS.left));
   const [rightW, setRightW] = useState(() => readWidth(PANELS.right));
   const ppInputRef = useRef<HTMLInputElement>(null);
@@ -200,35 +232,169 @@ export default function App() {
   const scheme = useComputedColorScheme("light");
   const isMobile = useIsMobile();
   const { user } = useAuth();
+  const dirty = useEditor((s) => s.dirty);
+  const savedAt = useEditor((s) => s.savedAt);
+  const applyViewMeta = useEditor((s) => s.applyViewMeta);
   const nodeCount = useEditor((s) => s.nodes.length);
+  // Unsaved edits, or a never-saved scenario with something in it (a freshly
+  // opened example is untouched but still in no library).
+  const canSave = dirty || (savedAt === null && nodeCount > 0);
+  const unsaved = !canSave ? undefined : savedAt === null ? "never" : "changes";
 
-  // Signing in from the prompt means the user was on their way to "My
-  // scenarios" — take them there instead of dropping them back on the canvas.
-  // Their current work needs no rescuing: it's already pending a claim, which
-  // the effect below performs as soon as `user` lands.
+  // Save into the user's library; a guest is prompted to sign in first, and the
+  // save then runs itself (pendingSaveRef).
+  const onSave = async () => {
+    const id = useEditor.getState().sessionId;
+    if (!id) return;
+    if (!user) {
+      pendingSaveRef.current = true;
+      setSignInOpen(true);
+      return;
+    }
+    setSaving(true);
+    try {
+      // A command flushed after the save would re-dirty the scenario.
+      await flushPending();
+      applyViewMeta(await saveSession(id));
+      toast.success("Scenario saved.");
+    } catch (err) {
+      toast.error(`Could not save: ${(err as Error).message}`);
+    } finally {
+      setSaving(false);
+    }
+  };
+  const onSaveRef = useRef(onSave);
+  onSaveRef.current = onSave;
+
+  // A saved scenario is unreachable once its owner's token is gone, so keep a guest
+  // copy on the canvas rather than wiping it. Everything touching the owned session
+  // must therefore happen before logout() — hence the order below.
+  const onSignOut = async () => {
+    const { sessionId: id, savedAt: saved, dirty: isDirty } = useEditor.getState();
+    // A never-saved scenario is already unowned: signing out costs no access.
+    const owned = saved !== null;
+    setBusy(true);
+    setLoadingMsg(owned ? "Signing out…" : null);
+    try {
+      // Queued edits must reach the session before it's copied.
+      await flushPending();
+
+      if (id && owned) {
+        const copy = await detachSession(id);
+        // Unsaved edits leave with the user inside the copy; the library keeps the
+        // scenario as it was last saved.
+        if (isDirty) await revertSession(id);
+
+        useAuth.getState().logout();
+        await attachSession(copy.id, copy.view);
+        rememberSession(copy.id);
+
+        // Where the copy came from, so signing back in can return to the real
+        // scenario — but only if it was clean: a copy carrying unsaved edits is
+        // already a different network from the saved one, and going back would
+        // silently drop them. Recorded after the attach, or the effect above sees
+        // a copy id that isn't the current session and bins it.
+        reattachedRef.current = false;
+        rememberDetached(isDirty ? null : { copy: copy.id, origin: id });
+        toast.success("Signed out. Your scenario is still here, as an unsaved copy.");
+        return;
+      }
+
+      useAuth.getState().logout();
+      toast.success("Signed out.");
+    } catch (err) {
+      toast.error(`Could not sign out cleanly: ${(err as Error).message}`);
+    } finally {
+      setBusy(false);
+      setLoadingMsg(null);
+    }
+  };
+
+  // Signing back in undoes a sign-out detach: swap the guest copy on the canvas
+  // for the real scenario in the library, so it stops reading "Not saved" when it
+  // is in fact saved. Only while the copy is untouched — once it's been edited it
+  // is its own scenario, and going back to the original would drop that work.
+  const reattachedRef = useRef(false);
   useEffect(() => {
-    if (user && signInOpen) {
-      setSignInOpen(false);
+    const d = readDetached();
+    if (!d || !sessionId) return;
+
+    // Edited or saved: it now holds work the original doesn't, so it can never be
+    // folded back in. savedAt matters as well as dirty — saving the copy clears
+    // dirty, and it must not then look untouched and get swapped away.
+    if (sessionId !== d.copy || dirty || savedAt !== null) {
+      rememberDetached(null);
+      return;
+    }
+    if (!user || reattachedRef.current) return;
+    reattachedRef.current = true;
+    pendingSaveRef.current = false; // the original is already saved
+    void (async () => {
+      try {
+        const view = await getView(d.origin);
+        await attachSession(d.origin, view);
+        rememberSession(d.origin);
+      } catch {
+        // The original is gone (deleted elsewhere): keep the copy.
+      } finally {
+        rememberDetached(null);
+      }
+    })();
+  }, [user, sessionId, dirty, savedAt, attachSession]);
+
+  // Signing in resumes whatever prompted it.
+  useEffect(() => {
+    if (!user || !signInOpen) return;
+    setSignInOpen(false);
+    if (pendingSaveRef.current) {
+      pendingSaveRef.current = false;
+      void onSaveRef.current();
+    } else {
       setGridsOpen(true);
     }
   }, [user, signInOpen]);
 
-  // Claim an unclaimed scenario into the library once it has any content.
-  // claimGrid is idempotent if it's already owned.
-  useEffect(() => {
-    if (!user || !scenarioUnsaved || !sessionId || nodeCount === 0) return;
-    let cancelled = false;
-    claimGrid(sessionId)
-      .then(() => {
-        if (!cancelled) setScenarioUnsaved(false);
-      })
-      .catch(() => {
-        // Best-effort; scenarioUnsaved stays set, so the next edit retries.
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [user, scenarioUnsaved, sessionId, nodeCount]);
+  // Only asks when leaving would really lose the edits: a never-saved scenario
+  // keeps its working copy, so there is nothing to warn about.
+  const confirmUnsaved = (action: string): boolean =>
+    !willDiscard(useEditor.getState()) ||
+    window.confirm(
+      `You have unsaved changes. ${action} and lose them?\n\n` +
+        `Cancel, then Save (${SAVE_HINT}), to keep them.`,
+    );
+
+  // Confirm, then actually leave. The two must go together — a caller that skips
+  // leaveCurrent leaks the old scenario's queued edits onto the next one.
+  const leaveScenario = async (action: string): Promise<boolean> => {
+    if (!confirmUnsaved(action)) return false;
+    await leaveCurrent();
+    return true;
+  };
+
+  // Moving off a scenario. Either way the queue must be settled before sync is
+  // pointed at another session, or a late flush lands its edits on the next one.
+  const leaveCurrent = async (): Promise<void> => {
+    const state = useEditor.getState();
+    const id = state.sessionId;
+    if (!id) return;
+
+    if (willDiscard(state)) {
+      // Queued edits would re-apply the changes the revert is undoing.
+      dropPending();
+      try {
+        await revertSession(id);
+      } catch (err) {
+        // Never swallow this: a silent failure leaves the user believing the
+        // changes are gone when they are not.
+        toast.error(`Could not discard changes: ${(err as Error).message}`);
+      }
+      return;
+    }
+
+    // No saved state to return to, so this working copy is the only copy of the
+    // work: keep it, and make sure the last edits landed.
+    await flushPending();
+  };
 
   // Fixed-width checkmark gutter so menu items align whether ticked or not.
   const check = (on: boolean) => (
@@ -277,9 +443,6 @@ export default function App() {
             const { id, view } = await openShare(shareToken);
             await attachSession(id, view);
             rememberSession(id);
-            // Owned already when signed in; if opened as a guest, claimed on
-            // sign-in once there's content (claim is idempotent either way).
-            setScenarioUnsaved(true);
             toast.success("Opened an editable copy of a shared network.");
             return;
           } catch (err) {
@@ -292,21 +455,16 @@ export default function App() {
             const view = await getView(candidate);
             await attachSession(candidate, view);
             rememberSession(candidate);
-            // Might be a not-yet-claimed blank we're returning to; leave it
-            // pending so its first content still saves it (claim is idempotent
-            // if it's actually already owned).
-            setScenarioUnsaved(true);
+            // Resumes the working copy, unsaved edits included.
             return;
           } catch {
             // Stale/unknown id — fall through and create a new session.
           }
         }
-        const { id, view } = await createSession(false);
+        const { id, view } = await createSession();
         await applySavedLoadFlowSettings(id);
         await attachSession(id, view);
         rememberSession(id);
-        // A blank landing scenario stays out of the library until it has content.
-        setScenarioUnsaved(true);
       } catch (err) {
         toast.error(`Could not start session: ${(err as Error).message}`);
       } finally {
@@ -363,6 +521,7 @@ export default function App() {
     const file = e.target.files?.[0];
     e.target.value = "";
     if (!file || !sessionId) return;
+    if (!confirmUnsaved(`Import "${file.name}"`)) return;
     setBusy(true);
     setLoadingMsg(`Importing "${file.name}"…`);
     try {
@@ -378,41 +537,14 @@ export default function App() {
     }
   };
 
-  // Start a brand-new, blank scenario, created unclaimed. A signed-in user's
-  // previous scenario is already saved, so no confirm; a guest confirms first,
-  // since clearing loses their work.
   const onReset = async () => {
-    if (!user) {
-      const { nodes, edges } = useEditor.getState();
-      const empty = nodes.length === 0 && edges.length === 0;
-      if (
-        !empty &&
-        !window.confirm("Clear the editor and start a new scenario?")
-      )
-        return;
-    }
-    setBusy(true);
-    try {
-      const { id, view } = await createSession(false);
-      await applySavedLoadFlowSettings(id);
-      await attachSession(id, view);
-      rememberSession(id);
-      setScenarioUnsaved(true);
-      toast.success("Started a new scenario.");
-    } catch (err) {
-      toast.error(`Could not start session: ${(err as Error).message}`);
-    } finally {
-      setBusy(false);
-    }
+    if (!(await leaveScenario("Start a new scenario"))) return;
+    await onNewGrid();
   };
 
   // Replace the canvas with a built-in pandapower example (a fresh session).
-  // Destructive, so confirm first unless the canvas is already empty.
   const onOpenScenario = async (scenario: Scenario) => {
-    const { nodes, edges } = useEditor.getState();
-    const empty = nodes.length === 0 && edges.length === 0;
-    if (!empty && !window.confirm(`Replace the editor with "${scenario.label}"?`))
-      return;
+    if (!(await leaveScenario(`Open "${scenario.label}"`))) return;
     setBusy(true);
     setLoadingMsg(`Opening "${scenario.label}"…`);
     try {
@@ -420,8 +552,6 @@ export default function App() {
       await applySavedLoadFlowSettings(id);
       await attachSession(id, view);
       rememberSession(id);
-      // Owned already when signed in; if opened as a guest, claimed on sign-in.
-      setScenarioUnsaved(true);
       toast.success(`Opened "${scenario.label}".`);
     } catch (err) {
       toast.error(`Could not open example: ${(err as Error).message}`);
@@ -434,14 +564,13 @@ export default function App() {
   // Switch the editor to one of the user's saved grids.
   const openGrid = async (id: string) => {
     if (id === sessionId) return;
+    if (!(await leaveScenario("Open another scenario"))) return;
     setBusy(true);
     setLoadingMsg("Loading scenario…");
     try {
-      await flushPending();
       const view = await getView(id);
       await attachSession(id, view);
       rememberSession(id);
-      setScenarioUnsaved(false); // opened from the library — already owned
     } catch (err) {
       toast.error(`Could not open scenario: ${(err as Error).message}`);
     } finally {
@@ -450,19 +579,17 @@ export default function App() {
     }
   };
 
-  // Start a fresh, blank scenario, created unclaimed (used as the fallback after
-  // deleting the one you're viewing).
+  // Start a fresh, blank scenario. Unowned until saved, like any other.
   const onNewGrid = async () => {
     setBusy(true);
     try {
-      const { id, view } = await createSession(false);
+      const { id, view } = await createSession();
       await applySavedLoadFlowSettings(id);
       await attachSession(id, view);
       rememberSession(id);
-      setScenarioUnsaved(true);
       toast.success("Started a new scenario.");
     } catch (err) {
-      toast.error(`Could not start scenario: ${(err as Error).message}`);
+      toast.error(`Could not start a new scenario: ${(err as Error).message}`);
     } finally {
       setBusy(false);
     }
@@ -568,28 +695,47 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  // Cmd/Ctrl+S: edits already stream to the server, so this just traps the
-  // browser's "save page" dialog, flushes any in-flight edits, and confirms.
-  const saveNow = async () => {
-    if (!useEditor.getState().sessionId) return;
-    try {
-      await flushPending();
-      toast.success("All changes saved.");
-    } catch (err) {
-      toast.error(`Could not save: ${(err as Error).message}`);
-    }
-  };
-  const saveNowRef = useRef(saveNow);
-  saveNowRef.current = saveNow;
+  // Cmd/Ctrl+S saves, replacing the browser's "save page" dialog.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") {
         e.preventDefault();
-        void saveNowRef.current();
+        void onSaveRef.current();
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  // Only warn when leaving really discards something (see leaveCurrent).
+  const willDiscardOnLeave = willDiscard({ dirty, savedAt });
+  useEffect(() => {
+    if (!willDiscardOnLeave) return;
+    // Asks only — the user may still cancel, so it must not discard anything.
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [willDiscardOnLeave]);
+
+  // The discard itself. `pagehide` fires only once the page really is going (after
+  // the prompt above was accepted), so cancelling discards nothing. A crash fires
+  // neither event, so an interrupted session resumes intact.
+  useEffect(() => {
+    const onPageHide = () => {
+      const state = useEditor.getState();
+      // Nothing to fall back on: keep the working copy, land the last edits.
+      if (!state.sessionId || !willDiscard(state)) {
+        void flushPending();
+        return;
+      }
+      // Can't be awaited — the page is going. keepalive lets it outlive it.
+      void revertSession(state.sessionId, { keepalive: true }).catch(() => {});
+    };
+    window.addEventListener("pagehide", onPageHide);
+    return () => window.removeEventListener("pagehide", onPageHide);
   }, []);
 
   // Phones/tablets get the read-only demo instead of the full editor.
@@ -636,6 +782,14 @@ export default function App() {
                     <Menu.Divider />
                   </>
                 )}
+                <Menu.Item
+                  onClick={onSave}
+                  disabled={busy || saving || !canSave}
+                  rightSection={hotkey(SAVE_HINT)}
+                >
+                  Save
+                </Menu.Item>
+                <Menu.Divider />
                 <Menu.Item onClick={onReset} disabled={busy}>
                   New scenario
                 </Menu.Item>
@@ -832,6 +986,7 @@ export default function App() {
                 name={networkName}
                 defaultName={DEFAULT_SCENARIO_NAME}
                 disabled={busy}
+                unsaved={unsaved}
                 onRename={onRenameCurrent}
               />
             </div>
@@ -861,7 +1016,7 @@ export default function App() {
                 Run
               </Button>
             </Tooltip>
-            <AuthControls />
+            <AuthControls onSignOut={onSignOut} />
           </Group>
         </Group>
       </Paper>

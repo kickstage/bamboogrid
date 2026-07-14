@@ -43,6 +43,7 @@ from .schema import (
     NetworkSummary,
     RenameRequest,
     SessionInfo,
+    SessionMeta,
     ShortCircuitResult,
     User,
     ViewModel,
@@ -107,11 +108,21 @@ def current_session(
     return session
 
 
+def _meta(session: Session) -> SessionMeta:
+    """A session's editor state: undo/redo availability and unsaved-changes."""
+    return SessionMeta(
+        can_undo=session.history.can_undo,
+        can_redo=session.history.can_redo,
+        dirty=session.dirty,
+        saved_at=session.saved_at,
+    )
+
+
 def _view(session: Session) -> ViewModel:
-    """The session projection stamped with its current undo/redo availability."""
+    """The session projection, stamped with its editor state."""
     view = net_to_view(session.net)
-    view.can_undo = session.history.can_undo
-    view.can_redo = session.history.can_redo
+    for field, value in _meta(session):
+        setattr(view, field, value)
     return view
 
 
@@ -152,26 +163,24 @@ def get_std_types(table: str) -> dict[str, dict[str, float | str]]:
 
 
 @app.post("/session", response_model=SessionInfo)
-def create_session(
-    claim: bool = True, user: User | None = Depends(current_user)
-) -> SessionInfo:
+def create_session() -> SessionInfo:
     """Start an empty session and return its id plus the (empty) projection.
 
-    A signed-in user owns it immediately; pass ``claim=false`` to start it
-    unowned even so. A guest's session is always unowned until claimed."""
-    session = store.create(owner_id=user.id if (user and claim) else None)
+    Unowned until saved: saving is what adds a scenario to a library (see
+    ``save_session``), so a scratch session you never save never lands there."""
+    session = store.create()
     with session.lock:
         return SessionInfo(id=session.id, view=_view(session))
 
 
 @app.post("/session/demo", response_model=SessionInfo)
-def create_demo_session(user: User | None = Depends(current_user)) -> SessionInfo:
+def create_demo_session() -> SessionInfo:
     """Start a session pre-loaded with the IEEE 14-bus network (the mobile
     read-only demo's default when no share link is opened) — the same built-in
     example offered under File ▸ Open example."""
     with tracer.start_as_current_span("session.create_demo"):
         net = build_scenario("case14")
-        session = store.create(net=net, name=net.name, owner_id=user.id if user else None)
+        session = store.create(net=net, name=net.name)
         with session.lock:
             return SessionInfo(id=session.id, view=_view(session))
 
@@ -183,16 +192,14 @@ def get_scenarios() -> list[dict[str, str]]:
 
 
 @app.post("/session/scenario/{scenario_id}", response_model=SessionInfo)
-def create_scenario_session(
-    scenario_id: str, user: User | None = Depends(current_user)
-) -> SessionInfo:
+def create_scenario_session(scenario_id: str) -> SessionInfo:
     """Start a session from a built-in pandapower example, built on demand."""
     with tracer.start_as_current_span("session.create_scenario") as span:
         span.set_attribute("scenario.id", scenario_id)
         net = build_scenario(scenario_id)
         if net is None:
             raise HTTPException(status_code=404, detail="Unknown scenario.")
-        session = store.create(net=net, name=net.name, owner_id=user.id if user else None)
+        session = store.create(net=net, name=net.name)
         with session.lock:
             return SessionInfo(id=session.id, view=_view(session))
 
@@ -215,10 +222,10 @@ def rename_session(
         return _view(session)
 
 
-@app.post("/session/commands")
+@app.post("/session/commands", response_model=SessionMeta)
 def post_commands(
     commands: list[Command], session: Session = Depends(current_session)
-) -> dict[str, bool]:
+) -> SessionMeta:
     """Apply a batch of edits to the session's authoritative net, recording the
     new state as one undo step."""
     with session.lock:
@@ -230,11 +237,7 @@ def post_commands(
             except CommandError as exc:
                 raise HTTPException(status_code=400, detail=str(exc))
             store.record(session)
-            return {
-                "ok": True,
-                "can_undo": session.history.can_undo,
-                "can_redo": session.history.can_redo,
-            }
+            return _meta(session)
 
 
 @app.post("/session/undo", response_model=ViewModel)
@@ -263,12 +266,12 @@ def share_session(session: Session = Depends(current_session)) -> dict[str, str]
 
 
 @app.post("/share/{token}", response_model=SessionInfo)
-def open_share(token: str, user: User | None = Depends(current_user)) -> SessionInfo:
-    """Clone the shared session into a fresh, independent session. The copy belongs
-    to the opener if signed in, otherwise it's a guest session."""
+def open_share(token: str) -> SessionInfo:
+    """Clone the shared session into a fresh, independent session. The copy opens
+    as an unsaved working copy; saving it is what adds it to the opener's library."""
     with tracer.start_as_current_span("share.open"):
         try:
-            session = store.clone_from_share(token, owner_id=user.id if user else None)
+            session = store.clone_from_share(token)
         except KeyError:
             raise HTTPException(
                 status_code=404, detail="Share link not found or expired."
@@ -283,26 +286,47 @@ def list_sessions(user: User = Depends(require_user)) -> list[GridSummary]:
     return [GridSummary(**g) for g in store.list_for_owner(user.id)]
 
 
-@app.post("/session/{session_id}/claim", response_model=SessionInfo)
-def claim_session(
-    session_id: str, user: User = Depends(require_user)
-) -> SessionInfo:
-    """Attach a guest session to the signed-in user so it's saved to their account
-    (e.g. after signing in while editing as a guest). Idempotent if already theirs.
+@app.post("/session/save", response_model=SessionMeta)
+def save_session(
+    session: Session = Depends(current_session), user: User = Depends(require_user)
+) -> SessionMeta:
+    """Save the scenario: keep the working copy as its saved state and add it to
+    the user's library the first time (401 for a guest).
 
-    A session owned by someone else is treated as non-existent (404), the same as
-    ``current_session`` and ``delete_session`` — another account's grids are never
-    revealed."""
-    try:
-        session = store.get(session_id)
-    except KeyError:
-        raise HTTPException(status_code=404, detail="Session not found.")
-    if session.owner_id not in (None, user.id):
-        raise HTTPException(status_code=404, detail="Session not found.")
-    if session.owner_id is None and not store.claim(session_id, user.id):
-        raise HTTPException(status_code=404, detail="Session not found.")
+    ``current_session`` has already refused a session owned by somebody else, so
+    what's left is either theirs or unowned — both are theirs to save."""
     with session.lock:
-        return SessionInfo(id=session.id, view=_view(session))
+        store.save(session, user.id)
+        return _meta(session)
+
+
+@app.post("/session/detach", response_model=SessionInfo)
+def detach_session(session: Session = Depends(current_session)) -> SessionInfo:
+    """Copy the current scenario into a fresh, unowned "<name> (copy)" session.
+
+    Used on sign-out: a saved scenario is unreachable once its owner's token is
+    gone, so the editor keeps a guest copy on the canvas instead of wiping it. The
+    copy is taken from the working copy, so unsaved edits come along; the original
+    is left untouched (the editor reverts it separately)."""
+    copy = store.clone(session.id)
+    with copy.lock:
+        return SessionInfo(id=copy.id, view=_view(copy))
+
+
+@app.post("/session/revert", response_model=SessionMeta)
+def revert_session(session: Session = Depends(current_session)) -> SessionMeta:
+    """Restore the last saved state, discarding unsaved edits. Called when the user
+    leaves a saved scenario without saving.
+
+    No ``require_user``: a saved scenario is always owned, and ``current_session``
+    has already established the caller owns it. 400 if it was never saved — its
+    working copy is then the only copy of that work."""
+    with session.lock:
+        if not store.revert(session):
+            raise HTTPException(
+                status_code=400, detail="This scenario has never been saved."
+            )
+        return _meta(session)
 
 
 @app.delete("/session/{session_id}")

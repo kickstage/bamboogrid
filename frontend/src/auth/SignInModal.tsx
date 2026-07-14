@@ -1,7 +1,5 @@
-// Shown when a guest reaches for something that needs an account (today: "My
-// scenarios"). Rather than hiding the feature until sign-in, we surface it and
-// explain here what signing in buys — and that export/import stays available
-// without an account, so nobody feels cornered into it.
+// Shown when a guest reaches for something that needs an account (My scenarios,
+// Save). The feature stays visible and this explains what signing in buys.
 
 import { Divider, Group, Modal, Stack, Text } from "@mantine/core";
 import { GoogleButton } from "./GoogleSignIn";

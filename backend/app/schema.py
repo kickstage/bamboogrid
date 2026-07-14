@@ -616,17 +616,30 @@ class ForeignElement(BaseModel):
     y: float = 0.0
 
 
-class ViewModel(BaseModel):
-    """What a browser receives for a session: the editable modeled network plus
-    read-only foreign elements. The full pandapower net stays on the server.
+class SessionMeta(BaseModel):
+    """A session's editor state, without the network itself.
 
-    ``can_undo``/``can_redo`` reflect the session's in-memory edit history so the
-    editor can enable its undo/redo controls."""
+    ``can_undo``/``can_redo`` reflect the in-memory edit history. ``dirty`` is
+    whether there are edits since the last save, and ``saved_at`` when that save
+    was (None if never saved). The net is persisted on every edit regardless;
+    leaving without saving is what discards them (see ``revert_session``).
+
+    Returned on its own by the endpoints that change this state but not the net —
+    save, revert, and applying commands the client already has locally."""
+
+    can_undo: bool = False
+    can_redo: bool = False
+    dirty: bool = False
+    saved_at: float | None = None
+
+
+class ViewModel(SessionMeta):
+    """What a browser receives for a session: the editable modeled network plus
+    read-only foreign elements, and the session state above. The full pandapower
+    net stays on the server."""
 
     network: Network
     foreign: list[ForeignElement] = Field(default_factory=list)
-    can_undo: bool = False
-    can_redo: bool = False
 
 
 class SessionInfo(BaseModel):
@@ -664,12 +677,13 @@ class AuthResponse(BaseModel):
 
 
 class GridSummary(BaseModel):
-    """One entry in a signed-in user's saved-grids list. ``updated_at`` is a Unix
-    timestamp (seconds) of the last edit, for sorting/display."""
+    """One entry in a signed-in user's saved-grids list. ``saved_at`` is a Unix
+    timestamp (seconds) of the last *save*, for sorting/display — not of the last
+    edit, since unsaved edits are deliberately not represented in the library."""
 
     id: str
     name: str
-    updated_at: float
+    saved_at: float
 
 
 class RenameRequest(BaseModel):

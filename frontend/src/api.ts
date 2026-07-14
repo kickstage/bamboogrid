@@ -5,6 +5,7 @@ import type {
   LoadFlowResult,
   LoadFlowSettings,
   NetworkSummary,
+  SessionMeta,
   ShortCircuitResult,
   User,
   ViewModel,
@@ -68,12 +69,10 @@ export interface SessionInfo {
 }
 
 // Start a fresh, empty server session and return its id and (empty) projection.
-// Owned by the signed-in user (via the auth header), or a guest session. Pass
-// claim=false to start it unowned even when signed in.
-export async function createSession(claim = true): Promise<SessionInfo> {
-  const q = claim ? "" : "?claim=false";
+// Unowned until saved, signed in or not — saving is what puts it in a library.
+export async function createSession(): Promise<SessionInfo> {
   return json(
-    await fetch(`${BASE}/session${q}`, { method: "POST", headers: authHeader() }),
+    await fetch(`${BASE}/session`, { method: "POST", headers: authHeader() }),
   );
 }
 
@@ -137,12 +136,43 @@ export async function listGrids(): Promise<GridSummary[]> {
   return json(await fetch(`${BASE}/sessions`, { headers: authHeader() }));
 }
 
-// Attach a guest session to the signed-in user so it's saved to their account.
-export async function claimGrid(id: string): Promise<SessionInfo> {
+// Save the scenario: keeps the working copy as its saved state and adds it to the
+// user's library the first time. Flush pending edits first, or they land after the
+// save and re-dirty it. 401 for a guest.
+export async function saveSession(id: string): Promise<SessionMeta> {
   return json(
-    await fetch(`${BASE}/session/${id}/claim`, {
+    await fetch(`${BASE}/session/save`, {
       method: "POST",
-      headers: authHeader(),
+      headers: sessionHeaders(id),
+    }),
+  );
+}
+
+// Copy this scenario into a fresh, unowned "<name> (copy)" session, so it can stay
+// on the canvas after signing out. The original stays in the owner's library.
+export async function detachSession(id: string): Promise<SessionInfo> {
+  return json(
+    await fetch(`${BASE}/session/detach`, {
+      method: "POST",
+      headers: sessionHeaders(id),
+    }),
+  );
+}
+
+// Throw away unsaved edits; the last saved state becomes the working copy again.
+//
+// `keepalive` is for issuing this during page unload, which would otherwise cancel
+// the request; the caller then can't await it. If it fails to land the working copy
+// survives, which is the safe way to fail.
+export async function revertSession(
+  id: string,
+  opts: { keepalive?: boolean } = {},
+): Promise<SessionMeta> {
+  return json(
+    await fetch(`${BASE}/session/revert`, {
+      method: "POST",
+      headers: sessionHeaders(id),
+      keepalive: opts.keepalive,
     }),
   );
 }
@@ -189,18 +219,13 @@ export function fetchStdTypes(
   return stdTypeCache[table];
 }
 
-// The undo/redo availability a mutating call reports back.
-export interface HistoryState {
-  can_undo: boolean;
-  can_redo: boolean;
-}
-
-// Apply a batch of edits to the session's authoritative net; returns the
-// resulting undo/redo availability.
+// Apply a batch of edits to the session's authoritative net; returns the session's
+// resulting editor state (the client already has the net, so no projection comes
+// back).
 export async function sendCommands(
   id: string,
   cmds: Command[],
-): Promise<HistoryState> {
+): Promise<SessionMeta> {
   const res = await fetch(`${BASE}/session/commands`, {
     method: "POST",
     headers: sessionHeaders(id, JSON_HEADERS),
@@ -208,7 +233,7 @@ export async function sendCommands(
   });
   if (res.status === 409) throw new ConflictError(await errorMessage(res));
   if (!res.ok) throw new Error(await errorMessage(res));
-  return res.json() as Promise<HistoryState>;
+  return res.json() as Promise<SessionMeta>;
 }
 
 // Restore the previous net state; returns the new projection to re-hydrate from.

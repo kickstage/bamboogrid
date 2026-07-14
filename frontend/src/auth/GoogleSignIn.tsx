@@ -71,8 +71,7 @@ function loadGsi(): Promise<void> {
 
 // --- components ------------------------------------------------------------
 
-// The official Google button, mounted wherever a sign-in is offered: the header
-// (for a guest) and the "sign in to save" modal. Mount it only while signed out.
+// The official Google button. Mount only while signed out.
 export function GoogleButton({
   size = "medium",
 }: {
@@ -113,8 +112,10 @@ export function GoogleButton({
   return <div ref={buttonRef} />;
 }
 
-export function AuthControls() {
-  const { user, loading, logout } = useAuth();
+// Sign-out also detaches the editor from the scenario, which App owns — so App
+// owns the whole sign-out and this only handles the GIS side of it.
+export function AuthControls({ onSignOut }: { onSignOut: () => void }) {
+  const { user, loading } = useAuth();
 
   if (!authEnabled() || loading) return null;
 
@@ -142,7 +143,7 @@ export function AuthControls() {
             onClick={() => {
               // Stop GIS from silently re-selecting this account next load.
               window.google?.accounts.id.disableAutoSelect();
-              logout();
+              onSignOut();
             }}
           >
             Sign out
