@@ -27,7 +27,8 @@ import { applySavedLoadFlowSettings } from "./study/loadFlowSettings";
 import { SummaryModal } from "./study/SummaryModal";
 import { MobileApp } from "./mobile/MobileApp";
 import { useIsMobile } from "./mobile/useIsMobile";
-import { AuthControls } from "./auth/GoogleSignIn";
+import { authEnabled, AuthControls } from "./auth/GoogleSignIn";
+import { SignInModal } from "./auth/SignInModal";
 import { useAuth } from "./auth/authStore";
 import { DEFAULT_SCENARIO_NAME, useEditor } from "./store";
 import { toast } from "./toast";
@@ -176,6 +177,7 @@ export default function App() {
   const [summaryOpen, setSummaryOpen] = useState(false);
   const [loadFlowSettingsOpen, setLoadFlowSettingsOpen] = useState(false);
   const [gridsOpen, setGridsOpen] = useState(false);
+  const [signInOpen, setSignInOpen] = useState(false);
   // True while the open scenario is unclaimed (not yet in the signed-in user's
   // library); cleared once claimed. Unused for guests.
   const [scenarioUnsaved, setScenarioUnsaved] = useState(false);
@@ -197,9 +199,19 @@ export default function App() {
   const { setColorScheme } = useMantineColorScheme();
   const scheme = useComputedColorScheme("light");
   const isMobile = useIsMobile();
-  // Signed-in users get "My scenarios" in the File menu; guests never see it.
   const { user } = useAuth();
   const nodeCount = useEditor((s) => s.nodes.length);
+
+  // Signing in from the prompt means the user was on their way to "My
+  // scenarios" — take them there instead of dropping them back on the canvas.
+  // Their current work needs no rescuing: it's already pending a claim, which
+  // the effect below performs as soon as `user` lands.
+  useEffect(() => {
+    if (user && signInOpen) {
+      setSignInOpen(false);
+      setGridsOpen(true);
+    }
+  }, [user, signInOpen]);
 
   // Claim an unclaimed scenario into the library once it has any content.
   // claimGrid is idempotent if it's already owned.
@@ -229,6 +241,9 @@ export default function App() {
       {keys}
     </Text>
   );
+
+  // Same treatment, but for a note about why an item is gated rather than a key.
+  const hint = hotkey;
 
   // Desktop menu-bar behaviour: once a menu is open, hovering a sibling button
   // switches to it without an extra click.
@@ -606,9 +621,16 @@ export default function App() {
                 </Button>
               </Menu.Target>
               <Menu.Dropdown>
-                {user && (
+                {authEnabled() && (
                   <>
-                    <Menu.Item onClick={() => setGridsOpen(true)}>
+                    <Menu.Item
+                      onClick={() =>
+                        user ? setGridsOpen(true) : setSignInOpen(true)
+                      }
+                      // Guests see the item too — hiding it left no hint the
+                      // feature exists. The hint says why it's not open yet.
+                      rightSection={user ? undefined : hint("Sign in")}
+                    >
                       My scenarios…
                     </Menu.Item>
                     <Menu.Divider />
@@ -966,6 +988,10 @@ export default function App() {
         onOpen={openGrid}
         onDelete={onDeleteGrid}
         onRename={onRenameGrid}
+      />
+      <SignInModal
+        opened={signInOpen}
+        onClose={() => setSignInOpen(false)}
       />
     </div>
   );

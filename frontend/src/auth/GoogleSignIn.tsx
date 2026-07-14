@@ -69,16 +69,21 @@ function loadGsi(): Promise<void> {
   return gsiPromise;
 }
 
-// --- component -------------------------------------------------------------
+// --- components ------------------------------------------------------------
 
-export function AuthControls() {
-  const { user, loading, login, logout } = useAuth();
+// The official Google button, mounted wherever a sign-in is offered: the header
+// (for a guest) and the "sign in to save" modal. Mount it only while signed out.
+export function GoogleButton({
+  size = "medium",
+}: {
+  size?: "medium" | "large";
+}) {
+  const login = useAuth((s) => s.login);
   const buttonRef = useRef<HTMLDivElement>(null);
   const scheme = useComputedColorScheme("light");
 
-  // Render the GIS button while signed out. Re-runs if the user or theme changes.
   useEffect(() => {
-    if (!authEnabled() || user || loading) return;
+    if (!authEnabled()) return;
     let cancelled = false;
     loadGsi()
       .then(() => {
@@ -93,7 +98,7 @@ export function AuthControls() {
         });
         window.google.accounts.id.renderButton(buttonRef.current, {
           theme: scheme === "dark" ? "filled_black" : "outline",
-          size: "medium",
+          size,
           type: "standard",
           text: "signin",
           shape: "pill",
@@ -103,7 +108,13 @@ export function AuthControls() {
     return () => {
       cancelled = true;
     };
-  }, [user, loading, scheme, login]);
+  }, [scheme, size, login]);
+
+  return <div ref={buttonRef} />;
+}
+
+export function AuthControls() {
+  const { user, loading, logout } = useAuth();
 
   if (!authEnabled() || loading) return null;
 
@@ -141,6 +152,5 @@ export function AuthControls() {
     );
   }
 
-  // Guest: the GIS button mounts here.
-  return <div ref={buttonRef} />;
+  return <GoogleButton />;
 }
