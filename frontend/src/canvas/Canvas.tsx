@@ -195,7 +195,13 @@ export function Canvas() {
   // After a network is loaded (import / open), bring it into view.
   useEffect(() => {
     if (!fitSignal) return;
-    const t = setTimeout(() => fitView({ padding: 0.2, duration: 300 }), 60);
+    // Cap the zoom so a near-empty canvas (e.g. a single freshly placed bus)
+    // settles at a natural size with room to add more, instead of filling the
+    // whole viewport. A full network zooms out to fit, well below this cap.
+    const t = setTimeout(
+      () => fitView({ padding: 0.2, duration: 300, maxZoom: 1.2 }),
+      60,
+    );
     return () => clearTimeout(t);
   }, [fitSignal, fitView]);
 
