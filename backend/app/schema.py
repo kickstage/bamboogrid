@@ -16,6 +16,10 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+# Placeholder name a scenario carries until the user names it (mirrored on the
+# frontend as DEFAULT_SCENARIO_NAME).
+DEFAULT_SCENARIO_NAME = "Untitled scenario"
+
 
 class Point(BaseModel):
     x: float
@@ -367,7 +371,7 @@ class Line(BaseModel):
 
 class Network(BaseModel):
     id: str
-    name: str = "Untitled network"
+    name: str = DEFAULT_SCENARIO_NAME
     # System frequency and per-unit base — preserved from an imported net so line
     # charging (∝ f) and reported per-unit values match the source exactly.
     f_hz: float = Field(default=50.0, gt=0, description="System frequency [Hz]")
@@ -612,22 +616,80 @@ class ForeignElement(BaseModel):
     y: float = 0.0
 
 
-class ViewModel(BaseModel):
-    """What a browser receives for a session: the editable modeled network plus
-    read-only foreign elements. The full pandapower net stays on the server.
+class SessionMeta(BaseModel):
+    """A session's editor state, without the network itself.
 
-    ``can_undo``/``can_redo`` reflect the session's in-memory edit history so the
-    editor can enable its undo/redo controls."""
+    ``can_undo``/``can_redo`` reflect the in-memory edit history. ``dirty`` is
+    whether there are edits since the last save, and ``saved_at`` when that save
+    was (None if never saved). The net is persisted on every edit regardless;
+    leaving without saving is what discards them (see ``revert_session``).
+
+    Returned on its own by the endpoints that change this state but not the net —
+    save, revert, and applying commands the client already has locally."""
+
+    can_undo: bool = False
+    can_redo: bool = False
+    dirty: bool = False
+    saved_at: float | None = None
+
+
+class ViewModel(SessionMeta):
+    """What a browser receives for a session: the editable modeled network plus
+    read-only foreign elements, and the session state above. The full pandapower
+    net stays on the server."""
 
     network: Network
     foreign: list[ForeignElement] = Field(default_factory=list)
-    can_undo: bool = False
-    can_redo: bool = False
 
 
 class SessionInfo(BaseModel):
     id: str
     view: ViewModel
+
+
+# --- Authentication --------------------------------------------------------
+
+
+class User(BaseModel):
+    """A signed-in account. ``id`` is Google's stable ``sub`` claim (unique per
+    Google account, consistent across OAuth clients/projects). A guest has no
+    ``User`` at all — see ``auth.current_user``."""
+
+    id: str
+    email: str = ""
+    name: str | None = None
+
+
+class GoogleAuthRequest(BaseModel):
+    """The Google Identity Services credential (an ID token JWT) the browser gets
+    from the sign-in button and posts to ``/auth/google`` to exchange for an app
+    token."""
+
+    credential: str
+
+
+class AuthResponse(BaseModel):
+    """The result of a successful sign-in: our own signed app token (sent back as
+    ``Authorization: Bearer`` on later requests) and the resolved user."""
+
+    token: str
+    user: User
+
+
+class GridSummary(BaseModel):
+    """One entry in a signed-in user's saved-grids list. ``saved_at`` is a Unix
+    timestamp (seconds) of the last *save*, for sorting/display — not of the last
+    edit, since unsaved edits are deliberately not represented in the library."""
+
+    id: str
+    name: str
+    saved_at: float
+
+
+class RenameRequest(BaseModel):
+    """A new display name for a session's network."""
+
+    name: str
 
 
 # --- Commands (browser -> server edits applied to the authoritative net) ----

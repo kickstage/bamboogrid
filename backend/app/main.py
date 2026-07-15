@@ -8,28 +8,44 @@ editor doesn't model still influence the result.
 
 from __future__ import annotations
 
+import json
 import os
+from pathlib import Path
 
 import anyio
 import pandapower as pp
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
 
+from .auth import (
+    auth_configured,
+    current_user,
+    mint_app_token,
+    require_user,
+    verify_google_credential,
+)
 from .commands import CommandError, apply_commands
 from .ppjson import MAX_IMPORT_BUSES, MAX_IMPORT_BYTES, std_trafo_types
 from .scenarios import build_scenario, list_scenarios
 from .projection import net_to_view
 from .safe_import import UnsafeImportError, validate_import_json
 from .schema import (
+    DEFAULT_SCENARIO_NAME,
+    AuthResponse,
     Command,
+    GoogleAuthRequest,
+    GridSummary,
     LoadFlowResult,
     LoadFlowSettings,
     NetworkSummary,
+    RenameRequest,
     SessionInfo,
+    SessionMeta,
     ShortCircuitResult,
+    User,
     ViewModel,
 )
 from .sc import run_shortcircuit
@@ -71,27 +87,69 @@ app.add_middleware(
 )
 
 
-def current_session(x_session_id: str = Header(..., alias="X-Session-Id")) -> Session:
+def current_session(
+    x_session_id: str = Header(..., alias="X-Session-Id"),
+    user: User | None = Depends(current_user),
+) -> Session:
     """Resolve the session from the ``X-Session-Id`` header (its bearer token).
 
-    The id is held by the browser, not embedded in each URL."""
+    The id is held by the browser, not embedded in each URL.
+
+    A guest (unowned) session stays open to any holder of its id — the id *is* the
+    capability, unchanged from before sign-in. An *owned* session requires the
+    matching signed-in user; anyone else is refused (404, not 403, so an owned id
+    is indistinguishable from a non-existent one)."""
     try:
-        return store.get(x_session_id)
+        session = store.get(x_session_id)
     except KeyError:
         raise HTTPException(status_code=404, detail="Session not found.")
+    if session.owner_id is not None and (user is None or user.id != session.owner_id):
+        raise HTTPException(status_code=404, detail="Session not found.")
+    return session
+
+
+def _meta(session: Session) -> SessionMeta:
+    """A session's editor state: undo/redo availability and unsaved-changes."""
+    return SessionMeta(
+        can_undo=session.history.can_undo,
+        can_redo=session.history.can_redo,
+        dirty=session.dirty,
+        saved_at=session.saved_at,
+    )
 
 
 def _view(session: Session) -> ViewModel:
-    """The session projection stamped with its current undo/redo availability."""
+    """The session projection, stamped with its editor state."""
     view = net_to_view(session.net)
-    view.can_undo = session.history.can_undo
-    view.can_redo = session.history.can_redo
+    for field, value in _meta(session):
+        setattr(view, field, value)
     return view
 
 
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.post("/auth/google", response_model=AuthResponse)
+def auth_google(body: GoogleAuthRequest) -> AuthResponse:
+    """Exchange a Google Identity Services credential for an app token. Verifies
+    the Google ID token, records the user, and returns our own signed token for
+    subsequent requests. 503 if sign-in isn't configured on this server."""
+    if not auth_configured():
+        raise HTTPException(
+            status_code=503, detail="Sign-in is not configured on this server."
+        )
+    user = verify_google_credential(body.credential)
+    store.upsert_user(user.id, user.email, user.name)
+    return AuthResponse(token=mint_app_token(user), user=user)
+
+
+@app.get("/me", response_model=User)
+def me(user: User = Depends(require_user)) -> User:
+    """The currently signed-in user (401 for a guest). Lets the client rehydrate
+    its auth state on load from a stored app token."""
+    return user
 
 
 @app.get("/std-types/{table}")
@@ -106,7 +164,10 @@ def get_std_types(table: str) -> dict[str, dict[str, float | str]]:
 
 @app.post("/session", response_model=SessionInfo)
 def create_session() -> SessionInfo:
-    """Start an empty session and return its id plus the (empty) projection."""
+    """Start an empty session and return its id plus the (empty) projection.
+
+    Unowned until saved: saving is what adds a scenario to a library (see
+    ``save_session``), so a scratch session you never save never lands there."""
     session = store.create()
     with session.lock:
         return SessionInfo(id=session.id, view=_view(session))
@@ -150,10 +211,21 @@ def get_session(session: Session = Depends(current_session)) -> ViewModel:
         return _view(session)
 
 
-@app.post("/session/commands")
+@app.put("/session/name", response_model=ViewModel)
+def rename_session(
+    body: RenameRequest, session: Session = Depends(current_session)
+) -> ViewModel:
+    """Rename the session's network. Ownership is enforced by current_session."""
+    name = body.name.strip() or DEFAULT_SCENARIO_NAME
+    with session.lock:
+        store.rename(session, name)
+        return _view(session)
+
+
+@app.post("/session/commands", response_model=SessionMeta)
 def post_commands(
     commands: list[Command], session: Session = Depends(current_session)
-) -> dict[str, bool]:
+) -> SessionMeta:
     """Apply a batch of edits to the session's authoritative net, recording the
     new state as one undo step."""
     with session.lock:
@@ -165,11 +237,7 @@ def post_commands(
             except CommandError as exc:
                 raise HTTPException(status_code=400, detail=str(exc))
             store.record(session)
-            return {
-                "ok": True,
-                "can_undo": session.history.can_undo,
-                "can_redo": session.history.can_redo,
-            }
+            return _meta(session)
 
 
 @app.post("/session/undo", response_model=ViewModel)
@@ -199,7 +267,8 @@ def share_session(session: Session = Depends(current_session)) -> dict[str, str]
 
 @app.post("/share/{token}", response_model=SessionInfo)
 def open_share(token: str) -> SessionInfo:
-    """Clone the shared session into a fresh, independent session."""
+    """Clone the shared session into a fresh, independent session. The copy opens
+    as an unsaved working copy; saving it is what adds it to the opener's library."""
     with tracer.start_as_current_span("share.open"):
         try:
             session = store.clone_from_share(token)
@@ -209,6 +278,71 @@ def open_share(token: str) -> SessionInfo:
             )
         with session.lock:
             return SessionInfo(id=session.id, view=_view(session))
+
+
+@app.get("/sessions", response_model=list[GridSummary])
+def list_sessions(user: User = Depends(require_user)) -> list[GridSummary]:
+    """The signed-in user's saved grids, newest first (401 for a guest)."""
+    return [GridSummary(**g) for g in store.list_for_owner(user.id)]
+
+
+@app.post("/session/save", response_model=SessionMeta)
+def save_session(
+    session: Session = Depends(current_session), user: User = Depends(require_user)
+) -> SessionMeta:
+    """Save the scenario: keep the working copy as its saved state and add it to
+    the user's library the first time (401 for a guest).
+
+    ``current_session`` has already refused a session owned by somebody else, so
+    what's left is either theirs or unowned — both are theirs to save."""
+    with session.lock:
+        store.save(session, user.id)
+        return _meta(session)
+
+
+@app.post("/session/detach", response_model=SessionInfo)
+def detach_session(session: Session = Depends(current_session)) -> SessionInfo:
+    """Copy the current scenario into a fresh, unowned "<name> (copy)" session.
+
+    Used on sign-out: a saved scenario is unreachable once its owner's token is
+    gone, so the editor keeps a guest copy on the canvas instead of wiping it. The
+    copy is taken from the working copy, so unsaved edits come along; the original
+    is left untouched (the editor reverts it separately)."""
+    copy = store.clone(session.id)
+    with copy.lock:
+        return SessionInfo(id=copy.id, view=_view(copy))
+
+
+@app.post("/session/revert", response_model=SessionMeta)
+def revert_session(session: Session = Depends(current_session)) -> SessionMeta:
+    """Restore the last saved state, discarding unsaved edits. Called when the user
+    leaves a saved scenario without saving.
+
+    No ``require_user``: a saved scenario is always owned, and ``current_session``
+    has already established the caller owns it. 400 if it was never saved — its
+    working copy is then the only copy of that work."""
+    with session.lock:
+        if not store.revert(session):
+            raise HTTPException(
+                status_code=400, detail="This scenario has never been saved."
+            )
+        return _meta(session)
+
+
+@app.delete("/session/{session_id}")
+def delete_session(
+    session_id: str, user: User = Depends(require_user)
+) -> dict[str, bool]:
+    """Delete one of the signed-in user's grids. 404 if it isn't theirs (an owned
+    id is not distinguishable from a missing one)."""
+    try:
+        session = store.get(session_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Session not found.")
+    if session.owner_id != user.id:
+        raise HTTPException(status_code=404, detail="Session not found.")
+    store.delete(session_id)
+    return {"ok": True}
 
 
 @app.post("/session/run-loadflow", response_model=LoadFlowResult)
@@ -372,4 +506,24 @@ def export_pandapower(session: Session = Depends(current_session)) -> Response:
 # above win; skipped in dev when the build dir is absent.
 _STATIC_DIR = os.getenv("STATIC_DIR", "/app/static")
 if os.path.isdir(_STATIC_DIR):
+    # Cache the index.html contents once at startup — it never changes between
+    # requests, and we inject a small runtime config block into it so the
+    # frontend can read GOOGLE_CLIENT_ID without it being baked into the bundle.
+    _index_html_path = Path(_STATIC_DIR) / "index.html"
+    _index_html_template: str = _index_html_path.read_text(encoding="utf-8")
+
+    @app.get("/", include_in_schema=False)
+    def serve_index() -> HTMLResponse:
+        """Serve index.html with a runtime config block injected before </head>.
+
+        This lets the frontend read GOOGLE_CLIENT_ID at runtime instead of
+        requiring it to be baked in at Docker build time, so the published image
+        is config-neutral and self-hosters supply their own credentials."""
+        config_json = json.dumps(
+            {"googleClientId": os.getenv("GOOGLE_CLIENT_ID") or None}
+        )
+        script = f"<script>window.__BAMBOOGRID_CONFIG__={config_json};</script>"
+        html = _index_html_template.replace("</head>", f"{script}\n</head>", 1)
+        return HTMLResponse(content=html)
+
     app.mount("/", StaticFiles(directory=_STATIC_DIR, html=True), name="static")
