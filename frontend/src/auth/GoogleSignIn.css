@@ -1,0 +1,11 @@
+/*
+ * Google's GIS SDK injects a wrapper div with a hard-coded white background.
+ * The button iframe uses negative margins so those overflow gaps expose that
+ * white background in dark mode. Target Google's injected divs by their DOM
+ * position relative to our stable mount class — not by Google's obfuscated
+ * class names, which can change.
+ */
+.gsi-button-mount > div,
+.gsi-button-mount > div > div {
+  background-color: var(--mantine-color-body) !important;
+}
