@@ -240,13 +240,23 @@ export default function App() {
   // Unsaved edits, or a never-saved scenario with something in it (a freshly
   // opened example is untouched but still in no library).
   const canSave = dirty || (savedAt === null && nodeCount > 0);
-  const unsaved = !canSave ? undefined : savedAt === null ? "never" : "changes";
+  // No sign-in configured means no library to save into, so don't flag a save
+  // state the user has no way to act on.
+  const unsaved =
+    !authEnabled() || !canSave
+      ? undefined
+      : savedAt === null
+        ? "never"
+        : "changes";
 
   // Save into the user's library; a guest is prompted to sign in first, and the
   // save then runs itself (pendingSaveRef).
   const onSave = async () => {
     const id = useEditor.getState().sessionId;
     if (!id) return;
+    // With no sign-in configured, saving to a library isn't available — Cmd+S
+    // should do nothing rather than open a sign-in modal that has no button.
+    if (!authEnabled()) return;
     if (!user) {
       pendingSaveRef.current = true;
       setSignInOpen(true);
@@ -783,14 +793,18 @@ export default function App() {
                     <Menu.Divider />
                   </>
                 )}
-                <Menu.Item
-                  onClick={onSave}
-                  disabled={busy || saving || !canSave}
-                  rightSection={hotkey(SAVE_HINT)}
-                >
-                  Save
-                </Menu.Item>
-                <Menu.Divider />
+                {authEnabled() && (
+                  <>
+                    <Menu.Item
+                      onClick={onSave}
+                      disabled={busy || saving || !canSave}
+                      rightSection={hotkey(SAVE_HINT)}
+                    >
+                      Save
+                    </Menu.Item>
+                    <Menu.Divider />
+                  </>
+                )}
                 <Menu.Item onClick={onReset} disabled={busy}>
                   New scenario
                 </Menu.Item>
