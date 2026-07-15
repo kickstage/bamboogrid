@@ -69,7 +69,7 @@ export function ToolWindow({
           aria-label={isDetached ? "Dock into app" : "Pop out to a window"}
           title={isDetached ? "Dock back into the app" : "Pop out to a window"}
         >
-          {isDetached ? "⤓" : "⧉"}
+          {isDetached ? "↙" : "↗"}
         </ActionIcon>
         <ActionIcon
           variant="subtle"

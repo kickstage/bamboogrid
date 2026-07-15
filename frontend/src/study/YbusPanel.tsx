@@ -1,11 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  ActionIcon,
-  Center,
-  Loader,
-  SegmentedControl,
-  Text,
-} from "@mantine/core";
+import { Center, Loader, SegmentedControl, Text } from "@mantine/core";
 
 import { fetchYbus } from "../api";
 import { fixed } from "../format";
@@ -238,20 +232,6 @@ export function YbusPanel() {
     );
   };
 
-  const refresh = (
-    <ActionIcon
-      variant="subtle"
-      color="gray"
-      size="sm"
-      onClick={() => load()}
-      loading={loading}
-      aria-label="Refresh matrix"
-      title="Rebuild from the current network"
-    >
-      ↻
-    </ActionIcon>
-  );
-
   return (
     <ToolWindow
       title="Admittance matrix"
@@ -259,7 +239,6 @@ export function YbusPanel() {
       onClose={() => setYbusOpen(false)}
       width={width}
       height={height}
-      headerActions={refresh}
     >
       <>
         <SegmentedControl
