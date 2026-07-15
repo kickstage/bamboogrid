@@ -8,7 +8,7 @@
 // wired to a bus (it lives only in the browser until then).
 
 import { ConflictError, sendCommands } from "./api";
-import type { Command } from "./types";
+import type { Command, SessionMeta } from "./types";
 
 export const serverIds = new Set<string>();
 
@@ -16,25 +16,31 @@ let queue: Command[] = [];
 let timer: ReturnType<typeof setTimeout> | undefined;
 let sessionId: () => string | null = () => null;
 let onError: (message: string) => void = () => {};
-let onHistory: (canUndo: boolean, canRedo: boolean) => void = () => {};
+let onMeta: (meta: SessionMeta) => void = () => {};
 let onConflict: () => void = () => {};
+let onDirty: () => void = () => {};
 
 export function configureSync(opts: {
   sessionId: () => string | null;
   onError: (message: string) => void;
-  // Called after each flush with the session's resulting undo/redo availability.
-  onHistory: (canUndo: boolean, canRedo: boolean) => void;
+  // Called after each flush with the session's resulting editor state.
+  onMeta: (meta: SessionMeta) => void;
   // Called when the server rejected a flush as stale (HTTP 409): resync.
   onConflict: () => void;
+  // Called as an edit is queued, so the scenario is marked unsaved without
+  // waiting for the flush to confirm it.
+  onDirty: () => void;
 }): void {
   sessionId = opts.sessionId;
   onError = opts.onError;
-  onHistory = opts.onHistory;
+  onMeta = opts.onMeta;
   onConflict = opts.onConflict;
+  onDirty = opts.onDirty;
 }
 
 export function enqueue(cmd: Command): void {
   if (!sessionId()) return;
+  onDirty();
   queue.push(cmd);
   clearTimeout(timer);
   timer = setTimeout(() => {
@@ -52,8 +58,7 @@ export async function flushPending(): Promise<void> {
   const batch = queue;
   queue = [];
   try {
-    const { can_undo, can_redo } = await sendCommands(id, batch);
-    onHistory(can_undo, can_redo);
+    onMeta(await sendCommands(id, batch));
   } catch (err) {
     if (err instanceof ConflictError) {
       onConflict();
@@ -61,6 +66,14 @@ export async function flushPending(): Promise<void> {
     }
     onError(`Sync failed: ${(err as Error).message}`);
   }
+}
+
+// Throw queued edits away unsent — when they'd be rejected (the session is about
+// to become unreachable) or undone (a discard is reverting them anyway).
+export function dropPending(): void {
+  clearTimeout(timer);
+  timer = undefined;
+  queue = [];
 }
 
 export function resetServerIds(ids: Iterable<string>): void {

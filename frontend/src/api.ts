@@ -1,9 +1,13 @@
 import type {
+  AuthResponse,
   Command,
+  GridSummary,
   LoadFlowResult,
   LoadFlowSettings,
   NetworkSummary,
+  SessionMeta,
   ShortCircuitResult,
+  User,
   ViewModel,
   YbusResult,
 } from "./types";
@@ -36,19 +40,51 @@ async function json<T>(res: Response): Promise<T> {
 const SESSION_HEADER = "X-Session-Id";
 const JSON_HEADERS = { "Content-Type": "application/json" };
 
+// The signed-in user's app token, mirrored here from the auth store so every
+// request can carry it (see setAuthToken). null while a guest — the backend then
+// treats the request as a guest, which is a valid state.
+let authToken: string | null = null;
+
+// Set (or clear) the app token sent as `Authorization: Bearer` on all requests.
+// Called by the auth store whenever the token changes so callers don't thread it.
+export function setAuthToken(token: string | null): void {
+  authToken = token;
+}
+
+function authHeader(): Record<string, string> {
+  return authToken ? { Authorization: `Bearer ${authToken}` } : {};
+}
+
+// Headers for a session-scoped request: the session id, the auth token if signed
+// in, plus any extras (e.g. JSON content-type).
+function sessionHeaders(
+  id: string,
+  extra?: Record<string, string>,
+): Record<string, string> {
+  return { [SESSION_HEADER]: id, ...authHeader(), ...extra };
+}
+
 export interface SessionInfo {
   id: string;
   view: ViewModel;
 }
 
 // Start a fresh, empty server session and return its id and (empty) projection.
+// Unowned until saved, signed in or not — saving is what puts it in a library.
 export async function createSession(): Promise<SessionInfo> {
-  return json(await fetch(`${BASE}/session`, { method: "POST" }));
+  return json(
+    await fetch(`${BASE}/session`, { method: "POST", headers: authHeader() }),
+  );
 }
 
 // Start a session pre-loaded with the IEEE 14-bus network (mobile demo default).
 export async function createDemoSession(): Promise<SessionInfo> {
-  return json(await fetch(`${BASE}/session/demo`, { method: "POST" }));
+  return json(
+    await fetch(`${BASE}/session/demo`, {
+      method: "POST",
+      headers: authHeader(),
+    }),
+  );
 }
 
 // A built-in pandapower example network offered under File ▸ Open example.
@@ -64,12 +100,102 @@ export async function fetchScenarios(): Promise<Scenario[]> {
 
 // Start a session from a built-in example network, generated on demand.
 export async function createScenarioSession(id: string): Promise<SessionInfo> {
-  return json(await fetch(`${BASE}/session/scenario/${id}`, { method: "POST" }));
+  return json(
+    await fetch(`${BASE}/session/scenario/${id}`, {
+      method: "POST",
+      headers: authHeader(),
+    }),
+  );
 }
 
 // Fetch the current projection for a session (used to (re)hydrate the editor).
 export async function getView(id: string): Promise<ViewModel> {
-  return json(await fetch(`${BASE}/session`, { headers: { [SESSION_HEADER]: id } }));
+  return json(await fetch(`${BASE}/session`, { headers: sessionHeaders(id) }));
+}
+
+// --- Authentication --------------------------------------------------------
+
+// Exchange a Google Identity Services credential for our app token + user.
+export async function googleLogin(credential: string): Promise<AuthResponse> {
+  return json(
+    await fetch(`${BASE}/auth/google`, {
+      method: "POST",
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ credential }),
+    }),
+  );
+}
+
+// The user for the current app token (used to rehydrate auth state on load).
+// Throws if the token is missing/expired — callers fall back to guest.
+export async function fetchMe(): Promise<User> {
+  return json(await fetch(`${BASE}/me`, { headers: authHeader() }));
+}
+
+// The signed-in user's saved grids, newest first
+export async function listGrids(): Promise<GridSummary[]> {
+  return json(await fetch(`${BASE}/sessions`, { headers: authHeader() }));
+}
+
+// Save the scenario: keeps the working copy as its saved state and adds it to the
+// user's library the first time. Flush pending edits first, or they land after the
+// save and re-dirty it. 401 for a guest.
+export async function saveSession(id: string): Promise<SessionMeta> {
+  return json(
+    await fetch(`${BASE}/session/save`, {
+      method: "POST",
+      headers: sessionHeaders(id),
+    }),
+  );
+}
+
+// Copy this scenario into a fresh, unowned "<name> (copy)" session, so it can stay
+// on the canvas after signing out. The original stays in the owner's library.
+export async function detachSession(id: string): Promise<SessionInfo> {
+  return json(
+    await fetch(`${BASE}/session/detach`, {
+      method: "POST",
+      headers: sessionHeaders(id),
+    }),
+  );
+}
+
+// Throw away unsaved edits; the last saved state becomes the working copy again.
+//
+// `keepalive` is for issuing this during page unload, which would otherwise cancel
+// the request; the caller then can't await it. If it fails to land the working copy
+// survives, which is the safe way to fail.
+export async function revertSession(
+  id: string,
+  opts: { keepalive?: boolean } = {},
+): Promise<SessionMeta> {
+  return json(
+    await fetch(`${BASE}/session/revert`, {
+      method: "POST",
+      headers: sessionHeaders(id),
+      keepalive: opts.keepalive,
+    }),
+  );
+}
+
+// Delete one of the signed-in user's grids.
+export async function deleteGrid(id: string): Promise<void> {
+  const res = await fetch(`${BASE}/session/${id}`, {
+    method: "DELETE",
+    headers: authHeader(),
+  });
+  if (!res.ok) throw new Error(await errorMessage(res));
+}
+
+// Rename a session's network; returns the updated projection.
+export async function renameGrid(id: string, name: string): Promise<ViewModel> {
+  return json(
+    await fetch(`${BASE}/session/name`, {
+      method: "PUT",
+      headers: sessionHeaders(id, JSON_HEADERS),
+      body: JSON.stringify({ name }),
+    }),
+  );
 }
 
 // The library transformer types keyed by name → their editable parameter set.
@@ -77,11 +203,15 @@ export async function getView(id: string): Promise<ViewModel> {
 // (tap_side, tap_changer_type).
 export type StdTrafoTypes = Record<string, Record<string, number | string>>;
 
-const stdTypeCache: Partial<Record<"trafo" | "trafo3w", Promise<StdTrafoTypes>>> = {};
+const stdTypeCache: Partial<
+  Record<"trafo" | "trafo3w", Promise<StdTrafoTypes>>
+> = {};
 
 // Fetch (once, cached) pandapower's std transformer catalog, so the inspector can
 // expand a chosen std_type into editable params. Session-independent static data.
-export function fetchStdTypes(table: "trafo" | "trafo3w"): Promise<StdTrafoTypes> {
+export function fetchStdTypes(
+  table: "trafo" | "trafo3w",
+): Promise<StdTrafoTypes> {
   if (!stdTypeCache[table]) {
     stdTypeCache[table] = fetch(`${BASE}/std-types/${table}`).then((r) =>
       json<StdTrafoTypes>(r),
@@ -90,26 +220,21 @@ export function fetchStdTypes(table: "trafo" | "trafo3w"): Promise<StdTrafoTypes
   return stdTypeCache[table];
 }
 
-// The undo/redo availability a mutating call reports back.
-export interface HistoryState {
-  can_undo: boolean;
-  can_redo: boolean;
-}
-
-// Apply a batch of edits to the session's authoritative net; returns the
-// resulting undo/redo availability.
+// Apply a batch of edits to the session's authoritative net; returns the session's
+// resulting editor state (the client already has the net, so no projection comes
+// back).
 export async function sendCommands(
   id: string,
   cmds: Command[],
-): Promise<HistoryState> {
+): Promise<SessionMeta> {
   const res = await fetch(`${BASE}/session/commands`, {
     method: "POST",
-    headers: { ...JSON_HEADERS, [SESSION_HEADER]: id },
+    headers: sessionHeaders(id, JSON_HEADERS),
     body: JSON.stringify(cmds),
   });
   if (res.status === 409) throw new ConflictError(await errorMessage(res));
   if (!res.ok) throw new Error(await errorMessage(res));
-  return res.json() as Promise<HistoryState>;
+  return res.json() as Promise<SessionMeta>;
 }
 
 // Restore the previous net state; returns the new projection to re-hydrate from.
@@ -117,7 +242,7 @@ export async function undo(id: string): Promise<ViewModel> {
   return json(
     await fetch(`${BASE}/session/undo`, {
       method: "POST",
-      headers: { [SESSION_HEADER]: id },
+      headers: sessionHeaders(id),
     }),
   );
 }
@@ -127,7 +252,7 @@ export async function redo(id: string): Promise<ViewModel> {
   return json(
     await fetch(`${BASE}/session/redo`, {
       method: "POST",
-      headers: { [SESSION_HEADER]: id },
+      headers: sessionHeaders(id),
     }),
   );
 }
@@ -137,15 +262,21 @@ export async function shareSession(id: string): Promise<string> {
   const res = await json<{ token: string }>(
     await fetch(`${BASE}/session/share`, {
       method: "POST",
-      headers: { [SESSION_HEADER]: id },
+      headers: sessionHeaders(id),
     }),
   );
   return res.token;
 }
 
-// Open a share token: clones the shared session and returns the new copy.
+// Open a share token: clones the shared session and returns the new copy. The
+// copy is owned by the opener if signed in (via the auth header).
 export async function openShare(token: string): Promise<SessionInfo> {
-  return json(await fetch(`${BASE}/share/${token}`, { method: "POST" }));
+  return json(
+    await fetch(`${BASE}/share/${token}`, {
+      method: "POST",
+      headers: authHeader(),
+    }),
+  );
 }
 
 // A load flow that hasn't answered within this budget is abandoned. The solve
@@ -161,7 +292,7 @@ export async function runLoadFlow(id: string): Promise<LoadFlowResult> {
   try {
     res = await fetch(`${BASE}/session/run-loadflow`, {
       method: "POST",
-      headers: { [SESSION_HEADER]: id },
+      headers: sessionHeaders(id),
       signal: AbortSignal.timeout(LOAD_FLOW_TIMEOUT_MS),
     });
   } catch (err) {
@@ -180,7 +311,7 @@ export async function runShortCircuit(id: string): Promise<ShortCircuitResult> {
   return json(
     await fetch(`${BASE}/session/run-shortcircuit`, {
       method: "POST",
-      headers: { [SESSION_HEADER]: id },
+      headers: sessionHeaders(id),
     }),
   );
 }
@@ -191,7 +322,7 @@ export async function getLoadFlowSettings(
 ): Promise<LoadFlowSettings> {
   return json(
     await fetch(`${BASE}/session/loadflow-settings`, {
-      headers: { [SESSION_HEADER]: id },
+      headers: sessionHeaders(id),
     }),
   );
 }
@@ -204,7 +335,7 @@ export async function updateLoadFlowSettings(
   return json(
     await fetch(`${BASE}/session/loadflow-settings`, {
       method: "PUT",
-      headers: { [SESSION_HEADER]: id, ...JSON_HEADERS },
+      headers: sessionHeaders(id, JSON_HEADERS),
       body: JSON.stringify(settings),
     }),
   );
@@ -216,7 +347,7 @@ export async function networkSummary(id: string): Promise<NetworkSummary> {
   return json(
     await fetch(`${BASE}/session/summary`, {
       method: "POST",
-      headers: { [SESSION_HEADER]: id },
+      headers: sessionHeaders(id),
     }),
   );
 }
@@ -241,7 +372,7 @@ export async function importPandapower(
   return json(
     await fetch(`${BASE}/session/import`, {
       method: "POST",
-      headers: { ...JSON_HEADERS, [SESSION_HEADER]: id },
+      headers: sessionHeaders(id, JSON_HEADERS),
       body: jsonText,
     }),
   );
@@ -250,7 +381,7 @@ export async function importPandapower(
 // Serialize the retained net to a single pandapower JSON for download.
 export async function exportPandapower(id: string): Promise<string> {
   const res = await fetch(`${BASE}/session/export`, {
-    headers: { [SESSION_HEADER]: id },
+    headers: sessionHeaders(id),
   });
   if (!res.ok) throw new Error(await errorMessage(res));
   return res.text();

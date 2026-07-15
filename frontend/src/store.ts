@@ -39,6 +39,7 @@ import type {
   Trafo2WParams,
   Trafo3WData,
   Trafo3WParams,
+  SessionMeta,
   ViewModel,
   VoltageUnit,
   XwardData,
@@ -46,6 +47,14 @@ import type {
 
 // Which study the canvas visualizes: load-flow voltage or short-circuit current.
 export type StudyMode = "loadflow" | "shortcircuit";
+
+// Leaving now would discard real work: there are unsaved edits *and* a saved state
+// they'd be thrown away in favour of. A never-saved scenario keeps its working
+// copy, so it has nothing to warn about — see App's leave/unload guards.
+export const willDiscard = (s: {
+  dirty: boolean;
+  savedAt: number | null;
+}): boolean => s.dirty && s.savedAt !== null;
 
 const VOLTAGE_UNIT_KEY = "bamboogrid:voltageUnit";
 
@@ -94,6 +103,10 @@ function handleToEnd(handle: string | null | undefined): string {
 
 export const DEFAULT_TRAFO_STD = "0.25 MVA 20/0.4 kV";
 export const DEFAULT_TRAFO3W_STD = "63/25/38 MVA 110/20/10 kV";
+
+// Placeholder name a scenario carries until the user names it (mirrors the
+// backend's DEFAULT_SCENARIO_NAME).
+export const DEFAULT_SCENARIO_NAME = "Untitled scenario";
 
 // A freshly drawn line: a 1 km 110 kV overhead line (our default level). Users
 // tune it in the inspector; the explicit params (not a std_type) are what the
@@ -301,6 +314,15 @@ interface EditorState {
   // Bumped whenever the authoritative server net changes (a flush sent commands,
   // or the whole net was replaced). Study panels watch it to refresh live.
   netRevision: number;
+  // Whether there are edits since the last save, and when that save was. The edits
+  // reach the server either way; leaving without saving is what discards them.
+  dirty: boolean;
+  savedAt: number | null;
+  // Every server response carries the session's undo/dirty state — take it from
+  // there rather than tracking it twice.
+  applyViewMeta: (meta: SessionMeta) => void;
+  // Set as an edit is queued, so a tab closed before the next flush still warns.
+  markDirty: () => void;
 
   onNodesChange: (changes: NodeChange[]) => void;
   onEdgesChange: (changes: EdgeChange[]) => void;
@@ -377,7 +399,6 @@ interface EditorState {
   // Bind this editor to a server session and hydrate it from a projection.
   attachSession: (id: string, view: ViewModel) => Promise<void>;
   // Update the undo/redo availability (driven by server responses).
-  setHistory: (canUndo: boolean, canRedo: boolean) => void;
   // Revert/replay one edit step on the server, re-hydrating the projection.
   undo: () => Promise<void>;
   redo: () => Promise<void>;
@@ -672,7 +693,7 @@ function foreignNode(f: ForeignElement): ElementNode {
 }
 
 export const useEditor = create<EditorState>((set, get) => ({
-  networkName: "Untitled network",
+  networkName: DEFAULT_SCENARIO_NAME,
   f_hz: 50.0,
   sn_mva: 1.0,
   nodes: [],
@@ -696,6 +717,20 @@ export const useEditor = create<EditorState>((set, get) => ({
   canUndo: false,
   canRedo: false,
   netRevision: 0,
+  dirty: false,
+  savedAt: null,
+
+  applyViewMeta: (meta) =>
+    set({
+      canUndo: meta.can_undo,
+      canRedo: meta.can_redo,
+      dirty: meta.dirty,
+      savedAt: meta.saved_at,
+    }),
+
+  markDirty: () => {
+    if (!get().dirty) set({ dirty: true });
+  },
 
   onNodesChange: (changes) => {
     // React Flow measures every node on mount and reports it as a `dimensions`
@@ -1937,7 +1972,8 @@ export const useEditor = create<EditorState>((set, get) => ({
   },
 
   attachSession: async (id, view) => {
-    set({ sessionId: id, canUndo: view.can_undo, canRedo: view.can_redo });
+    set({ sessionId: id });
+    get().applyViewMeta(view);
     // A foreign import arrives with only the coarse server fallback layout.
     // Recompute a proper one with ELK over the real node sizes, then persist it
     // so the baseline (and any later edit) builds on these coordinates.
@@ -1968,9 +2004,6 @@ export const useEditor = create<EditorState>((set, get) => ({
     }
   },
 
-  setHistory: (canUndo, canRedo) =>
-    set((s) => ({ canUndo, canRedo, netRevision: s.netRevision + 1 })),
-
   undo: async () => {
     const { sessionId: id, readOnly } = get();
     if (!id || readOnly) return;
@@ -1978,7 +2011,7 @@ export const useEditor = create<EditorState>((set, get) => ({
     try {
       const view = await undoApi(id);
       get().loadNetwork(view.network, view.foreign, { fit: false });
-      set({ canUndo: view.can_undo, canRedo: view.can_redo });
+      get().applyViewMeta(view);
     } catch (err) {
       toast.error(`Undo failed: ${(err as Error).message}`);
     }
@@ -1991,7 +2024,7 @@ export const useEditor = create<EditorState>((set, get) => ({
     try {
       const view = await redoApi(id);
       get().loadNetwork(view.network, view.foreign, { fit: false });
-      set({ canUndo: view.can_undo, canRedo: view.can_redo });
+      get().applyViewMeta(view);
     } catch (err) {
       toast.error(`Redo failed: ${(err as Error).message}`);
     }
@@ -2004,7 +2037,7 @@ export const useEditor = create<EditorState>((set, get) => ({
     try {
       const view = await getView(id);
       get().loadNetwork(view.network, view.foreign);
-      set({ canUndo: view.can_undo, canRedo: view.can_redo });
+      get().applyViewMeta(view);
     } catch (err) {
       toast.error(`Sync failed: ${(err as Error).message}`);
     }
@@ -2013,7 +2046,7 @@ export const useEditor = create<EditorState>((set, get) => ({
   resetNetwork: () => {
     resetServerIds([]);
     set((s) => ({
-      networkName: "Untitled network",
+      networkName: DEFAULT_SCENARIO_NAME,
       f_hz: 50.0,
       sn_mva: 1.0,
       nodes: [],
@@ -2030,7 +2063,12 @@ export const useEditor = create<EditorState>((set, get) => ({
 configureSync({
   sessionId: () => useEditor.getState().sessionId,
   onError: (message) => toast.error(message),
-  onHistory: (canUndo, canRedo) =>
-    useEditor.getState().setHistory(canUndo, canRedo),
+  onMeta: (meta) => {
+    useEditor.getState().applyViewMeta(meta);
+    // A flush acknowledged queued commands, so the authoritative net changed —
+    // nudge netRevision so live study panels (Y-bus, summary) re-fetch.
+    useEditor.setState((s) => ({ netRevision: s.netRevision + 1 }));
+  },
   onConflict: () => void useEditor.getState().resyncFromServer(),
+  onDirty: () => useEditor.getState().markDirty(),
 });

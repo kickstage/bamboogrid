@@ -32,5 +32,5 @@ def _clean_db():
     import app.session  # noqa: F401
 
     with psycopg.connect(os.environ["DATABASE_URL"]) as conn:
-        conn.execute("TRUNCATE sessions, shares")
+        conn.execute("TRUNCATE sessions, shares, users")
     yield

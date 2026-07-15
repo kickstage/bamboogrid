@@ -501,12 +501,21 @@ export interface ForeignElement {
 
 // The session projection a browser receives: the editable modeled network plus
 // read-only foreign elements. The authoritative pandapower net stays server-side.
-export interface ViewModel {
-  network: Network;
-  foreign: ForeignElement[];
+// A session's editor state, without the network. Returned on its own by the calls
+// that change this state but not the net the client already holds.
+export interface SessionMeta {
   // Whether the session's in-memory edit history can undo/redo right now.
   can_undo: boolean;
   can_redo: boolean;
+  // Edits since the last save, and when that save was (null if never saved). Not
+  // about whether the server has the edits — it always does.
+  dirty: boolean;
+  saved_at: number | null;
+}
+
+export interface ViewModel extends SessionMeta {
+  network: Network;
+  foreign: ForeignElement[];
 }
 
 // A single edit applied to the session's net. `op` selects the server handler;
@@ -514,6 +523,30 @@ export interface ViewModel {
 export interface Command {
   op: string;
   payload: Record<string, unknown>;
+}
+
+// --- Authentication (optional Google sign-in) ------------------------------
+
+// A signed-in account. `id` is Google's stable `sub`. A guest has no `User`.
+export interface User {
+  id: string;
+  email: string;
+  name: string | null;
+}
+
+// The result of exchanging a Google credential at /auth/google: our own app
+// token (sent as `Authorization: Bearer` afterwards) and the resolved user.
+export interface AuthResponse {
+  token: string;
+  user: User;
+}
+
+// One entry in a signed-in user's saved-grids list
+export interface GridSummary {
+  id: string;
+  name: string;
+  // When it was last saved — unsaved edits deliberately don't move this.
+  saved_at: number;
 }
 
 // --- Network summary / diagnostics ----------------------------------------
