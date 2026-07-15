@@ -9,6 +9,7 @@ import type {
   ShortCircuitResult,
   User,
   ViewModel,
+  YbusResult,
 } from "./types";
 
 const BASE = "";
@@ -347,6 +348,17 @@ export async function networkSummary(id: string): Promise<NetworkSummary> {
     await fetch(`${BASE}/session/summary`, {
       method: "POST",
       headers: sessionHeaders(id),
+    }),
+  );
+}
+
+// Solve the retained net and return its admittance matrix (Y-bus) as labeled
+// sparse triplets, keyed back to editor bus ids.
+export async function fetchYbus(id: string): Promise<YbusResult> {
+  return json(
+    await fetch(`${BASE}/session/ybus`, {
+      method: "POST",
+      headers: { [SESSION_HEADER]: id },
     }),
   );
 }

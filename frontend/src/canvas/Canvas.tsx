@@ -31,6 +31,9 @@ import { PowerTriangle } from "../diagrams/PowerTriangle";
 import { Waveforms } from "../diagrams/Waveforms";
 import { NodeContextMenu, type BusGraphKind } from "./NodeContextMenu";
 import { SearchPanel } from "./SearchPanel";
+import { YbusPanel } from "../study/YbusPanel";
+import { SummaryPanel } from "../study/SummaryPanel";
+import { LoadFlowSettingsPanel } from "../study/LoadFlowSettingsPanel";
 import { useClampedPosition } from "../ui/useClampedPosition";
 import type { BusData, ElementKind } from "../types";
 
@@ -101,25 +104,26 @@ export function Canvas() {
     undo,
     redo,
     setSearchOpen,
-    searchHighlightId,
+    spotlightIds,
   } = useEditor();
   const { screenToFlowPosition, fitView } = useReactFlow();
 
-  // When a search spotlights one element, fade everything else so it stands out.
-  // A spotlighted line keeps its two end buses bright (a line has no body of its
-  // own), so the framed branch reads as a connected whole.
+  // When something spotlights one or more elements (a search reveal, or a Y-bus
+  // cell hover), fade everything else so they stand out. A spotlighted line
+  // keeps its two end buses bright (a line has no body of its own), so the
+  // framed branch reads as a connected whole.
   const bright = useMemo(() => {
-    if (!searchHighlightId) return null;
-    const set = new Set<string>([searchHighlightId]);
-    const line = edges.find(
-      (e) => e.id === searchHighlightId && e.type === "line",
-    );
-    if (line) {
-      set.add(line.source);
-      set.add(line.target);
+    if (!spotlightIds || spotlightIds.length === 0) return null;
+    const set = new Set<string>(spotlightIds);
+    for (const id of spotlightIds) {
+      const line = edges.find((e) => e.id === id && e.type === "line");
+      if (line) {
+        set.add(line.source);
+        set.add(line.target);
+      }
     }
     return set;
-  }, [edges, searchHighlightId]);
+  }, [edges, spotlightIds]);
 
   const dim = (id: string) => ({
     opacity: bright!.has(id) ? 1 : DIM_OPACITY,
@@ -555,6 +559,9 @@ export function Canvas() {
       </ReactFlow>
 
       <SearchPanel />
+      <YbusPanel />
+      <SummaryPanel />
+      <LoadFlowSettingsPanel />
 
       {menu && (
         <Paper

@@ -293,9 +293,16 @@ interface EditorState {
   focusRequest: { ids: string[]; nonce: number } | null;
   // Whether the floating "Find" panel is open.
   searchOpen: boolean;
-  // The single element (node or line edge) spotlighted by a search reveal; the
-  // canvas dims everything else. Cleared on any other selection or on close.
-  searchHighlightId: string | null;
+  // Whether the floating admittance-matrix (Y-bus) panel is open.
+  ybusOpen: boolean;
+  // Whether the floating network-summary panel is open.
+  summaryOpen: boolean;
+  // Whether the floating load-flow-settings panel is open.
+  settingsOpen: boolean;
+  // Elements (nodes or line edges) spotlighted on the canvas; everything else
+  // dims. A search reveal sets one; hovering a Y-bus cell sets its two buses.
+  // Cleared on any other selection or on close.
+  spotlightIds: string[] | null;
   // The server session whose authoritative net this editor mirrors.
   sessionId: string | null;
   // When set, every mutating action is a no-op (the mobile read-only demo).
@@ -304,6 +311,9 @@ interface EditorState {
   // Whether the server session's edit history can undo/redo right now.
   canUndo: boolean;
   canRedo: boolean;
+  // Bumped whenever the authoritative server net changes (a flush sent commands,
+  // or the whole net was replaced). Study panels watch it to refresh live.
+  netRevision: number;
   // Whether there are edits since the last save, and when that save was. The edits
   // reach the server either way; leaving without saving is what discards them.
   dirty: boolean;
@@ -357,15 +367,20 @@ interface EditorState {
   // Make `id` the sole selection (clearing any multi-selection). Used when
   // right-clicking a node that isn't part of the current selection.
   selectOnly: (id: string) => void;
-  // Spotlight an element (dimming the rest) without moving the viewport or
-  // touching the selection — a search "preview". Pass null to clear.
-  highlightElement: (id: string | null) => void;
+  // Spotlight one or more elements (dimming the rest) without moving the
+  // viewport or touching the selection — a search "preview" or a Y-bus cell
+  // hover. Pass null to clear.
+  highlightElement: (ids: string | string[] | null) => void;
   // Select an element by id (node or line edge) and pan/zoom the canvas onto it.
   // With `highlight`, also spotlight it (dimming the rest). Returns false if no
   // such element exists (e.g. it was since deleted).
   revealElement: (id: string, opts?: { highlight?: boolean }) => boolean;
-  // Open/close the Find panel; closing clears any search spotlight.
+  // Open/close the Find panel; closing clears any spotlight.
   setSearchOpen: (open: boolean) => void;
+  // Open/close the admittance-matrix panel; closing clears any spotlight.
+  setYbusOpen: (open: boolean) => void;
+  setSummaryOpen: (open: boolean) => void;
+  setSettingsOpen: (open: boolean) => void;
   // Clear the inspector selection and every node/edge highlight on the canvas.
   // Used when clicking outside the canvas (e.g. the palette).
   deselectAll: () => void;
@@ -693,11 +708,15 @@ export const useEditor = create<EditorState>((set, get) => ({
   fitSignal: 0,
   focusRequest: null,
   searchOpen: false,
-  searchHighlightId: null,
+  ybusOpen: false,
+  summaryOpen: false,
+  settingsOpen: false,
+  spotlightIds: null,
   sessionId: null,
   readOnly: false,
   canUndo: false,
   canRedo: false,
+  netRevision: 0,
   dirty: false,
   savedAt: null,
 
@@ -1187,14 +1206,14 @@ export const useEditor = create<EditorState>((set, get) => ({
       });
   },
 
-  // Any plain selection (a click on the canvas/pane) drops the search spotlight.
+  // Any plain selection (a click on the canvas/pane) drops the spotlight.
   select: (id) =>
-    set({ selectedId: id, selectedEdgeId: null, searchHighlightId: null }),
+    set({ selectedId: id, selectedEdgeId: null, spotlightIds: null }),
   selectEdge: (id) =>
     set((s) => ({
       selectedEdgeId: id,
       selectedId: null,
-      searchHighlightId: null,
+      spotlightIds: null,
       // Mirror the edge's selected flag so selecting via the label (which bypasses
       // React Flow's own edge-click selection) still shows the routing dot.
       edges: s.edges.map((e) =>
@@ -1213,10 +1232,14 @@ export const useEditor = create<EditorState>((set, get) => ({
       edges: s.edges.map((e) => (e.selected ? { ...e, selected: false } : e)),
     })),
 
-  highlightElement: (id) => set({ searchHighlightId: id }),
+  highlightElement: (ids) =>
+    set({
+      spotlightIds:
+        ids == null ? null : Array.isArray(ids) ? (ids.length ? ids : null) : [ids],
+    }),
 
   revealElement: (id, opts = {}) => {
-    const highlight = opts.highlight ? id : null;
+    const highlight = opts.highlight ? [id] : null;
     const { nodes, edges } = get();
     if (nodes.some((n) => n.id === id)) {
       get().selectOnly(id);
@@ -1225,7 +1248,7 @@ export const useEditor = create<EditorState>((set, get) => ({
           ids: [id],
           nonce: s.focusRequest ? s.focusRequest.nonce + 1 : 1,
         },
-        searchHighlightId: highlight,
+        spotlightIds: highlight,
       }));
       return true;
     }
@@ -1243,7 +1266,7 @@ export const useEditor = create<EditorState>((set, get) => ({
           ids: [edge.source, edge.target].filter(Boolean) as string[],
           nonce: s.focusRequest ? s.focusRequest.nonce + 1 : 1,
         },
-        searchHighlightId: highlight,
+        spotlightIds: highlight,
       }));
       return true;
     }
@@ -1251,17 +1274,19 @@ export const useEditor = create<EditorState>((set, get) => ({
   },
 
   setSearchOpen: (open) =>
-    set(
-      open
-        ? { searchOpen: true }
-        : { searchOpen: false, searchHighlightId: null },
-    ),
+    set(open ? { searchOpen: true } : { searchOpen: false, spotlightIds: null }),
+
+  setYbusOpen: (open) =>
+    set(open ? { ybusOpen: true } : { ybusOpen: false, spotlightIds: null }),
+
+  setSummaryOpen: (open) => set({ summaryOpen: open }),
+  setSettingsOpen: (open) => set({ settingsOpen: open }),
 
   deselectAll: () =>
     set((s) => ({
       selectedId: null,
       selectedEdgeId: null,
-      searchHighlightId: null,
+      spotlightIds: null,
       nodes: s.nodes.map((n) => (n.selected ? { ...n, selected: false } : n)),
       edges: s.edges.map((e) => (e.selected ? { ...e, selected: false } : e)),
     })),
@@ -1942,6 +1967,7 @@ export const useEditor = create<EditorState>((set, get) => ({
       selectedEdgeId: null,
       // Undo/redo restore the same diagram in place, so they keep the viewport.
       fitSignal: fit ? get().fitSignal + 1 : get().fitSignal,
+      netRevision: get().netRevision + 1,
     });
   },
 
@@ -2037,7 +2063,12 @@ export const useEditor = create<EditorState>((set, get) => ({
 configureSync({
   sessionId: () => useEditor.getState().sessionId,
   onError: (message) => toast.error(message),
-  onMeta: (meta) => useEditor.getState().applyViewMeta(meta),
+  onMeta: (meta) => {
+    useEditor.getState().applyViewMeta(meta);
+    // A flush acknowledged queued commands, so the authoritative net changed —
+    // nudge netRevision so live study panels (Y-bus, summary) re-fetch.
+    useEditor.setState((s) => ({ netRevision: s.netRevision + 1 }));
+  },
   onConflict: () => void useEditor.getState().resyncFromServer(),
   onDirty: () => useEditor.getState().markDirty(),
 });

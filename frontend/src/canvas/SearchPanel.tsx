@@ -41,7 +41,7 @@ export function SearchPanel() {
   const setSearchOpen = useEditor((s) => s.setSearchOpen);
   const revealElement = useEditor((s) => s.revealElement);
   const highlightElement = useEditor((s) => s.highlightElement);
-  const highlightId = useEditor((s) => s.searchHighlightId);
+  const spotlightIds = useEditor((s) => s.spotlightIds);
   const nodes = useEditor((s) => s.nodes);
   const edges = useEditor((s) => s.edges);
 
@@ -212,7 +212,7 @@ export function SearchPanel() {
                     {m.label}
                   </Text>
                   <Text size="xs" c="dimmed" style={{ whiteSpace: "nowrap" }}>
-                    {m.id === highlightId ? "● " : ""}
+                    {spotlightIds?.includes(m.id) ? "● " : ""}
                     {m.sub}
                   </Text>
                 </Group>

@@ -47,12 +47,14 @@ from .schema import (
     ShortCircuitResult,
     User,
     ViewModel,
+    YbusResult,
 )
 from .sc import run_shortcircuit
 from .session import ConflictError, Session, store
 from .solve import get_loadflow_settings, set_loadflow_settings, solve_net
 from .summary import network_summary
 from .tracing import setup_tracing, tracer
+from .ybus import compute_ybus
 
 app = FastAPI(title="BambooGrid API", version="0.2.0")
 setup_tracing(app)
@@ -373,6 +375,30 @@ async def run_loadflow(
                     return solve_net(session.net)
 
         return await run_in_threadpool(_solve)
+
+
+@app.post("/session/ybus", response_model=YbusResult)
+async def session_ybus(
+    request: Request, session: Session = Depends(current_session)
+) -> YbusResult:
+    """Build the admittance matrix (Y-bus) of the retained net. Shares the solve
+    limiter with the load flow since it runs a power flow to populate pandapower's
+    internal ppc before reading the matrix back."""
+    if await request.is_disconnected():
+        raise HTTPException(status_code=499, detail="Client closed request.")
+
+    async with _solve_limiter:
+        if await request.is_disconnected():
+            raise HTTPException(status_code=499, detail="Client closed request.")
+
+        def _compute() -> YbusResult:
+            with session.lock:
+                with tracer.start_as_current_span("ybus.compute") as span:
+                    span.set_attribute("session.id", session.id)
+                    span.set_attribute("net.bus_count", int(len(session.net.bus)))
+                    return compute_ybus(session.net)
+
+        return await run_in_threadpool(_compute)
 
 
 @app.get("/session/loadflow-settings", response_model=LoadFlowSettings)

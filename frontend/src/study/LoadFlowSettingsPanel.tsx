@@ -5,7 +5,6 @@ import {
   Divider,
   Group,
   Loader,
-  Modal,
   NumberInput,
   Select,
   SimpleGrid,
@@ -17,6 +16,7 @@ import { Switch } from "../ui/Switch";
 import { getLoadFlowSettings, updateLoadFlowSettings } from "../api";
 import { useEditor } from "../store";
 import { toast } from "../toast";
+import { ToolWindow } from "../ui/ToolWindow";
 import type { LoadFlowSettings } from "../types";
 import { saveLoadFlowSettingsLocal } from "./loadFlowSettings";
 
@@ -66,13 +66,9 @@ const SWITCHES: { key: keyof LoadFlowSettings; label: string }[] = [
 
 // The session's pandapower runpp options. Stored server-side on the net, so they
 // apply to the next load flow / summary solve and round-trip with export/share.
-export function LoadFlowSettingsModal({
-  opened,
-  onClose,
-}: {
-  opened: boolean;
-  onClose: () => void;
-}) {
+export function LoadFlowSettingsPanel() {
+  const opened = useEditor((s) => s.settingsOpen);
+  const setOpen = useEditor((s) => s.setSettingsOpen);
   const sessionId = useEditor((s) => s.sessionId);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -131,7 +127,12 @@ export function LoadFlowSettingsModal({
   };
 
   return (
-    <Modal opened={opened} onClose={onClose} title="Load flow settings" size="lg">
+    <ToolWindow
+      title="Load flow settings"
+      opened={opened}
+      onClose={() => setOpen(false)}
+      width={600}
+    >
       {loading || !draft ? (
         <Center py="xl">
           {error ? (
@@ -273,6 +274,6 @@ export function LoadFlowSettingsModal({
           </Group>
         </Stack>
       )}
-    </Modal>
+    </ToolWindow>
   );
 }
