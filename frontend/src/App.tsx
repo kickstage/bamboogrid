@@ -28,9 +28,9 @@ import { useIsMobile } from "./mobile/useIsMobile";
 import { authEnabled, AuthControls } from "./auth/GoogleSignIn";
 import { SignInModal } from "./auth/SignInModal";
 import { useAuth } from "./auth/authStore";
-import { DEFAULT_SCENARIO_NAME, useEditor, willDiscard } from "./store";
+import { DEFAULT_SCENARIO_NAME, useEditor } from "./store";
 import { toast } from "./toast";
-import { dropPending, flushPending } from "./sync";
+import { dropPending, flushOnUnload, flushPending } from "./sync";
 import {
   createScenarioSession,
   createSession,
@@ -49,8 +49,11 @@ import {
   type Scenario,
   shareSession,
 } from "./api";
+import type { ViewModel } from "./types";
 import { GridsModal } from "./auth/GridsModal";
 import { ScenarioTitle } from "./ScenarioTitle";
+import { useTabs } from "./tabs";
+import { TabStrip } from "./TabStrip";
 
 // A pointer to the server-side document this browser is editing. The model
 // itself lives on the server; this is just which session to reattach to on
@@ -133,9 +136,9 @@ function ResizeHandle({
   );
 }
 
-// The guest copy signing out left on the canvas, and the saved scenario it came
-// from. Kept only while returning to the original would lose nothing (see
-// onSignOut), so signing back in can undo the detach.
+// The guest copies signing out left behind (one per tab that held a saved
+// scenario), each paired with the scenario it came from, so signing back in can
+// undo the detach. Only entries whose copy is still untouched are kept.
 const DETACHED_KEY = "bamboogrid:detached";
 
 interface Detached {
@@ -143,19 +146,20 @@ interface Detached {
   origin: string;
 }
 
-function readDetached(): Detached | null {
+function readDetached(): Detached[] {
   try {
     const raw = localStorage.getItem(DETACHED_KEY);
-    const d = raw ? (JSON.parse(raw) as Detached) : null;
-    return d?.copy && d?.origin ? d : null;
+    const parsed = raw ? (JSON.parse(raw) as Detached[]) : null;
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((d) => !!d?.copy && !!d?.origin);
   } catch {
-    return null;
+    return [];
   }
 }
 
-function rememberDetached(d: Detached | null): void {
+function rememberDetached(list: Detached[]): void {
   try {
-    if (d) localStorage.setItem(DETACHED_KEY, JSON.stringify(d));
+    if (list.length) localStorage.setItem(DETACHED_KEY, JSON.stringify(list));
     else localStorage.removeItem(DETACHED_KEY);
   } catch {
     // best-effort
@@ -241,6 +245,78 @@ export default function App() {
   // opened example is untouched but still in no library).
   const canSave = dirty || (savedAt === null && nodeCount > 0);
   const unsaved = !canSave ? undefined : savedAt === null ? "never" : "changes";
+  // An empty canvas has nothing to lose, so it never warns — even if technically
+  // dirty (a node added then deleted).
+  const losesWork = nodeCount > 0 && canSave;
+
+  // Every attach (bootstrap, switch, open, new) lands here, so the active tab is
+  // ensured and kept current without each open path bookkeeping tabs itself.
+  useEffect(() => {
+    if (!sessionId) return;
+    const name = networkName || DEFAULT_SCENARIO_NAME;
+    const t = useTabs.getState();
+    t.addTab({ id: sessionId, name, unsaved: losesWork });
+    t.setActive(sessionId);
+    t.renameTab(sessionId, name);
+    t.setUnsaved(sessionId, losesWork);
+  }, [sessionId, networkName, losesWork]);
+
+  // Switch to a scenario already open in a tab: settle the current session's
+  // edits before attaching the target, so nothing is lost.
+  const activateTab = async (id: string) => {
+    if (id === useTabs.getState().activeId || busy) return;
+    setBusy(true);
+    setLoadingMsg("Switching scenario…");
+    try {
+      await flushPending();
+      const view = await getView(id);
+      await attachSession(id, view);
+      rememberSession(id);
+    } catch (err) {
+      // An owned session 404s like a deleted one, so a guest can't tell them
+      // apart — keep the tab, since signing in may reach it. A signed-in user
+      // would have been let in, so for them a 404 really is a dead id.
+      toast.error(
+        user
+          ? `Could not open that tab: ${(err as Error).message}`
+          : `Could not open that tab: ${(err as Error).message}. If it's a saved scenario, sign in to reopen it.`,
+      );
+      if (user) useTabs.getState().removeTab(id);
+    } finally {
+      setBusy(false);
+      setLoadingMsg(null);
+    }
+  };
+
+  // Closing drops the scenario from the strip for good, so warn first if it holds
+  // unsaved work — live state for the active tab, the cached flag otherwise.
+  const closeTab = async (id: string) => {
+    const { tabs, activeId } = useTabs.getState();
+    const idx = tabs.findIndex((t) => t.id === id);
+    if (idx === -1) return;
+    const tab = tabs[idx];
+    const isActive = id === activeId;
+    const st = useEditor.getState();
+    const unsaved = isActive
+      ? st.nodes.length > 0 && (st.dirty || st.savedAt === null)
+      : tab.unsaved;
+    if (
+      unsaved &&
+      !window.confirm(
+        `"${tab.name}" has unsaved changes. Close it and lose them?\n\n` +
+          `Cancel, then Save (${SAVE_HINT}), to keep it.`,
+      )
+    ) {
+      return;
+    }
+    if (isActive) {
+      dropPending();
+      const next = tabs[idx + 1] ?? tabs[idx - 1];
+      if (next) await activateTab(next.id);
+      else await onNewGrid();
+    }
+    useTabs.getState().removeTab(id);
+  };
 
   // Save into the user's library; a guest is prompted to sign in first, and the
   // save then runs itself (pendingSaveRef).
@@ -267,42 +343,92 @@ export default function App() {
   const onSaveRef = useRef(onSave);
   onSaveRef.current = onSave;
 
-  // A saved scenario is unreachable once its owner's token is gone, so keep a guest
-  // copy on the canvas rather than wiping it. Everything touching the owned session
-  // must therefore happen before logout() — hence the order below.
+  // A saved scenario is unreachable once its owner's token is gone, so every open
+  // tab holding one keeps a guest copy. Everything touching an owned session must
+  // therefore happen before logout() — hence the order below.
   const onSignOut = async () => {
-    const { sessionId: id, savedAt: saved, dirty: isDirty } = useEditor.getState();
-    // A never-saved scenario is already unowned: signing out costs no access.
-    const owned = saved !== null;
+    const st = useEditor.getState();
+    const activeId = st.sessionId;
+    const tabs = useTabs.getState().tabs;
     setBusy(true);
-    setLoadingMsg(owned ? "Signing out…" : null);
+    setLoadingMsg(tabs.length > 1 || st.savedAt !== null ? "Signing out…" : null);
     try {
       // Queued edits must reach the session before it's copied.
       await flushPending();
 
-      if (id && owned) {
-        const copy = await detachSession(id);
-        // Unsaved edits leave with the user inside the copy; the library keeps the
-        // scenario as it was last saved.
-        if (isDirty) await revertSession(id);
+      // Which tabs hold a saved (owned) scenario — a never-saved one is already
+      // unowned, so signing out costs it no access. Read while the token still can.
+      const owned: { id: string; dirty: boolean }[] = [];
+      for (const t of tabs) {
+        if (t.id === activeId) {
+          if (st.savedAt !== null) owned.push({ id: t.id, dirty: st.dirty });
+          continue;
+        }
+        try {
+          const v = await getView(t.id);
+          if (v.saved_at !== null) owned.push({ id: t.id, dirty: v.dirty });
+        } catch {
+          // Already gone (deleted/expired elsewhere): nothing to copy.
+        }
+      }
 
-        useAuth.getState().logout();
-        await attachSession(copy.id, copy.view);
-        rememberSession(copy.id);
-
-        // Where the copy came from, so signing back in can return to the real
-        // scenario — but only if it was clean: a copy carrying unsaved edits is
-        // already a different network from the saved one, and going back would
-        // silently drop them. Recorded after the attach, or the effect above sees
-        // a copy id that isn't the current session and bins it.
-        reattachedRef.current = false;
-        rememberDetached(isDirty ? null : { copy: copy.id, origin: id });
-        toast.success("Signed out. Your scenario is still here, as an unsaved copy.");
-        return;
+      // Unsaved edits leave with the user inside each copy; the library keeps every
+      // scenario as it was last saved.
+      const copies: {
+        origin: string;
+        copy: string;
+        view: ViewModel;
+        dirty: boolean;
+      }[] = [];
+      for (const o of owned) {
+        try {
+          const c = await detachSession(o.id);
+          if (o.dirty) await revertSession(o.id);
+          copies.push({ origin: o.id, copy: c.id, view: c.view, dirty: o.dirty });
+        } catch (err) {
+          // Losing the canvas's own scenario is worse than not signing out: abort
+          // while the token still reaches it. A background tab is dropped instead.
+          if (o.id === activeId) throw err;
+        }
       }
 
       useAuth.getState().logout();
-      toast.success("Signed out.");
+
+      // Keep each tab in place pointing at its copy, rather than opening a second
+      // tab for it. A tab that couldn't be copied would 404, so it goes.
+      const copied = new Set(copies.map((c) => c.origin));
+      for (const c of copies) useTabs.getState().replaceId(c.origin, c.copy);
+      for (const o of owned)
+        if (!copied.has(o.id)) useTabs.getState().removeTab(o.id);
+
+      const active = copies.find((c) => c.origin === activeId);
+      if (active) {
+        await attachSession(active.copy, active.view);
+        rememberSession(active.copy);
+      }
+
+      // Only the clean copies can fold back on sign-in: one carrying unsaved edits
+      // is already a different network, and returning would silently drop them.
+      reattachedRef.current.clear();
+      rememberDetached(
+        copies
+          .filter((c) => !c.dirty)
+          .map((c) => ({ copy: c.copy, origin: c.origin })),
+      );
+
+      const stranded = owned.length - copies.length;
+      toast.success(
+        copies.length === 0
+          ? "Signed out."
+          : copies.length === 1
+            ? "Signed out. Your scenario is still here, as an unsaved copy."
+            : `Signed out. Your ${copies.length} saved scenarios are still here, as unsaved copies.`,
+      );
+      if (stranded > 0)
+        toast.error(
+          `${stranded} scenario${stranded === 1 ? "" : "s"} could not be copied` +
+            " and closed. Sign back in to reopen from your library.",
+        );
     } catch (err) {
       toast.error(`Could not sign out cleanly: ${(err as Error).message}`);
     } finally {
@@ -315,30 +441,37 @@ export default function App() {
   // for the real scenario in the library, so it stops reading "Not saved" when it
   // is in fact saved. Only while the copy is untouched — once it's been edited it
   // is its own scenario, and going back to the original would drop that work.
-  const reattachedRef = useRef(false);
+  //
+  // Only the active copy is swapped; the rest wait until their tab is opened and
+  // this runs for them. The ref keys by copy id: one in-flight swap per copy.
+  const reattachedRef = useRef<Set<string>>(new Set());
   useEffect(() => {
-    const d = readDetached();
-    if (!d || !sessionId) return;
+    if (!sessionId) return;
+    const list = readDetached();
+    const d = list.find((e) => e.copy === sessionId);
+    if (!d) return;
 
     // Edited or saved: it now holds work the original doesn't, so it can never be
     // folded back in. savedAt matters as well as dirty — saving the copy clears
     // dirty, and it must not then look untouched and get swapped away.
-    if (sessionId !== d.copy || dirty || savedAt !== null) {
-      rememberDetached(null);
+    if (dirty || savedAt !== null) {
+      rememberDetached(list.filter((e) => e.copy !== d.copy));
       return;
     }
-    if (!user || reattachedRef.current) return;
-    reattachedRef.current = true;
+    if (!user || reattachedRef.current.has(d.copy)) return;
+    reattachedRef.current.add(d.copy);
     pendingSaveRef.current = false; // the original is already saved
     void (async () => {
       try {
         const view = await getView(d.origin);
+        useTabs.getState().replaceId(d.copy, d.origin);
         await attachSession(d.origin, view);
         rememberSession(d.origin);
       } catch {
         // The original is gone (deleted elsewhere): keep the copy.
       } finally {
-        rememberDetached(null);
+        // Re-read: other tabs' entries may have changed while this was in flight.
+        rememberDetached(readDetached().filter((e) => e.copy !== d.copy));
       }
     })();
   }, [user, sessionId, dirty, savedAt, attachSession]);
@@ -354,48 +487,6 @@ export default function App() {
       setGridsOpen(true);
     }
   }, [user, signInOpen]);
-
-  // Only asks when leaving would really lose the edits: a never-saved scenario
-  // keeps its working copy, so there is nothing to warn about.
-  const confirmUnsaved = (action: string): boolean =>
-    !willDiscard(useEditor.getState()) ||
-    window.confirm(
-      `You have unsaved changes. ${action} and lose them?\n\n` +
-        `Cancel, then Save (${SAVE_HINT}), to keep them.`,
-    );
-
-  // Confirm, then actually leave. The two must go together — a caller that skips
-  // leaveCurrent leaks the old scenario's queued edits onto the next one.
-  const leaveScenario = async (action: string): Promise<boolean> => {
-    if (!confirmUnsaved(action)) return false;
-    await leaveCurrent();
-    return true;
-  };
-
-  // Moving off a scenario. Either way the queue must be settled before sync is
-  // pointed at another session, or a late flush lands its edits on the next one.
-  const leaveCurrent = async (): Promise<void> => {
-    const state = useEditor.getState();
-    const id = state.sessionId;
-    if (!id) return;
-
-    if (willDiscard(state)) {
-      // Queued edits would re-apply the changes the revert is undoing.
-      dropPending();
-      try {
-        await revertSession(id);
-      } catch (err) {
-        // Never swallow this: a silent failure leaves the user believing the
-        // changes are gone when they are not.
-        toast.error(`Could not discard changes: ${(err as Error).message}`);
-      }
-      return;
-    }
-
-    // No saved state to return to, so this working copy is the only copy of the
-    // work: keep it, and make sure the last edits landed.
-    await flushPending();
-  };
 
   // Fixed-width checkmark gutter so menu items align whether ticked or not.
   const check = (on: boolean) => (
@@ -433,11 +524,22 @@ export default function App() {
       const url = new URL(window.location.href);
       // A share token always wins: clone it into a fresh copy to edit.
       const shareToken = url.searchParams.get("s");
-      const candidate =
-        url.searchParams.get("session") || localStorage.getItem(SESSION_KEY);
+      // The strip is already restored from localStorage; only one tab needs
+      // attaching. First that loads wins; ones that don't are dropped.
+      const restored = useTabs.getState();
+      const ordered = [
+        ...new Set(
+          [
+            url.searchParams.get("session"),
+            restored.activeId,
+            ...restored.tabs.map((t) => t.id),
+            localStorage.getItem(SESSION_KEY),
+          ].filter((v): v is string => !!v),
+        ),
+      ];
       // Cover the canvas while we pull an existing network off the server.
       if (shareToken) setLoadingMsg("Opening shared network…");
-      else if (candidate) setLoadingMsg("Loading network…");
+      else if (ordered.length) setLoadingMsg("Loading network…");
       try {
         if (shareToken) {
           try {
@@ -448,10 +550,10 @@ export default function App() {
             return;
           } catch (err) {
             toast.error(`Could not open shared link: ${(err as Error).message}`);
-            // Fall through to a normal/fresh session.
+            // Fall through to a restored/fresh session.
           }
         }
-        if (candidate) {
+        for (const candidate of ordered) {
           try {
             const view = await getView(candidate);
             await attachSession(candidate, view);
@@ -459,7 +561,8 @@ export default function App() {
             // Resumes the working copy, unsaved edits included.
             return;
           } catch {
-            // Stale/unknown id — fall through and create a new session.
+            // Stale/unknown id — drop its tab and try the next candidate.
+            useTabs.getState().removeTab(candidate);
           }
         }
         const { id, view } = await createSession();
@@ -516,19 +619,20 @@ export default function App() {
     }
   };
 
-  // Import a pandapower JSON (ours or a plain pandapower net): it replaces the
-  // session's net server-side, and we reload the projection.
+  // Import a pandapower JSON (ours or a plain pandapower net) into a new tab: it
+  // lands in a fresh session so the scenario you were on stays open.
   const onImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = "";
-    if (!file || !sessionId) return;
-    if (!confirmUnsaved(`Import "${file.name}"`)) return;
+    if (!file) return;
     setBusy(true);
     setLoadingMsg(`Importing "${file.name}"…`);
     try {
       await flushPending();
-      const view = await importPandapower(sessionId, await file.text());
-      await attachSession(sessionId, view);
+      const { id } = await createSession();
+      const view = await importPandapower(id, await file.text());
+      await attachSession(id, view);
+      rememberSession(id);
       toast.success(`Imported "${file.name}".`);
     } catch (err) {
       toast.error(`Import failed: ${(err as Error).message}`);
@@ -538,17 +642,17 @@ export default function App() {
     }
   };
 
+  // File ▸ New — a blank scenario in its own tab.
   const onReset = async () => {
-    if (!(await leaveScenario("Start a new scenario"))) return;
     await onNewGrid();
   };
 
-  // Replace the canvas with a built-in pandapower example (a fresh session).
+  // Open a built-in pandapower example in its own tab (a fresh session).
   const onOpenScenario = async (scenario: Scenario) => {
-    if (!(await leaveScenario(`Open "${scenario.label}"`))) return;
     setBusy(true);
     setLoadingMsg(`Opening "${scenario.label}"…`);
     try {
+      await flushPending();
       const { id, view } = await createScenarioSession(scenario.id);
       await applySavedLoadFlowSettings(id);
       await attachSession(id, view);
@@ -562,13 +666,19 @@ export default function App() {
     }
   };
 
-  // Switch the editor to one of the user's saved grids.
+  // Open one of the user's saved grids — in its own tab. If it's already open,
+  // just switch to that tab rather than loading a second copy.
   const openGrid = async (id: string) => {
-    if (id === sessionId) return;
-    if (!(await leaveScenario("Open another scenario"))) return;
+    if (useTabs.getState().tabs.some((t) => t.id === id)) {
+      await activateTab(id);
+      return;
+    }
     setBusy(true);
     setLoadingMsg("Loading scenario…");
     try {
+      // Settle the current tab's edits before pointing sync at the new session;
+      // the current scenario stays open in its own tab.
+      await flushPending();
       const view = await getView(id);
       await attachSession(id, view);
       rememberSession(id);
@@ -580,10 +690,12 @@ export default function App() {
     }
   };
 
-  // Start a fresh, blank scenario. Unowned until saved, like any other.
+  // Start a fresh, blank scenario in a new tab. Unowned until saved, like any
+  // other. The current scenario stays open in its own tab.
   const onNewGrid = async () => {
     setBusy(true);
     try {
+      await flushPending();
       const { id, view } = await createSession();
       await applySavedLoadFlowSettings(id);
       await attachSession(id, view);
@@ -599,12 +711,23 @@ export default function App() {
   const onDeleteGrid = async (id: string) => {
     await deleteGrid(id);
     toast.success("Scenario deleted.");
-    // Deleting the scenario you're viewing: fall back to a fresh one.
-    if (id === sessionId) await onNewGrid();
+    const { tabs, activeId } = useTabs.getState();
+    if (!tabs.some((t) => t.id === id)) return;
+    // The deleted scenario's session is gone; drop any queued edits for it and
+    // move off it to a neighbouring tab (or a fresh blank if it was the last).
+    if (id === activeId) {
+      dropPending();
+      const idx = tabs.findIndex((t) => t.id === id);
+      const next = tabs[idx + 1] ?? tabs[idx - 1];
+      if (next) await activateTab(next.id);
+      else await onNewGrid();
+    }
+    useTabs.getState().removeTab(id);
   };
 
   const onRenameGrid = async (id: string, name: string) => {
     await renameGrid(id, name);
+    useTabs.getState().renameTab(id, name);
     if (id === sessionId) useEditor.setState({ networkName: name });
   };
 
@@ -708,10 +831,12 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  // Only warn when leaving really discards something (see leaveCurrent).
-  const willDiscardOnLeave = willDiscard({ dirty, savedAt });
+  // Warn on close/reload whenever the current scenario holds unsaved work — both
+  // edits to a saved scenario and a never-saved scenario that isn't in the
+  // library yet (canSave). Restore brings tabs back, but a browser-cleared or
+  // GC'd session wouldn't, so the standard "are you sure?" is the safety net.
   useEffect(() => {
-    if (!willDiscardOnLeave) return;
+    if (!losesWork) return;
     // Asks only — the user may still cancel, so it must not discard anything.
     const onBeforeUnload = (e: BeforeUnloadEvent) => {
       e.preventDefault();
@@ -719,21 +844,16 @@ export default function App() {
     };
     window.addEventListener("beforeunload", onBeforeUnload);
     return () => window.removeEventListener("beforeunload", onBeforeUnload);
-  }, [willDiscardOnLeave]);
+  }, [losesWork]);
 
-  // The discard itself. `pagehide` fires only once the page really is going (after
-  // the prompt above was accepted), so cancelling discards nothing. A crash fires
-  // neither event, so an interrupted session resumes intact.
+  // On the way out, land the active tab's last edits with a keepalive request so
+  // the browser doesn't cancel it mid-flight. Every open tab — this one included,
+  // even a never-saved working copy — is then remembered and restored on return,
+  // with nothing reverted: reverting would empty a tab the user expects to find
+  // exactly as they left it.
   useEffect(() => {
     const onPageHide = () => {
-      const state = useEditor.getState();
-      // Nothing to fall back on: keep the working copy, land the last edits.
-      if (!state.sessionId || !willDiscard(state)) {
-        void flushPending();
-        return;
-      }
-      // Can't be awaited — the page is going. keepalive lets it outlive it.
-      void revertSession(state.sessionId, { keepalive: true }).catch(() => {});
+      flushOnUnload();
     };
     window.addEventListener("pagehide", onPageHide);
     return () => window.removeEventListener("pagehide", onPageHide);
@@ -1052,25 +1172,40 @@ export default function App() {
           set={setLeftW}
         />
         <div
-          style={{ flex: 1, minWidth: 0, position: "relative" }}
+          style={{
+            flex: 1,
+            minWidth: 0,
+            display: "flex",
+            flexDirection: "column",
+          }}
           onPointerDownCapture={() => setOpenMenu(null)}
         >
-          <LoadingOverlay
-            visible={loadingMsg !== null}
-            zIndex={5}
-            overlayProps={{ blur: 1 }}
-            loaderProps={{
-              children: (
-                <Stack align="center" gap="xs">
-                  <Loader />
-                  <Text size="sm">{loadingMsg}</Text>
-                </Stack>
-              ),
-            }}
+          {/* Tabs sit above the canvas only (like VS Code's editor tabs), so the
+              strip starts at the canvas's left edge, not over the side panels. */}
+          <TabStrip
+            onActivate={activateTab}
+            onClose={closeTab}
+            onNew={onNewGrid}
+            disabled={busy}
           />
-          <ReactFlowProvider>
-            <Canvas />
-          </ReactFlowProvider>
+          <div style={{ flex: 1, minHeight: 0, position: "relative" }}>
+            <LoadingOverlay
+              visible={loadingMsg !== null}
+              zIndex={5}
+              overlayProps={{ blur: 1 }}
+              loaderProps={{
+                children: (
+                  <Stack align="center" gap="xs">
+                    <Loader />
+                    <Text size="sm">{loadingMsg}</Text>
+                  </Stack>
+                ),
+              }}
+            />
+            <ReactFlowProvider>
+              <Canvas />
+            </ReactFlowProvider>
+          </div>
         </div>
         <ResizeHandle
           panel={PANELS.right}
