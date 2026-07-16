@@ -261,12 +261,13 @@ export default function App() {
   useEffect(() => {
     if (!sessionId) return;
     const name = networkName || DEFAULT_SCENARIO_NAME;
+    const saveState = { unsaved: losesWork, everSaved: savedAt !== null };
     const t = useTabs.getState();
-    t.addTab({ id: sessionId, name, unsaved: losesWork });
+    t.addTab({ id: sessionId, name, ...saveState });
     t.setActive(sessionId);
     t.renameTab(sessionId, name);
-    t.setUnsaved(sessionId, losesWork);
-  }, [sessionId, networkName, losesWork]);
+    t.setSaveState(sessionId, saveState);
+  }, [sessionId, networkName, losesWork, savedAt]);
 
   // Switch to a scenario already open in a tab: settle the current session's
   // edits before attaching the target, so nothing is lost.
@@ -307,15 +308,26 @@ export default function App() {
     const unsaved = isActive
       ? st.nodes.length > 0 && (st.dirty || st.savedAt === null)
       : tab.unsaved;
-    if (
-      unsaved &&
-      !window.confirm(
+    const everSaved = isActive ? st.savedAt !== null : tab.everSaved;
+    // What closing actually costs. A scenario that never reached the library lives
+    // only as long as a tab points at it, so closing loses the whole thing rather
+    // than just recent edits — and with no sign-in, that's every scenario.
+    let prompt: string;
+    if (!authEnabled())
+      prompt =
+        `"${tab.name}" isn't saved anywhere — closing it loses the whole ` +
+        `scenario for good. Close it?\n\n` +
+        `Cancel, then File ▸ Export…, to keep a copy.`;
+    else if (!everSaved)
+      prompt =
+        `"${tab.name}" has never been saved — closing it loses the whole ` +
+        `scenario. Close it?\n\n` +
+        `Cancel, then Save (${SAVE_HINT}), to keep it.`;
+    else
+      prompt =
         `"${tab.name}" has unsaved changes. Close it and lose them?\n\n` +
-          `Cancel, then Save (${SAVE_HINT}), to keep it.`,
-      )
-    ) {
-      return;
-    }
+        `Cancel, then Save (${SAVE_HINT}), to keep it.`;
+    if (unsaved && !window.confirm(prompt)) return;
     if (isActive) {
       dropPending();
       const next = tabs[idx + 1] ?? tabs[idx - 1];

@@ -11,6 +11,9 @@ export interface Tab {
   // Unsaved edits, or a never-saved scenario with content. Only current while the
   // tab is active; a background tab keeps its value from when it last was.
   unsaved: boolean;
+  // Whether the scenario ever reached the library. Closing a never-saved one loses
+  // the whole thing, not just its recent edits.
+  everSaved: boolean;
 }
 
 const STORAGE_KEY = "bamboogrid:tabs";
@@ -30,7 +33,12 @@ function loadPersisted(): Persisted {
           .filter(
             (t) => !!t && typeof t.id === "string" && typeof t.name === "string",
           )
-          .map((t) => ({ id: t.id, name: t.name, unsaved: !!t.unsaved }))
+          .map((t) => ({
+            id: t.id,
+            name: t.name,
+            unsaved: !!t.unsaved,
+            everSaved: !!t.everSaved,
+          }))
       : [];
     const activeId = tabs.some((t) => t.id === parsed.activeId)
       ? parsed.activeId
@@ -49,7 +57,10 @@ interface TabsState extends Persisted {
   setActive: (id: string) => void;
   moveTab: (dragId: string, overId: string) => void;
   renameTab: (id: string, name: string) => void;
-  setUnsaved: (id: string, unsaved: boolean) => void;
+  setSaveState: (
+    id: string,
+    state: { unsaved: boolean; everSaved: boolean },
+  ) => void;
   // Sign-out swaps an owned session for a guest copy; keep the tab in place.
   replaceId: (oldId: string, newId: string) => void;
 }
@@ -83,9 +94,9 @@ export const useTabs = create<TabsState>((set) => ({
       tabs: s.tabs.map((t) => (t.id === id ? { ...t, name } : t)),
     })),
 
-  setUnsaved: (id, unsaved) =>
+  setSaveState: (id, state) =>
     set((s) => ({
-      tabs: s.tabs.map((t) => (t.id === id ? { ...t, unsaved } : t)),
+      tabs: s.tabs.map((t) => (t.id === id ? { ...t, ...state } : t)),
     })),
 
   replaceId: (oldId, newId) =>

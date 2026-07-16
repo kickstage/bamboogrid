@@ -5,6 +5,7 @@
 import { useState } from "react";
 import { Text } from "@mantine/core";
 
+import { authEnabled } from "./auth/GoogleSignIn";
 import { useEditor } from "./store";
 import { useTabs } from "./tabs";
 
@@ -44,7 +45,9 @@ export function TabStrip({ onActivate, onClose, onNew, disabled }: TabStripProps
     >
       {tabs.map((tab) => {
         const active = tab.id === activeId;
-        const showDot = active ? activeUnsaved : tab.unsaved;
+        // With nowhere to save, every scenario would carry a dot forever.
+        const showDot =
+          authEnabled() && (active ? activeUnsaved : tab.unsaved);
         return (
           <div
             key={tab.id}
