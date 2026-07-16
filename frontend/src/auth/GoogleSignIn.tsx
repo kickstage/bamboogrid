@@ -5,6 +5,7 @@
 // feature is off and this renders nothing, so the app stays guest-only.
 
 import { useEffect, useRef } from "react";
+import "./GoogleSignIn.css";
 import {
   Avatar,
   Group,
@@ -95,6 +96,9 @@ export function GoogleButton({
             );
           },
         });
+        // Clear any stale button so renderButton always creates a fresh iframe
+        // with the correct theme — GIS does not reliably replace an existing one.
+        buttonRef.current.innerHTML = "";
         window.google.accounts.id.renderButton(buttonRef.current, {
           theme: scheme === "dark" ? "filled_black" : "outline",
           size,
@@ -109,7 +113,7 @@ export function GoogleButton({
     };
   }, [scheme, size, login]);
 
-  return <div ref={buttonRef} />;
+  return <div ref={buttonRef} className="gsi-button-mount" style={{ colorScheme: "light" }} />;
 }
 
 // Sign-out also detaches the editor from the scenario, which App owns — so App

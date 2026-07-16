@@ -1,0 +1,10 @@
+/*
+ * Google's GIS button renders inside a cross-origin iframe. When the parent
+ * page declares color-scheme: dark (via Mantine's "auto" scheme), the browser
+ * gives the iframe an opaque white canvas background per spec. Setting
+ * color-scheme: light on the mount container makes the iframe's scheme match
+ * its parent, so the canvas stays transparent.
+ */
+.gsi-button-mount {
+  color-scheme: light;
+}
