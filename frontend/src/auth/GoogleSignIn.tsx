@@ -113,7 +113,7 @@ export function GoogleButton({
     };
   }, [scheme, size, login]);
 
-  return <div ref={buttonRef} className="gsi-button-mount" />;
+  return <div ref={buttonRef} className="gsi-button-mount" style={{ colorScheme: "light" }} />;
 }
 
 // Sign-out also detaches the editor from the scenario, which App owns — so App
