@@ -1304,6 +1304,7 @@ export default function App() {
         onClose={() => setGridsOpen(false)}
         currentId={sessionId}
         onOpen={openGrid}
+        onNew={onNewGrid}
         onDelete={onDeleteGrid}
         onRename={onRenameGrid}
       />
