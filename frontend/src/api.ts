@@ -226,11 +226,14 @@ export function fetchStdTypes(
 export async function sendCommands(
   id: string,
   cmds: Command[],
+  opts: { keepalive?: boolean } = {},
 ): Promise<SessionMeta> {
   const res = await fetch(`${BASE}/session/commands`, {
     method: "POST",
     headers: sessionHeaders(id, JSON_HEADERS),
     body: JSON.stringify(cmds),
+    // Let the request outlive a closing/reloading page so the last edits land.
+    keepalive: opts.keepalive,
   });
   if (res.status === 409) throw new ConflictError(await errorMessage(res));
   if (!res.ok) throw new Error(await errorMessage(res));

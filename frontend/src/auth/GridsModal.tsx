@@ -5,6 +5,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActionIcon,
+  Button,
   Group,
   Loader,
   Menu,
@@ -155,6 +156,7 @@ export function GridsModal({
   onClose,
   currentId,
   onOpen,
+  onNew,
   onDelete,
   onRename,
 }: {
@@ -162,6 +164,7 @@ export function GridsModal({
   onClose: () => void;
   currentId: string | null;
   onOpen: (id: string) => void;
+  onNew: () => Promise<void>;
   onDelete: (id: string) => Promise<void>;
   onRename: (id: string, name: string) => Promise<void>;
 }) {
@@ -190,6 +193,12 @@ export function GridsModal({
     (g.name || DEFAULT_SCENARIO_NAME).toLowerCase().includes(q),
   );
 
+  // The new scenario opens in its own tab, so the library gets out of the way.
+  const startNew = () => {
+    onClose();
+    void onNew();
+  };
+
   return (
     <Modal
       opened={opened}
@@ -204,17 +213,36 @@ export function GridsModal({
             <Loader size="sm" />
           </Group>
         ) : grids.length === 0 ? (
-          <Text size="sm" c="dimmed" ta="center" py="lg">
-            No saved scenarios yet. Anything you build while signed in is saved
-            here.
-          </Text>
+          // No search field to sit beside, and nothing to infer a bare + from.
+          <Stack align="center" gap="sm" py="lg">
+            <Text size="sm" c="dimmed" ta="center">
+              No saved scenarios yet. Anything you build while signed in is saved
+              here.
+            </Text>
+            <Button size="sm" variant="light" onClick={startNew}>
+              New scenario
+            </Button>
+          </Stack>
         ) : (
           <>
-            <TextInput
-              placeholder="Search scenarios…"
-              value={query}
-              onChange={(e) => setQuery(e.currentTarget.value)}
-            />
+            <Group gap="xs" wrap="nowrap" align="center">
+              <TextInput
+                placeholder="Search scenarios…"
+                value={query}
+                onChange={(e) => setQuery(e.currentTarget.value)}
+                style={{ flex: 1 }}
+              />
+              <ActionIcon
+                variant="light"
+                size={36}
+                title="New scenario"
+                aria-label="New scenario"
+                onClick={startNew}
+                style={{ flex: "0 0 auto", fontSize: 18 }}
+              >
+                +
+              </ActionIcon>
+            </Group>
             {filtered.length === 0 ? (
               <Text size="sm" c="dimmed" ta="center" py="lg">
                 No scenarios match “{query.trim()}”.

@@ -68,6 +68,18 @@ export async function flushPending(): Promise<void> {
   }
 }
 
+// Land any queued edits as the page goes away. A normal flush would be cancelled
+// on unload; `keepalive` lets it finish. Nothing left to await or report to.
+export function flushOnUnload(): void {
+  clearTimeout(timer);
+  timer = undefined;
+  const id = sessionId();
+  if (!id || queue.length === 0) return;
+  const batch = queue;
+  queue = [];
+  void sendCommands(id, batch, { keepalive: true }).catch(() => {});
+}
+
 // Throw queued edits away unsent — when they'd be rejected (the session is about
 // to become unreachable) or undone (a discard is reverting them anyway).
 export function dropPending(): void {
