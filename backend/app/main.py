@@ -267,6 +267,52 @@ def share_session(session: Session = Depends(current_session)) -> dict[str, str]
     return {"token": store.create_share(session.id)}
 
 
+@app.get("/embed/view/{session_id}")
+def embed_view(session_id: str) -> dict:
+    """Return a read-only projection for embedding (no clone, no session mutation).
+
+    Unlike ``open_share`` this does NOT create a new session — it returns the
+    projection of the existing session for display only. The response also
+    carries the network name and a share token (minted if needed) so the embed
+    viewer can link back to the full editor."""
+    try:
+        session = store.get(session_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Session not found.")
+    with session.lock:
+        view = _view(session)
+        name = session.net.get("name") or DEFAULT_SCENARIO_NAME
+        try:
+            share_token = store.create_share(session_id)
+        except Exception:
+            share_token = None
+        return {"view": view, "name": name, "shareToken": share_token}
+
+
+@app.get("/oembed")
+def oembed(url: str, maxwidth: int | None = None, maxheight: int | None = None, format: str = "json") -> dict:
+    """Standard oEmbed discovery endpoint (rich type). CMS platforms like
+    WordPress call this to auto-embed a BambooGrid scenario from a pasted URL."""
+    if format != "json":
+        raise HTTPException(status_code=501, detail="Only JSON format is supported.")
+    width = min(maxwidth, 800) if maxwidth else 800
+    height = min(maxheight, 500) if maxheight else 500
+    return {
+        "type": "rich",
+        "version": "1.0",
+        "title": "BambooGrid Scenario",
+        "provider_name": "BambooGrid",
+        "provider_url": "https://bamboo.kickstage.com",
+        "width": width,
+        "height": height,
+        "html": (
+            f'<iframe src="{url}" width="{width}" height="{height}" '
+            f'style="border:1px solid #e0e0e0;border-radius:8px" '
+            f'loading="lazy" sandbox="allow-scripts allow-same-origin"></iframe>'
+        ),
+    }
+
+
 @app.post("/share/{token}", response_model=SessionInfo)
 def open_share(token: str) -> SessionInfo:
     """Clone the shared session into a fresh, independent session. The copy opens
@@ -538,6 +584,14 @@ if os.path.isdir(_STATIC_DIR):
     _index_html_path = Path(_STATIC_DIR) / "index.html"
     _index_html_template: str = _index_html_path.read_text(encoding="utf-8")
 
+    # Embed entry point: a separate, minimal HTML page that allows framing.
+    _embed_html_path = Path(_STATIC_DIR) / "embed.html"
+    _embed_html: str | None = (
+        _embed_html_path.read_text(encoding="utf-8")
+        if _embed_html_path.exists()
+        else None
+    )
+
     @app.get("/", include_in_schema=False)
     def serve_index() -> HTMLResponse:
         """Serve index.html with a runtime config block injected before </head>.
@@ -551,5 +605,21 @@ if os.path.isdir(_STATIC_DIR):
         script = f"<script>window.__BAMBOOGRID_CONFIG__={config_json};</script>"
         html = _index_html_template.replace("</head>", f"{script}\n</head>", 1)
         return HTMLResponse(content=html)
+
+    @app.get("/embed/{session_id:path}", include_in_schema=False)
+    def serve_embed(session_id: str) -> HTMLResponse:
+        """Serve the embed SPA for ``/embed/<session-id>``.
+
+        Unlike the main app, embeds are designed to live inside iframes on
+        third-party sites, so ``frame-ancestors`` is set to ``*``."""
+        if _embed_html is None:
+            raise HTTPException(status_code=404, detail="Embed page not built.")
+        return HTMLResponse(
+            content=_embed_html,
+            headers={
+                "Content-Security-Policy": "frame-ancestors *",
+                "X-Frame-Options": "",
+            },
+        )
 
     app.mount("/", StaticFiles(directory=_STATIC_DIR, html=True), name="static")
