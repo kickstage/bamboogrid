@@ -87,8 +87,12 @@ function readWidth(p: (typeof PANELS)[keyof typeof PANELS]): number {
   return p.default;
 }
 
-// A 5px hit area that drives a width via mouse drag. `dir` is +1 when dragging
-// right grows the panel (left sidebar) and -1 when it shrinks it (right one).
+// A VS Code-style sash that drives a sidebar width via mouse drag: it takes no
+// layout space, instead overlaying the sidebar's 1px border with a 6px hit
+// area. Invisible at rest; painted in the accent color on hover (slightly
+// delayed, so it doesn't flash when the cursor just passes through) and while
+// dragging. `dir` is +1 when dragging right grows the panel (left sidebar) and
+// -1 when it shrinks it (right one).
 function ResizeHandle({
   panel,
   dir,
@@ -100,14 +104,18 @@ function ResizeHandle({
   get: () => number;
   set: (w: number) => void;
 }) {
+  const [hover, setHover] = useState(false);
+  const [dragging, setDragging] = useState(false);
   const onDown = (e: React.MouseEvent) => {
     e.preventDefault();
+    setDragging(true);
     const startX = e.clientX;
     const startW = get();
     const onMove = (ev: MouseEvent) => {
       set(clamp(startW + (ev.clientX - startX) * dir, panel.min, panel.max));
     };
     const onUp = () => {
+      setDragging(false);
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);
       document.body.style.cursor = "";
@@ -124,15 +132,33 @@ function ResizeHandle({
     document.body.style.userSelect = "none";
   };
   return (
-    <div
-      onMouseDown={onDown}
-      style={{
-        width: 5,
-        flex: "0 0 5px",
-        cursor: "col-resize",
-        background: "var(--mantine-color-default-border)",
-      }}
-    />
+    <div style={{ position: "relative", width: 0, flex: "0 0 0px" }}>
+      <div
+        onMouseDown={onDown}
+        onMouseEnter={() => setHover(true)}
+        onMouseLeave={() => setHover(false)}
+        style={{
+          position: "absolute",
+          top: 0,
+          bottom: 0,
+          left: -3,
+          width: 6,
+          cursor: "col-resize",
+          background:
+            hover || dragging
+              ? "var(--mantine-primary-color-filled)"
+              : "transparent",
+          // Delay the hover highlight (VS Code-style) so it doesn't flash while
+          // the cursor passes through; clear instantly on leave/drop.
+          transition: dragging
+            ? "none"
+            : hover
+              ? "background-color 80ms ease 250ms"
+              : "background-color 40ms ease",
+          zIndex: 50,
+        }}
+      />
+    </div>
   );
 }
 
@@ -1176,7 +1202,6 @@ export default function App() {
 
       <div style={{ display: "flex", flex: 1, minHeight: 0 }}>
         <Paper
-          withBorder
           radius={0}
           onPointerDown={deselectAll}
           style={{
@@ -1185,6 +1210,9 @@ export default function App() {
             display: "flex",
             flexDirection: "column",
             overflow: "hidden",
+            // Only the inner edge: top/bottom collapse into the header shadow and
+            // the footer's own border instead of doubling up.
+            borderRight: "1px solid var(--mantine-color-default-border)",
           }}
         >
           <div style={{ flex: 1, overflowY: "auto" }}>
@@ -1240,9 +1268,13 @@ export default function App() {
           set={setRightW}
         />
         <Paper
-          withBorder
           radius={0}
-          style={{ width: rightW, flex: `0 0 ${rightW}px`, overflowY: "auto" }}
+          style={{
+            width: rightW,
+            flex: `0 0 ${rightW}px`,
+            overflowY: "auto",
+            borderLeft: "1px solid var(--mantine-color-default-border)",
+          }}
         >
           <Inspector />
         </Paper>

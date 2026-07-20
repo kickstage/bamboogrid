@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Button,
-  Modal,
   Paper,
   Stack,
   Text,
@@ -26,15 +25,15 @@ import { edgeTypes } from "../edges";
 import { nodeTypes } from "../nodes";
 import { useEditor } from "../store";
 import { toast } from "../toast";
-import { elementInjection, type BusInjection } from "../power";
-import { PowerTriangle } from "../diagrams/PowerTriangle";
-import { Waveforms } from "../diagrams/Waveforms";
-import { NodeContextMenu, type BusGraphKind } from "./NodeContextMenu";
+import { elementInjection } from "../power";
+import { BusGraphWindow, type BusGraph } from "../diagrams/BusGraphWindow";
+import { NodeContextMenu } from "./NodeContextMenu";
 import { SearchPanel } from "./SearchPanel";
 import { YbusPanel } from "../study/YbusPanel";
 import { SummaryPanel } from "../study/SummaryPanel";
 import { LoadFlowSettingsPanel } from "../study/LoadFlowSettingsPanel";
 import { useClampedPosition } from "../ui/useClampedPosition";
+import { MENU_Z } from "../ui/zStack";
 import type { BusData, ElementKind } from "../types";
 
 // How far a search-dimmed element fades back (the spotlighted one stays at 1).
@@ -165,9 +164,12 @@ export function Canvas() {
     y: number;
     edgeId: string;
   } | null>(null);
-  const [graph, setGraph] = useState<{ kind: BusGraphKind; inj: BusInjection } | null>(
-    null,
-  );
+  // One slot per graph kind so a power triangle and a U/I waveform can be open at
+  // once (each in its own dockable window); reopening a kind replaces that kind.
+  const [graphs, setGraphs] = useState<{
+    triangle: BusGraph | null;
+    waves: BusGraph | null;
+  }>({ triangle: null, waves: null });
   // The graphs hang off an injecting element's menu. `nodeMenuGraphable` decides
   // whether to offer them at all; `nodeMenuInj` is null until a load flow has
   // produced the element's power (loads use their input, so are always ready).
@@ -580,7 +582,7 @@ export function Canvas() {
             position: "fixed",
             left: branchPos.left,
             top: branchPos.top,
-            zIndex: 11,
+            zIndex: MENU_Z,
             minWidth: 180,
           }}
         >
@@ -623,7 +625,11 @@ export function Canvas() {
             setNodeMenu(null);
           }}
           onGraph={(kind) => {
-            if (nodeMenuInj) setGraph({ kind, inj: nodeMenuInj });
+            if (nodeMenuInj) {
+              const label = (nodeMenuNode?.data as { name?: string } | undefined)
+                ?.name;
+              setGraphs((g) => ({ ...g, [kind]: { kind, inj: nodeMenuInj, label } }));
+            }
             setNodeMenu(null);
           }}
         />
@@ -640,7 +646,7 @@ export function Canvas() {
             position: "fixed",
             left: pastePos.left,
             top: pastePos.top,
-            zIndex: 11,
+            zIndex: MENU_Z,
             minWidth: 140,
           }}
         >
@@ -677,7 +683,7 @@ export function Canvas() {
             position: "fixed",
             left: edgePos.left,
             top: edgePos.top,
-            zIndex: 11,
+            zIndex: MENU_Z,
             minWidth: 140,
           }}
         >
@@ -702,19 +708,14 @@ export function Canvas() {
         </Paper>
       )}
 
-      <Modal
-        opened={graph !== null}
-        onClose={() => setGraph(null)}
-        centered
-        title={graph?.kind === "waves" ? "Voltage / current waveform" : "Power triangle"}
-      >
-        {graph?.kind === "triangle" && (
-          <PowerTriangle p={graph.inj.p_mw} q={graph.inj.q_mvar} />
-        )}
-        {graph?.kind === "waves" && (
-          <Waveforms p={graph.inj.p_mw} q={graph.inj.q_mvar} />
-        )}
-      </Modal>
+      <BusGraphWindow
+        graph={graphs.triangle}
+        onClose={() => setGraphs((g) => ({ ...g, triangle: null }))}
+      />
+      <BusGraphWindow
+        graph={graphs.waves}
+        onClose={() => setGraphs((g) => ({ ...g, waves: null }))}
+      />
     </div>
   );
 }

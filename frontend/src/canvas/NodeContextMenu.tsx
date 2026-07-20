@@ -2,6 +2,7 @@ import { Button, Divider, Paper, Stack, Text } from "@mantine/core";
 
 import { Submenu } from "../ui/Submenu";
 import { useClampedPosition } from "../ui/useClampedPosition";
+import { MENU_Z } from "../ui/zStack";
 
 export type BusGraphKind = "triangle" | "waves";
 
@@ -57,7 +58,7 @@ export function NodeContextMenu({
       withBorder
       p={4}
       bg="light-dark(var(--mantine-color-gray-0), var(--mantine-color-dark-6))"
-      style={{ position: "fixed", left, top, zIndex: 11, minWidth: 160 }}
+      style={{ position: "fixed", left, top, zIndex: MENU_Z, minWidth: 160 }}
     >
         <Stack gap={2}>
           <Button {...item} onClick={onDuplicate}>
