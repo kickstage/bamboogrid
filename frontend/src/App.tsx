@@ -44,6 +44,7 @@ import {
   importPandapower,
   openShare,
   renameGrid,
+  runEstimation,
   runLoadFlow,
   runShortCircuit,
   type Scenario,
@@ -183,6 +184,7 @@ export default function App() {
     networkName,
     applyResults,
     applyShortCircuit,
+    applyEstimation,
     studyMode,
     setStudyMode,
     showResults,
@@ -772,7 +774,12 @@ export default function App() {
     // instead of surfacing that failure.
     const { nodes } = useEditor.getState();
     if (nodes.length === 0) {
-      const study = studyMode === "shortcircuit" ? "short circuit" : "load flow";
+      const study =
+        studyMode === "shortcircuit"
+          ? "short circuit"
+          : studyMode === "estimation"
+            ? "state estimation"
+            : "load flow";
       const ieee14 = scenarios.find((s) => s.id === "case14");
       const noticeId = "empty-canvas-run";
       notifications.show({
@@ -813,6 +820,11 @@ export default function App() {
         const result = await runShortCircuit(sessionId);
         applyShortCircuit(result);
         if (result.ok) toast.success("Short circuit complete.");
+      } else if (studyMode === "estimation") {
+        const result = await runEstimation(sessionId);
+        applyEstimation(result);
+        if (result.ok && !result.bad_data)
+          toast.success("State estimation converged.");
       } else {
         const result = await runLoadFlow(sessionId);
         applyResults(result);
@@ -1157,9 +1169,14 @@ export default function App() {
               size="xs"
               value={studyMode}
               onChange={(v) => setStudyMode(v as typeof studyMode)}
+              // Keep the current selection when switching studies (the toolbar
+              // deselects on pointer-down; the inspector re-renders for the new
+              // mode on the same element).
+              onPointerDown={(e) => e.stopPropagation()}
               data={[
                 { label: "Load flow", value: "loadflow" },
                 { label: "Short circuit", value: "shortcircuit" },
+                { label: "Estimation", value: "estimation" },
               ]}
             />
             <Tooltip

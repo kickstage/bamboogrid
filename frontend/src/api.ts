@@ -7,6 +7,7 @@ import type {
   NetworkSummary,
   SessionMeta,
   ShortCircuitResult,
+  StateEstimationResult,
   User,
   ViewModel,
   YbusResult,
@@ -313,6 +314,19 @@ export async function runLoadFlow(id: string): Promise<LoadFlowResult> {
 export async function runShortCircuit(id: string): Promise<ShortCircuitResult> {
   return json(
     await fetch(`${BASE}/session/run-shortcircuit`, {
+      method: "POST",
+      headers: sessionHeaders(id),
+    }),
+  );
+}
+
+// Run a WLS state estimation over the session's measurements; results keyed by
+// element id.
+export async function runEstimation(
+  id: string,
+): Promise<StateEstimationResult> {
+  return json(
+    await fetch(`${BASE}/session/run-estimation`, {
       method: "POST",
       headers: sessionHeaders(id),
     }),

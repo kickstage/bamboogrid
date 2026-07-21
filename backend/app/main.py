@@ -45,10 +45,12 @@ from .schema import (
     SessionInfo,
     SessionMeta,
     ShortCircuitResult,
+    StateEstimationResult,
     User,
     ViewModel,
     YbusResult,
 )
+from .estimation import run_estimation
 from .sc import run_shortcircuit
 from .session import ConflictError, Session, store
 from .solve import get_loadflow_settings, set_loadflow_settings, solve_net
@@ -435,6 +437,23 @@ def run_short_circuit(
             span.set_attribute("session.id", session.id)
             span.set_attribute("net.bus_count", int(len(session.net.bus)))
             return run_shortcircuit(session.net)
+
+
+@app.post("/session/run-estimation", response_model=StateEstimationResult)
+async def run_state_estimation(
+    session: Session = Depends(current_session),
+) -> StateEstimationResult:
+    """Run a WLS state estimation over the session's measurements, results keyed
+    by editor id. CPU-bound like the load flow, so it shares the solve limiter."""
+    async with _solve_limiter:
+        def _estimate() -> StateEstimationResult:
+            with session.lock:
+                with tracer.start_as_current_span("estimation.run") as span:
+                    span.set_attribute("session.id", session.id)
+                    span.set_attribute("net.bus_count", int(len(session.net.bus)))
+                    return run_estimation(session.net)
+
+        return await run_in_threadpool(_estimate)
 
 
 @app.post("/session/summary", response_model=NetworkSummary)

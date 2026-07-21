@@ -28,6 +28,9 @@ export type BusData = {
   ip_ka?: number;
   ith_ka?: number;
   skss_mw?: number;
+  // Filled in after a state estimation (estimated voltage magnitude/angle).
+  est_vm_pu?: number;
+  est_va_degree?: number;
 };
 
 export type GeneratorData = {
@@ -465,6 +468,43 @@ export interface Impedance {
   y: number;
 }
 
+// A state-estimation measurement (pandapower `measurement`). Unlike every other
+// element it has no canvas presence — it annotates an existing bus, line or
+// transformer. `meas_type` is the measured quantity (voltage magnitude `v`,
+// active/reactive power `p`/`q`, current `i`, voltage angle `va`) and `std_dev`
+// its Gaussian noise in that unit. `side` picks a branch end (from/to on a line,
+// hv/mv/lv on a transformer) and is null for a bus.
+export type MeasType = "v" | "p" | "q" | "i" | "va";
+export type MeasElementType = "bus" | "line" | "trafo" | "trafo3w";
+export type MeasSide = "from" | "to" | "hv" | "mv" | "lv";
+
+// Display metadata for each measured quantity — the descriptive label, compact
+// symbol, unit and decimal precision. Single source consumed by the inspector
+// and the canvas badge (kept here next to the type so they can't drift).
+export const MEAS_META: Record<
+  MeasType,
+  { label: string; symbol: string; unit: string; dp: number }
+> = {
+  v: { label: "Voltage |V|", symbol: "|V|", unit: "p.u.", dp: 4 },
+  va: { label: "Voltage angle", symbol: "∠V", unit: "°", dp: 2 },
+  p: { label: "Active power P", symbol: "P", unit: "MW", dp: 3 },
+  q: { label: "Reactive power Q", symbol: "Q", unit: "Mvar", dp: 3 },
+  i: { label: "Current I", symbol: "I", unit: "kA", dp: 4 },
+};
+
+export interface Measurement {
+  id: string;
+  name: string;
+  meas_type: MeasType;
+  element_type: MeasElementType;
+  element_id: string;
+  side: MeasSide | null;
+  value: number;
+  std_dev: number;
+  // When false the measurement is kept but excluded from the estimation.
+  enabled: boolean;
+}
+
 export interface Network {
   id: string;
   name: string;
@@ -483,6 +523,7 @@ export interface Network {
   xwards: Xward[];
   svcs: Svc[];
   impedances: Impedance[];
+  measurements: Measurement[];
   // Positions are the coarse server fallback; the client recomputes (ELK) and
   // persists a proper layout, which clears this.
   needs_layout?: boolean;
@@ -714,4 +755,75 @@ export interface ShortCircuitResult {
   ok: boolean;
   message: string;
   res_bus: BusScResult[];
+}
+
+// --- State estimation (WLS) -----------------------------------------------
+
+export interface BusEstResult {
+  id: string;
+  vm_pu: number | null;
+  va_degree: number | null;
+  p_mw: number | null;
+  q_mvar: number | null;
+}
+
+// Estimated flow into one end of a branch — a line (from/to) or a transformer
+// winding (hv/mv/lv). Power in ≠ power out (branch losses), so each end differs.
+export interface BranchSideEst {
+  side: string;
+  p_mw: number | null;
+  q_mvar: number | null;
+  i_ka: number | null;
+}
+
+export interface LineEstResult {
+  id: string;
+  loading_percent: number | null;
+  sides: BranchSideEst[]; // "from" and "to"
+}
+
+export interface TrafoEstResult {
+  id: string;
+  loading_percent: number | null;
+  sides: BranchSideEst[]; // hv/lv (2W) or hv/mv/lv (3W)
+}
+
+// The estimated state of one element, as the canvas badge consumes it (keyed by
+// element id in the store). A discriminated union so the badge renders the right
+// quantities for a bus, a line or a transformer (both branches carry per-end
+// flows).
+export type ElementEstimate =
+  | {
+      kind: "bus";
+      vm_pu: number | null;
+      va_degree: number | null;
+      p_mw: number | null;
+      q_mvar: number | null;
+    }
+  | { kind: "line"; loading_percent: number | null; sides: BranchSideEst[] }
+  | { kind: "trafo"; loading_percent: number | null; sides: BranchSideEst[] };
+
+// Per-measurement diagnostics: the estimated value, the raw residual
+// (measured − estimated) and the (non-negative) normalized residual rᴺ used by
+// the bad-data test. `is_bad` marks the single measurement the largest-
+// normalized-residual test identified as most likely bad (a gross error smears
+// across many residuals, so only the largest is flagged).
+export interface MeasurementResidual {
+  id: string;
+  measured: number | null;
+  estimated: number | null;
+  residual: number | null;
+  normalized_residual: number | null;
+  is_bad: boolean;
+}
+
+export interface StateEstimationResult {
+  ok: boolean;
+  message: string;
+  // True when the chi² test flags the measurement set as containing bad data.
+  bad_data: boolean;
+  res_bus: BusEstResult[];
+  res_line: LineEstResult[];
+  res_trafo: TrafoEstResult[];
+  residuals: MeasurementResidual[];
 }

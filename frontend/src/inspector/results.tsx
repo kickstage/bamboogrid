@@ -157,6 +157,15 @@ export function nodeResultRows(type: string | undefined, data: unknown): ResultR
   return [];
 }
 
+// State-estimation result rows for a bus, or [] before an estimation run.
+export function busEstRows(data: BusData): ResultRow[] {
+  if (data.est_vm_pu === undefined) return [];
+  return [
+    [SYM.vm, `${fixed(data.est_vm_pu, 4)} p.u.`],
+    [SYM.va, `${fixed(data.est_va_degree ?? 0, 2)}°`],
+  ];
+}
+
 // Short-circuit result rows for a bus, or [] before a short-circuit run.
 export function busScRows(data: BusData): ResultRow[] {
   if (data.ikss_ka === undefined) return [];
@@ -189,7 +198,11 @@ export function busInjectionRows(inj: BusInjection): ResultRow[] {
 
 // Explains the busbar colors a load flow paints on (see voltageColor in
 // BusNode): how far each bus's solved voltage sits from nominal (1.0 p.u.).
-export function VoltageLegend() {
+export function VoltageLegend({
+  caption = "Bus voltage after load flow",
+}: {
+  caption?: string;
+}) {
   const Row = ({ color, label }: { color: string; label: string }) => (
     <Group gap={6} wrap="nowrap">
       <span
@@ -202,7 +215,7 @@ export function VoltageLegend() {
   );
   return (
     <Stack gap={4}>
-      <SectionLabel>Bus voltage after load flow</SectionLabel>
+      <SectionLabel>{caption}</SectionLabel>
       <Row color="#16a34a" label="Green — within 5% of nominal" />
       <Row color="#d97706" label="Orange — 5–10% off nominal" />
       <Row color="#dc2626" label="Red — more than 10% off" />

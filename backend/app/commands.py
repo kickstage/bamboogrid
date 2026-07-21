@@ -83,10 +83,14 @@ def _set_diagram(net, table: str, index: int, row: dict) -> None:
         d.at[index, col] = value
 
 
+# Editor measurement element_type -> pandapower table it annotates.
+_MEAS_TABLES = ("bus", "line", "trafo", "trafo3w")
+
+
 def _prune_diagrams(net) -> None:
     """Drop diagram rows whose element no longer exists (e.g. after a cascading
     bus delete), keeping the layout tables aligned with the net."""
-    for table in _KIND_TABLE.values():
+    for table in (*_KIND_TABLE.values(), "measurement"):
         d = net.get(f"diagram_{table}")
         if d is None:
             continue
@@ -94,6 +98,26 @@ def _prune_diagrams(net) -> None:
         stale = [i for i in d.index if int(i) not in present]
         if stale:
             net[f"diagram_{table}"] = d.drop(stale)
+
+
+def _prune_measurements(net) -> None:
+    """Drop measurements whose annotated element is gone. ``drop_buses`` and the
+    branch cascade remove elements but leave measurements pointing at them, so a
+    bus delete would otherwise strand a line measurement on a now-deleted line."""
+    meas = net.get("measurement")
+    if meas is None or not len(meas):
+        return
+    present = {etype: set(net[etype].index) for etype in _MEAS_TABLES}
+    stale = []
+    for i in meas.index:
+        etype = str(meas.at[i, "element_type"])
+        if etype not in present:
+            continue  # a table the editor doesn't manage — leave it alone
+        elem = meas.at[i, "element"]
+        if pd.isna(elem) or int(elem) not in present[etype]:
+            stale.append(i)
+    if stale:
+        net["measurement"] = meas.drop(stale)
 
 
 def _trafo_std(net, table: str, requested: str) -> str:
@@ -322,6 +346,60 @@ def _add_impedance(net, p: dict) -> None:
     )
 
 
+def _add_measurement(net, p: dict) -> None:
+    """Attach a measurement to an existing bus/line/transformer. Stored in
+    pandapower's native ``measurement`` table (so it round-trips and feeds the
+    state estimator); the uuid lives in ``diagram_measurement`` for addressing."""
+    d = p["data"]
+    etype = d["element_type"]
+    if etype not in _MEAS_TABLES:
+        raise CommandError(f"Cannot measure element type '{etype}'.")
+    element = _index_of(net, etype, d["element_id"])
+    idx = pp.create_measurement(
+        net,
+        meas_type=d["meas_type"],
+        element_type=etype,
+        value=d["value"],
+        std_dev=d["std_dev"],
+        element=element,
+        side=d.get("side"),
+        name=d.get("name", "Measurement"),
+    )
+    _set_diagram(
+        net,
+        "measurement",
+        int(idx),
+        {"uuid": p["id"], "enabled": bool(d.get("enabled", True))},
+    )
+
+
+def _update_measurement(net, p: dict) -> None:
+    idx = _index_of(net, "measurement", p["id"])
+    patch = dict(p.get("patch", {}))
+    # ``enabled`` lives in the diagram table (pandapower's measurement table has
+    # no such column), so route it there rather than onto the net.
+    if "enabled" in patch:
+        _set_diagram(net, "measurement", idx, {"enabled": bool(patch.pop("enabled"))})
+    # Re-targeting: resolve the editor uuid to a pandapower index against the
+    # (possibly new) element type.
+    if "element_id" in patch:
+        etype = patch.get("element_type", str(net.measurement.at[idx, "element_type"]))
+        if etype not in _MEAS_TABLES:
+            raise CommandError(f"Cannot measure element type '{etype}'.")
+        net.measurement.at[idx, "element"] = _index_of(net, etype, patch.pop("element_id"))
+    # Editor field names -> measurement columns.
+    renames = {"meas_type": "measurement_type"}
+    for key in ("meas_type", "element_type", "side", "value", "std_dev", "name"):
+        if key in patch:
+            net.measurement.at[idx, renames.get(key, key)] = patch[key]
+
+
+def _delete_measurement(net, p: dict) -> None:
+    idx = _index_of(net, "measurement", p["id"])
+    net.measurement = net.measurement.drop(idx)
+    _prune_diagrams(net)
+
+
 def _add_switch(net, p: dict) -> None:
     idx = pp.create_switch(
         net,
@@ -412,6 +490,9 @@ def _delete(net, p: dict) -> None:
         pp_toolbox.drop_buses(net, [idx])
     else:
         net[table] = net[table].drop(idx)
+    # Measurements aren't covered by pandapower's delete cascade — drop any left
+    # pointing at a removed element before realigning the diagram tables.
+    _prune_measurements(net)
     _prune_diagrams(net)
 
 
@@ -440,6 +521,9 @@ _HANDLERS = {
     "add_transformer": _add_transformer,
     "add_transformer3w": _add_transformer3w,
     "add_impedance": _add_impedance,
+    "add_measurement": _add_measurement,
+    "update_measurement": _update_measurement,
+    "delete_measurement": _delete_measurement,
     "add_switch": _add_switch,
     "connect": _connect,
     "update": _update,

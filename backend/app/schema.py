@@ -369,6 +369,32 @@ class Line(BaseModel):
     y: float = 0.0
 
 
+class Measurement(BaseModel):
+    """A field measurement feeding state estimation (pandapower ``measurement``).
+
+    Unlike every other element it has no canvas presence: it annotates an
+    existing bus, line or transformer rather than being drawn. ``meas_type`` is
+    the measured quantity — voltage magnitude ``v`` [p.u.], active/reactive power
+    ``p``/``q`` [MW/MVar], current ``i`` [kA] or voltage angle ``va`` [deg] — and
+    ``std_dev`` its Gaussian noise in that unit (the WLS weight is 1/σ²).
+
+    ``element_id`` is the editor uuid of the annotated element; ``side`` picks a
+    branch end (``from``/``to`` on a line, ``hv``/``mv``/``lv`` on a transformer)
+    and is ``None`` for a bus measurement."""
+
+    id: str
+    name: str = "Measurement"
+    meas_type: Literal["v", "p", "q", "i", "va"] = "v"
+    element_type: Literal["bus", "line", "trafo", "trafo3w"] = "bus"
+    element_id: str = ""  # editor uuid of the annotated bus/line/trafo
+    side: Literal["from", "to", "hv", "mv", "lv"] | None = None
+    value: float = 0.0
+    std_dev: float = Field(default=0.01, gt=0, description="Std. deviation [meas. unit]")
+    # When False the measurement is kept but excluded from the estimation, so it
+    # can be toggled off without deleting and re-entering it.
+    enabled: bool = True
+
+
 class Network(BaseModel):
     id: str
     name: str = DEFAULT_SCENARIO_NAME
@@ -389,6 +415,7 @@ class Network(BaseModel):
     xwards: list[Xward] = Field(default_factory=list)
     svcs: list[Svc] = Field(default_factory=list)
     impedances: list[Impedance] = Field(default_factory=list)
+    measurements: list[Measurement] = Field(default_factory=list)
     # Set when positions are only the coarse graph fallback; the client should
     # recompute a proper layout (ELK) and persist it, which clears the flag.
     needs_layout: bool = False
@@ -554,6 +581,72 @@ class ShortCircuitResult(BaseModel):
     ok: bool
     message: str = ""
     res_bus: list[BusScResult] = Field(default_factory=list)
+
+
+# --- State estimation (WLS) result types -----------------------------------
+
+
+class BusEstResult(BaseModel):
+    id: str
+    # Estimated voltage magnitude/angle and the injected power at the bus.
+    vm_pu: float | None = None
+    va_degree: float | None = None
+    p_mw: float | None = None
+    q_mvar: float | None = None
+
+
+class BranchSideEst(BaseModel):
+    """Estimated flow into one end of a branch — a line (from/to) or a
+    transformer winding (hv/mv/lv). Power in ≠ power out (branch losses), so each
+    end is reported separately."""
+
+    side: str
+    p_mw: float | None = None
+    q_mvar: float | None = None
+    i_ka: float | None = None
+
+
+class LineEstResult(BaseModel):
+    id: str
+    loading_percent: float | None = None
+    # Both ends of the line: "from" and "to".
+    sides: list[BranchSideEst] = Field(default_factory=list)
+
+
+class TrafoEstResult(BaseModel):
+    id: str
+    loading_percent: float | None = None
+    # One entry per winding (hv/lv for a 2W, hv/mv/lv for a 3W transformer).
+    sides: list[BranchSideEst] = Field(default_factory=list)
+
+
+class MeasurementResidual(BaseModel):
+    """Per-measurement diagnostics from the solve: the estimated value the model
+    settled on, the raw residual (measured − estimated), and the (always
+    non-negative) normalized residual rᴺ = |r| / √Ω used by the bad-data test.
+
+    ``is_bad`` marks the single measurement the largest-normalized-residual test
+    identified as the most likely bad one. A gross error smears across many
+    measurements' residuals, so only the largest is flagged — fix or remove it
+    and re-run to check the next."""
+
+    id: str
+    measured: float | None = None
+    estimated: float | None = None
+    residual: float | None = None
+    normalized_residual: float | None = None
+    is_bad: bool = False
+
+
+class StateEstimationResult(BaseModel):
+    ok: bool
+    message: str = ""
+    # True when chi² analysis flags the measurement set as containing bad data.
+    bad_data: bool = False
+    res_bus: list[BusEstResult] = Field(default_factory=list)
+    res_line: list[LineEstResult] = Field(default_factory=list)
+    res_trafo: list[TrafoEstResult] = Field(default_factory=list)
+    residuals: list[MeasurementResidual] = Field(default_factory=list)
 
 
 # --- Network summary / diagnostics -----------------------------------------

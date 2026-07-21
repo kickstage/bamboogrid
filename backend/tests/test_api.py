@@ -591,6 +591,203 @@ def test_run_shortcircuit_missing_session_is_404(client):
     )
 
 
+# --- state estimation ------------------------------------------------------
+
+
+def _measure(mid, meas_type, element_type, element_id, value, std_dev, side=None):
+    return {
+        "op": "add_measurement",
+        "payload": {
+            "id": mid,
+            "data": {
+                "name": "M",
+                "meas_type": meas_type,
+                "element_type": element_type,
+                "element_id": element_id,
+                "side": side,
+                "value": value,
+                "std_dev": std_dev,
+            },
+        },
+    }
+
+
+def _estimation_grid(client, sid: str) -> None:
+    """The textbook 3-bus WLS example: a reference at b1, three lines, and a
+    redundant measurement set that is observable and converges."""
+    cmds = [
+        {"op": "add_bus", "payload": {"id": "b1", "name": "B1", "vn_kv": 1.0, "x": 0, "y": 0, "width": 220}},
+        {"op": "add_bus", "payload": {"id": "b2", "name": "B2", "vn_kv": 1.0, "x": 300, "y": 0, "width": 220}},
+        {"op": "add_bus", "payload": {"id": "b3", "name": "B3", "vn_kv": 1.0, "x": 600, "y": 0, "width": 220}},
+        {"op": "add_element", "payload": {"id": "eg", "kind": "extgrid", "bus_id": "b1", "port": "p0", "x": 0, "y": -100, "data": {"name": "Grid", "vm_pu": 1.0, "va_degree": 0.0}}},
+        {"op": "add_line", "payload": {"id": "l12", "from_bus": "b1", "to_bus": "b2", "port_from": "p1", "port_to": "p0", "data": {"name": "L12", "length_km": 1.0, "r_ohm_per_km": 0.01, "x_ohm_per_km": 0.03, "c_nf_per_km": 0.0, "max_i_ka": 1.0, "std_type": ""}}},
+        {"op": "add_line", "payload": {"id": "l13", "from_bus": "b1", "to_bus": "b3", "port_from": "p2", "port_to": "p0", "data": {"name": "L13", "length_km": 1.0, "r_ohm_per_km": 0.02, "x_ohm_per_km": 0.05, "c_nf_per_km": 0.0, "max_i_ka": 1.0, "std_type": ""}}},
+        {"op": "add_line", "payload": {"id": "l23", "from_bus": "b2", "to_bus": "b3", "port_from": "p1", "port_to": "p1", "data": {"name": "L23", "length_km": 1.0, "r_ohm_per_km": 0.03, "x_ohm_per_km": 0.08, "c_nf_per_km": 0.0, "max_i_ka": 1.0, "std_type": ""}}},
+        _measure("m1", "v", "bus", "b1", 1.006, 0.004),
+        _measure("m2", "v", "bus", "b2", 0.968, 0.004),
+        _measure("m3", "p", "bus", "b2", 0.501, 0.01),
+        _measure("m4", "q", "bus", "b2", 0.286, 0.01),
+        _measure("m5", "p", "line", "l12", 0.888, 0.008, side="from"),
+        _measure("m6", "q", "line", "l12", 0.568, 0.008, side="from"),
+        _measure("m7", "p", "line", "l13", 1.173, 0.008, side="from"),
+        _measure("m8", "q", "line", "l13", 0.663, 0.008, side="from"),
+    ]
+    assert client.post("/session/commands", json=cmds, headers=auth(sid)).status_code == 200
+
+
+def test_run_estimation_reconstructs_voltages(client):
+    sid = new_session(client)
+    _estimation_grid(client, sid)
+    body = client.post("/session/run-estimation", headers=auth(sid)).json()
+    assert body["ok"] is True
+    by_bus = {r["id"]: r for r in body["res_bus"]}
+    assert set(by_bus) == {"b1", "b2", "b3"}
+    # The reference bus is held near 1.0 and voltages drop away from it.
+    assert 0.99 < by_bus["b1"]["vm_pu"] < 1.01
+    assert by_bus["b3"]["vm_pu"] < by_bus["b1"]["vm_pu"]
+    # Every measurement gets a normalized residual back for bad-data review.
+    assert len(body["residuals"]) == 8
+    assert all(r["normalized_residual"] is not None for r in body["residuals"])
+
+
+def test_measurements_roundtrip_in_view(client):
+    sid = new_session(client)
+    _estimation_grid(client, sid)
+    network = client.get("/session", headers=auth(sid)).json()["network"]
+    assert len(network["measurements"]) == 8
+    v_on_b1 = [
+        m
+        for m in network["measurements"]
+        if m["element_id"] == "b1" and m["meas_type"] == "v"
+    ]
+    assert len(v_on_b1) == 1 and v_on_b1[0]["value"] == 1.006
+
+
+def test_update_and_delete_measurement(client):
+    sid = new_session(client)
+    _estimation_grid(client, sid)
+    client.post(
+        "/session/commands",
+        json=[{"op": "update_measurement", "payload": {"id": "m1", "patch": {"value": 1.02, "std_dev": 0.005}}}],
+        headers=auth(sid),
+    )
+    client.post(
+        "/session/commands",
+        json=[{"op": "delete_measurement", "payload": {"id": "m8"}}],
+        headers=auth(sid),
+    )
+    measurements = client.get("/session", headers=auth(sid)).json()["network"]["measurements"]
+    assert len(measurements) == 7
+    m1 = next(m for m in measurements if m["id"] == "m1")
+    assert m1["value"] == 1.02 and m1["std_dev"] == 0.005
+    assert all(m["id"] != "m8" for m in measurements)
+
+
+def test_deleting_bus_cascades_measurements(client):
+    sid = new_session(client)
+    _estimation_grid(client, sid)
+    # Deleting b2 drops it, the lines touching it, and every measurement on those.
+    client.post(
+        "/session/commands",
+        json=[{"op": "delete", "payload": {"kind": "bus", "id": "b2"}}],
+        headers=auth(sid),
+    )
+    measurements = client.get("/session", headers=auth(sid)).json()["network"]["measurements"]
+    # Survivors: b1 voltage (m1), and the l13 flows (m7, m8) — l13 is b1↔b3.
+    assert {m["id"] for m in measurements} == {"m1", "m7", "m8"}
+
+
+def test_se_demo_scenario_runs_estimation(client):
+    # The bundled "State estimation demo" opens with a full measurement set and
+    # estimates cleanly out of the box.
+    res = client.post("/session/scenario/se_demo")
+    assert res.status_code == 200
+    sid = res.json()["id"]
+    network = client.get("/session", headers=auth(sid)).json()["network"]
+    assert len(network["measurements"]) == 35
+    # Includes measurements on two- and three-winding transformers, not just
+    # buses and lines.
+    meas_types = {m["element_type"] for m in network["measurements"]}
+    assert {"trafo", "trafo3w"} <= meas_types
+    # The 3W transformer is metered on all three windings.
+    t3w_sides = {
+        m["side"] for m in network["measurements"] if m["element_type"] == "trafo3w"
+    }
+    assert t3w_sides == {"hv", "mv", "lv"}
+    body = client.post("/session/run-estimation", headers=auth(sid)).json()
+    assert body["ok"] is True
+    assert body["bad_data"] is False
+    assert len(body["res_bus"]) == 7
+    assert all(0.95 < r["vm_pu"] < 1.03 for r in body["res_bus"])
+
+
+def test_estimation_flags_single_bad_measurement(client):
+    # Corrupting one voltage inflates several residuals (smearing), but only the
+    # worst one — the corrupted measurement — is flagged bad.
+    res = client.post("/session/scenario/se_demo")
+    sid = res.json()["id"]
+    measurements = client.get("/session", headers=auth(sid)).json()["network"]["measurements"]
+    bad = next(m for m in measurements if m["meas_type"] == "v")
+    client.post(
+        "/session/commands",
+        json=[{"op": "update_measurement", "payload": {"id": bad["id"], "patch": {"value": 1.15}}}],
+        headers=auth(sid),
+    )
+    body = client.post("/session/run-estimation", headers=auth(sid)).json()
+    assert body["ok"] is True
+    assert body["bad_data"] is True
+    flagged = [r for r in body["residuals"] if r["is_bad"]]
+    assert len(flagged) == 1
+    assert flagged[0]["id"] == bad["id"]
+    # The flagged one has the largest normalized residual of all.
+    worst = max(body["residuals"], key=lambda r: r["normalized_residual"] or 0)
+    assert worst["id"] == bad["id"]
+
+
+def test_disabled_measurement_kept_but_excluded(client):
+    # Toggling a measurement off keeps it in the model but drops it from the
+    # solve — no need to delete and re-enter it.
+    res = client.post("/session/scenario/se_demo")
+    sid = res.json()["id"]
+    measurements = client.get("/session", headers=auth(sid)).json()["network"]["measurements"]
+    total = len(measurements)
+    target = measurements[0]["id"]
+
+    client.post(
+        "/session/commands",
+        json=[{"op": "update_measurement", "payload": {"id": target, "patch": {"enabled": False}}}],
+        headers=auth(sid),
+    )
+    after = client.get("/session", headers=auth(sid)).json()["network"]["measurements"]
+    # Still present (not deleted), just flagged off.
+    assert len(after) == total
+    assert next(m for m in after if m["id"] == target)["enabled"] is False
+
+    body = client.post("/session/run-estimation", headers=auth(sid)).json()
+    assert body["ok"] is True
+    # The disabled measurement contributes no residual.
+    assert len(body["residuals"]) == total - 1
+    assert all(r["id"] != target for r in body["residuals"])
+
+    # Re-enabling brings it back into the solve.
+    client.post(
+        "/session/commands",
+        json=[{"op": "update_measurement", "payload": {"id": target, "patch": {"enabled": True}}}],
+        headers=auth(sid),
+    )
+    body = client.post("/session/run-estimation", headers=auth(sid)).json()
+    assert len(body["residuals"]) == total
+
+
+def test_run_estimation_without_measurements_fails(client):
+    sid = new_session(client)
+    build_one_bus(client, sid)
+    body = client.post("/session/run-estimation", headers=auth(sid)).json()
+    assert body["ok"] is False
+    assert body["message"]
+    assert body["res_bus"] == []
+
+
 def test_open_unknown_share_is_404(client):
     assert client.post("/share/does-not-exist").status_code == 404
 
