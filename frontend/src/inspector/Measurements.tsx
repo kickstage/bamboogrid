@@ -149,8 +149,8 @@ export function MeasurementsSection({
     <Stack gap="xs">
       <Divider label="Measurements" labelPosition="left" />
       <Text size="xs" c="dimmed">
-        Feed state estimation with measured quantities and their noise (σ). Run
-        it from the Study menu.
+        Feed state estimation with measured quantities and their noise (σ), then
+        press Run.
       </Text>
       {mine.length === 0 && (
         <Text size="xs" c="dimmed">
@@ -172,7 +172,8 @@ export function MeasurementsSection({
               opacity: m.enabled ? 1 : 0.55,
             }}
           >
-            <Group gap="xs" wrap="nowrap" align="flex-end">
+            {/* Top row: the include toggle (left) and delete (right). */}
+            <Group justify="space-between" wrap="nowrap">
               <Checkbox
                 size="xs"
                 checked={m.enabled}
@@ -182,47 +183,47 @@ export function MeasurementsSection({
                 }
                 aria-label="Include in the state estimation"
                 title="Include this measurement in the state estimation"
-                mb={7}
                 styles={{ input: { cursor: "pointer" } }}
               />
-              <Select
-                label="Quantity"
-                size="xs"
-                data={typeOptions}
-                value={m.meas_type}
-                allowDeselect={false}
-                disabled={readOnly}
-                onChange={(v) =>
-                  v && updateMeasurement(m.id, { meas_type: v as MeasType })
-                }
-                style={{ flex: 1 }}
-              />
-              {elementType !== "bus" && (
-                <Select
-                  label="Side"
-                  size="xs"
-                  data={SIDES[elementType]}
-                  value={m.side}
-                  allowDeselect={false}
-                  disabled={readOnly}
-                  onChange={(v) =>
-                    v && updateMeasurement(m.id, { side: v as MeasSide })
-                  }
-                  style={{ width: 80 }}
-                />
-              )}
               <ActionIcon
                 variant="subtle"
                 color="gray"
+                size="sm"
                 disabled={readOnly}
                 onClick={() => removeMeasurement(m.id)}
                 aria-label="Remove measurement"
                 title="Remove measurement"
-                mb={2}
               >
                 {"×"}
               </ActionIcon>
             </Group>
+            {/* The dropdown value already names the quantity, so no label. */}
+            <Select
+              aria-label="Quantity"
+              size="xs"
+              data={typeOptions}
+              value={m.meas_type}
+              allowDeselect={false}
+              disabled={readOnly}
+              onChange={(v) =>
+                v && updateMeasurement(m.id, { meas_type: v as MeasType })
+              }
+            />
+            {/* Side gets its own full-width row so it (and Quantity) aren't
+                squished — branches only; a bus has no side. */}
+            {elementType !== "bus" && (
+              <Select
+                label="Side"
+                size="xs"
+                data={SIDES[elementType]}
+                value={m.side}
+                allowDeselect={false}
+                disabled={readOnly}
+                onChange={(v) =>
+                  v && updateMeasurement(m.id, { side: v as MeasSide })
+                }
+              />
+            )}
             <Group gap="xs" wrap="nowrap">
               <NumField
                 label={`Value (${unit})`}

@@ -1,35 +1,10 @@
-import { useEffect, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import { Badge, Group, Popover, Stack, Text } from "@mantine/core";
 import { ACCENT } from "../theme";
 import { fixed } from "../format";
+import { estimateRows } from "../inspector/results";
 import { useEditor } from "../store";
-import { MEAS_META, type ElementEstimate, type MeasType } from "../types";
-
-// A labeled value formatted to `dp` decimals, or an em dash when absent.
-const nn = (v: number | null, dp: number, unit: string) =>
-  v === null ? "—" : `${fixed(v, dp)} ${unit}`;
-
-// The estimated-state rows for an element — the estimator solves the whole
-// network, so this is populated for every bus/line/transformer, not only the
-// measured ones.
-function estimatedRows(est: ElementEstimate): { label: string; value: string }[] {
-  if (est.kind === "bus")
-    return [
-      { label: "|V|", value: nn(est.vm_pu, 4, "p.u.") },
-      { label: "∠V", value: nn(est.va_degree, 2, "°") },
-      { label: "P inj", value: nn(est.p_mw, 3, "MW") },
-      { label: "Q inj", value: nn(est.q_mvar, 3, "Mvar") },
-    ];
-  // A line or transformer — both branches, reported per end (from/to or
-  // hv/mv/lv) since the flow differs across the branch.
-  const rows = est.sides.flatMap((s) => [
-    { label: `P (${s.side})`, value: nn(s.p_mw, 3, "MW") },
-    { label: `Q (${s.side})`, value: nn(s.q_mvar, 3, "Mvar") },
-    { label: `I (${s.side})`, value: nn(s.i_ka, 4, "kA") },
-  ]);
-  rows.push({ label: "Loading", value: nn(est.loading_percent, 1, "%") });
-  return rows;
-}
+import { MEAS_META, type MeasType } from "../types";
 
 // A small "≈" tag overlapping an element that has a state-estimation result,
 // shown only in estimation mode after a run. Clicking it opens a popover with
@@ -94,7 +69,7 @@ export function EstimationBadge({
       : "currentColor";
 
   const fmt = (t: MeasType, v: number | null) =>
-    nn(v, MEAS_META[t].dp, MEAS_META[t].unit);
+    v === null ? "—" : `${fixed(v, MEAS_META[t].dp)} ${MEAS_META[t].unit}`;
 
   const isEdge = edgeX !== undefined && edgeY !== undefined;
 
@@ -131,7 +106,7 @@ export function EstimationBadge({
     </div>
   );
 
-  const Line = ({ label, value }: { label: string; value: string }) => (
+  const Line = ({ label, value }: { label: ReactNode; value: string }) => (
     <Group justify="space-between" gap="md" wrap="nowrap">
       <Text size="xs" c="dimmed">
         {label}
@@ -173,8 +148,8 @@ export function EstimationBadge({
               <Text size="xs" fw={700} tt="uppercase" c="dimmed">
                 {estCaption}
               </Text>
-              {estimatedRows(est).map((r) => (
-                <Line key={r.label} label={r.label} value={r.value} />
+              {estimateRows(est).map(([label, value], i) => (
+                <Line key={i} label={label} value={value} />
               ))}
             </Stack>
           )}

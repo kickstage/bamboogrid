@@ -31,9 +31,9 @@ import {
   HEADERS,
   ResultList,
   VoltageLegend,
-  busEstRows,
   busInjectionRows,
   busScRows,
+  estimateRows,
   nodeResultRows,
   type ResultRow,
 } from "./results";
@@ -738,6 +738,7 @@ export function Inspector() {
     updateEdgeData,
     setTrafoTapPos,
     studyMode,
+    estById,
   } = useEditor();
 
   // pandapower's std transformer catalog, fetched once (cached in api.ts). Used
@@ -792,44 +793,50 @@ export function Inspector() {
           value={d.name}
           onChange={(e) => set({ name: e.currentTarget.value })}
         />
-        {num("Length", <em>l</em>, "km", "length_km", 0.1, 3)}
-        {num(
-          "Resistance per length",
+        {/* Line parameters are hidden in estimation mode to keep the panel
+            focused on measurements and results. */}
+        {studyMode !== "estimation" && (
           <>
-            <em>R</em>′
-          </>,
-          "Ω/km",
-          "r_ohm_per_km",
-          0.01,
-          4,
-        )}
-        {num(
-          "Reactance per length",
-          <>
-            <em>X</em>′
-          </>,
-          "Ω/km",
-          "x_ohm_per_km",
-          0.01,
-          4,
-        )}
-        {num(
-          "Capacitance per length",
-          <>
-            <em>C</em>′
-          </>,
-          "nF/km",
-          "c_nf_per_km",
-          1,
-          2,
-        )}
-        {num(
-          "Max current (thermal limit)",
-          <Sym sub="max">I</Sym>,
-          "kA",
-          "max_i_ka",
-          0.01,
-          4,
+            {num("Length", <em>l</em>, "km", "length_km", 0.1, 3)}
+            {num(
+              "Resistance per length",
+              <>
+                <em>R</em>′
+              </>,
+              "Ω/km",
+              "r_ohm_per_km",
+              0.01,
+              4,
+            )}
+            {num(
+              "Reactance per length",
+              <>
+                <em>X</em>′
+              </>,
+              "Ω/km",
+              "x_ohm_per_km",
+              0.01,
+              4,
+            )}
+            {num(
+              "Capacitance per length",
+              <>
+                <em>C</em>′
+              </>,
+              "nF/km",
+              "c_nf_per_km",
+              1,
+              2,
+            )}
+            {num(
+              "Max current (thermal limit)",
+              <Sym sub="max">I</Sym>,
+              "kA",
+              "max_i_ka",
+              0.01,
+              4,
+            )}
+          </>
         )}
         {studyMode === "loadflow" && d.res_loading_percent !== undefined && (
           <ResultList
@@ -843,6 +850,12 @@ export function Inspector() {
                   ] as ResultRow[])
                 : []),
             ]}
+          />
+        )}
+        {studyMode === "estimation" && estById[lineEdge.id] && (
+          <ResultList
+            label="State estimation result"
+            rows={estimateRows(estById[lineEdge.id])}
           />
         )}
         {studyMode === "estimation" && (
@@ -892,6 +905,10 @@ export function Inspector() {
   const bus = node.type === "bus" ? (node.data as BusData) : null;
   const inj =
     bus && bus.vm_pu !== undefined ? busInjection(node.id, nodes, edges) : null;
+  // Estimation mode is about measurements and results, not editing the network,
+  // so the element's parameter editors are hidden to keep the panel focused
+  // (they're set up in load-flow mode). Physical params still feed the solve.
+  const showParams = studyMode !== "estimation";
 
   return (
     <Stack gap="sm" p="sm">
@@ -901,6 +918,9 @@ export function Inspector() {
         value={(node.data as { name: string }).name}
         onChange={(e) => update({ name: e.currentTarget.value })}
       />
+
+      {showParams && (
+        <>
 
       {node.type === "bus" &&
         (() => {
@@ -1656,6 +1676,8 @@ export function Inspector() {
             </>
           );
         })()}
+        </>
+      )}
 
       {/* Results for the active study only, so the panel isn't cluttered with
           other simulations' output. */}
@@ -1670,10 +1692,22 @@ export function Inspector() {
       {studyMode === "shortcircuit" && node.type === "bus" && (
         <ResultList label="Short-circuit result" rows={busScRows(bus!)} />
       )}
-      {studyMode === "estimation" && node.type === "bus" && (
-        <ResultList label="State estimation result" rows={busEstRows(bus!)} />
+      {studyMode === "estimation" && estById[node.id] && (
+        <ResultList
+          label="State estimation result"
+          rows={estimateRows(estById[node.id])}
+        />
       )}
 
+      {/* Measurements belong to state estimation only. */}
+      {studyMode === "estimation" && node.type && NODE_MEAS_ELEMENT[node.type] && (
+        <MeasurementsSection
+          elementType={NODE_MEAS_ELEMENT[node.type]!}
+          elementId={node.id}
+        />
+      )}
+
+      {/* The bus color legend is a reference key — kept at the bottom. */}
       {node.type === "bus" && (
         <>
           <Divider my="xs" />
@@ -1689,14 +1723,6 @@ export function Inspector() {
             />
           )}
         </>
-      )}
-
-      {/* Measurements belong to state estimation only. */}
-      {studyMode === "estimation" && node.type && NODE_MEAS_ELEMENT[node.type] && (
-        <MeasurementsSection
-          elementType={NODE_MEAS_ELEMENT[node.type]!}
-          elementId={node.id}
-        />
       )}
     </Stack>
   );

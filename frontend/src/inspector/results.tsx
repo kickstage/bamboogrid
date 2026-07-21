@@ -5,6 +5,7 @@ import { fixed } from "../format";
 import { phaseAngleDeg, powerFactor, type BusInjection } from "../power";
 import type {
   BusData,
+  ElementEstimate,
   GeneratorData,
   ImpedanceData,
   ShuntData,
@@ -157,13 +158,30 @@ export function nodeResultRows(type: string | undefined, data: unknown): ResultR
   return [];
 }
 
-// State-estimation result rows for a bus, or [] before an estimation run.
-export function busEstRows(data: BusData): ResultRow[] {
-  if (data.est_vm_pu === undefined) return [];
-  return [
-    [SYM.vm, `${fixed(data.est_vm_pu, 4)} p.u.`],
-    [SYM.va, `${fixed(data.est_va_degree ?? 0, 2)}°`],
-  ];
+// A solved value to `dp` decimals + unit, or an em dash when unavailable.
+const estVal = (v: number | null, dp: number, unit: string) =>
+  v === null ? "—" : `${fixed(v, dp)} ${unit}`;
+
+// State-estimation result rows for any element — the estimator solves the whole
+// network, so a bus reports its voltage/injection and a line/transformer its
+// per-end flows and loading. Shared by the inspector result section and the
+// canvas badge.
+export function estimateRows(e: ElementEstimate): ResultRow[] {
+  if (e.kind === "bus")
+    return [
+      [SYM.vm, estVal(e.vm_pu, 4, "p.u.")],
+      [SYM.va, estVal(e.va_degree, 2, "°")],
+      ["P inj", estVal(e.p_mw, 3, "MW")],
+      ["Q inj", estVal(e.q_mvar, 3, "Mvar")],
+    ];
+  // A line or transformer: flow into each end (from/to or hv/mv/lv), plus loading.
+  const rows: ResultRow[] = e.sides.flatMap((s) => [
+    [`P (${s.side})`, estVal(s.p_mw, 3, "MW")],
+    [`Q (${s.side})`, estVal(s.q_mvar, 3, "Mvar")],
+    [`I (${s.side})`, estVal(s.i_ka, 4, "kA")],
+  ]);
+  rows.push(["Loading", estVal(e.loading_percent, 1, "%")]);
+  return rows;
 }
 
 // Short-circuit result rows for a bus, or [] before a short-circuit run.

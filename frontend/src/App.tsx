@@ -1182,7 +1182,14 @@ export default function App() {
             <Tooltip
               label={`Run ${/Mac/i.test(navigator.platform) ? "⌘R" : "Ctrl+R"}`}
             >
-              <Button size="xs" onClick={onRun} loading={busy}>
+              <Button
+                size="xs"
+                onClick={onRun}
+                loading={busy}
+                // Keep the current selection when running (the toolbar deselects
+                // on pointer-down), so its results stay visible in the inspector.
+                onPointerDown={(e) => e.stopPropagation()}
+              >
                 Run
               </Button>
             </Tooltip>

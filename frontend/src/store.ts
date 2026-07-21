@@ -1317,46 +1317,11 @@ export const useEditor = create<EditorState>((set, get) => ({
     })),
 
   setShowResults: (show) => set({ showResults: show }),
-  // Switching study type clears every solved value so a stale load-flow result
-  // can't linger under short-circuit figures (or vice versa).
-  setStudyMode: (mode) =>
-    set((s) => {
-      if (mode === s.studyMode) return { studyMode: mode };
-      const stripRes = (data: unknown): ElementData => {
-        const d = { ...(data as Record<string, unknown>) };
-        delete d.res_p_mw;
-        delete d.res_q_mvar;
-        delete d.res_loading_percent;
-        delete d.res_i_ka;
-        return d as ElementData;
-      };
-      return {
-        studyMode: mode,
-        scMaxIkss: 0,
-        // Estimation output is meaningless under the other studies — clear it so
-        // stale badges/residuals don't linger.
-        estById: {},
-        estResiduals: {},
-        nodes: s.nodes.map((n) => {
-          if (n.type === "bus") {
-            const d = { ...(n.data as BusData) };
-            d.vm_pu = undefined;
-            d.va_degree = undefined;
-            d.ikss_ka = undefined;
-            d.ip_ka = undefined;
-            d.ith_ka = undefined;
-            d.skss_mw = undefined;
-            d.est_vm_pu = undefined;
-            d.est_va_degree = undefined;
-            return { ...n, data: d } as ElementNode;
-          }
-          return { ...n, data: stripRes(n.data) } as ElementNode;
-        }),
-        edges: s.edges.map((e) =>
-          e.type === "line" ? { ...e, data: stripRes(e.data) } : e,
-        ),
-      };
-    }),
+  // Each study's results live in their own fields (vm_pu / ikss_ka / est_*), and
+  // the canvas and inspector only show the active study's — so switching mode
+  // just changes what's displayed and keeps every study's last result, letting
+  // you toggle back and forth without re-running.
+  setStudyMode: (mode) => set({ studyMode: mode }),
   setReadOnly: (readOnly) => set({ readOnly }),
 
   setVoltageUnit: (unit) => {
