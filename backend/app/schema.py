@@ -466,6 +466,50 @@ class LoadFlowSettings(BaseModel):
     check_connectivity: bool = True
 
 
+# --- Short-circuit settings ------------------------------------------------
+
+
+class ShortCircuitSettings(BaseModel):
+    """User-configurable pandapower ``calc_sc`` options for a session.
+
+    Stored on the net as ``user_sc_options`` (a plain dict key) so they round-trip
+    through save/share/import like ``user_pf_options``. Defaults mirror the values
+    the short circuit ran with before it was configurable (see ``sc.run_shortcircuit``)."""
+
+    # Fault type. 3-phase is the standard symmetrical fault; 2-phase is the
+    # line-to-line unbalanced fault (neither needs zero-sequence data).
+    fault: Literal["3ph", "2ph"] = "3ph"
+    # IEC 60909 calculation case: maximum (design) or minimum (protection) currents.
+    case: Literal["max", "min"] = "max"
+    # Also compute the peak short-circuit current i_p.
+    ip: bool = True
+    # Also compute the thermal-equivalent short-circuit current i_th.
+    ith: bool = True
+    # Fault duration [s] used for i_th (only relevant when ``ith`` is on).
+    tk_s: float = Field(default=1.0, gt=0)
+
+
+# --- State-estimation settings ---------------------------------------------
+
+
+class StateEstimationSettings(BaseModel):
+    """User-configurable WLS state-estimation options for a session.
+
+    Stored on the net as ``user_est_options`` (a plain dict key) so they round-trip
+    like ``user_pf_options``. Defaults mirror the values the estimator ran with
+    before it was configurable (see ``estimation._estimate``)."""
+
+    # Estimator: weighted least squares, or least absolute value (robust to bad
+    # data at the cost of speed).
+    algorithm: Literal["wls", "lav"] = "wls"
+    # Voltage start: a flat profile, or warm-start from the last load-flow results.
+    init: Literal["flat", "results"] = "flat"
+    # Convergence tolerance on the state update.
+    tolerance: float = Field(default=1e-6, gt=0)
+    # Maximum solver iterations.
+    maximum_iterations: int = Field(default=50, ge=1, le=1000)
+
+
 # --- Load-flow result types ------------------------------------------------
 
 

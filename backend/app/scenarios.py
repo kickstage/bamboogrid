@@ -105,13 +105,14 @@ def _state_estimation_demo():
     return net
 
 
-# id -> (label, builder), ordered small → large.
+# id -> (label, builder). The standard networks run small → large; the
+# state-estimation demo follows them as a specialized example.
 _SCENARIOS: dict[str, tuple[str, Callable[[], object]]] = {
     "example_simple": ("Simple example", nw.example_simple),
-    "se_demo": ("State estimation demo", _state_estimation_demo),
     "case9": ("IEEE 9-bus", nw.case9),
     "case14": ("IEEE 14-bus", nw.case14),
     "case30": ("IEEE 30-bus", nw.case30),
+    "se_demo": ("State estimation demo", _state_estimation_demo),
     "example_multivoltage": ("Multi-voltage (3W transformer)", nw.example_multivoltage),
 }
 

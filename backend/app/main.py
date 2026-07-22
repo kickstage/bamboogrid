@@ -45,13 +45,15 @@ from .schema import (
     SessionInfo,
     SessionMeta,
     ShortCircuitResult,
+    ShortCircuitSettings,
     StateEstimationResult,
+    StateEstimationSettings,
     User,
     ViewModel,
     YbusResult,
 )
-from .estimation import run_estimation
-from .sc import run_shortcircuit
+from .estimation import get_est_settings, run_estimation, set_est_settings
+from .sc import get_sc_settings, run_shortcircuit, set_sc_settings
 from .session import ConflictError, Session, store
 from .solve import get_loadflow_settings, set_loadflow_settings, solve_net
 from .summary import network_summary
@@ -425,6 +427,52 @@ def put_loadflow_settings(
             set_loadflow_settings(session.net, settings)
             store.update_settings(session)
             return get_loadflow_settings(session.net)
+
+
+@app.get("/session/shortcircuit-settings", response_model=ShortCircuitSettings)
+def get_shortcircuit_settings_endpoint(
+    session: Session = Depends(current_session),
+) -> ShortCircuitSettings:
+    """The session's current short-circuit (calc_sc) settings."""
+    with session.lock:
+        return get_sc_settings(session.net)
+
+
+@app.put("/session/shortcircuit-settings", response_model=ShortCircuitSettings)
+def put_shortcircuit_settings(
+    settings: ShortCircuitSettings, session: Session = Depends(current_session)
+) -> ShortCircuitSettings:
+    """Update the session's short-circuit settings. Stored on the net, so the next
+    short circuit uses them and they round-trip with export and sharing."""
+    with session.lock:
+        with tracer.start_as_current_span("shortcircuit.settings.update") as span:
+            span.set_attribute("session.id", session.id)
+            set_sc_settings(session.net, settings)
+            store.update_settings(session)
+            return get_sc_settings(session.net)
+
+
+@app.get("/session/estimation-settings", response_model=StateEstimationSettings)
+def get_estimation_settings_endpoint(
+    session: Session = Depends(current_session),
+) -> StateEstimationSettings:
+    """The session's current state-estimation settings."""
+    with session.lock:
+        return get_est_settings(session.net)
+
+
+@app.put("/session/estimation-settings", response_model=StateEstimationSettings)
+def put_estimation_settings(
+    settings: StateEstimationSettings, session: Session = Depends(current_session)
+) -> StateEstimationSettings:
+    """Update the session's state-estimation settings. Stored on the net, so the
+    next estimation uses them and they round-trip with export and sharing."""
+    with session.lock:
+        with tracer.start_as_current_span("estimation.settings.update") as span:
+            span.set_attribute("session.id", session.id)
+            set_est_settings(session.net, settings)
+            store.update_settings(session)
+            return get_est_settings(session.net)
 
 
 @app.post("/session/run-shortcircuit", response_model=ShortCircuitResult)

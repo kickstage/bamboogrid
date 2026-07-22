@@ -683,6 +683,24 @@ export interface LoadFlowSettings {
   check_connectivity: boolean;
 }
 
+// Mirrors the backend `ShortCircuitSettings` (pandapower calc_sc options).
+export interface ShortCircuitSettings {
+  fault: "3ph" | "2ph";
+  case: "max" | "min";
+  ip: boolean;
+  ith: boolean;
+  // Fault duration [s] for the thermal-equivalent current i_th.
+  tk_s: number;
+}
+
+// Mirrors the backend `StateEstimationSettings` (WLS estimator options).
+export interface StateEstimationSettings {
+  algorithm: "wls" | "lav";
+  init: "flat" | "results";
+  tolerance: number;
+  maximum_iterations: number;
+}
+
 export interface LoadFlowResult {
   converged: boolean;
   message: string;

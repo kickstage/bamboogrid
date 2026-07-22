@@ -139,6 +139,7 @@ export function EstimationBadge({
         className="nodrag nopan"
         data-est-popover
         p={8}
+        style={{ maxHeight: "70vh", overflowY: "auto" }}
         onMouseDown={(e) => e.stopPropagation()}
         onClick={(e) => e.stopPropagation()}
       >

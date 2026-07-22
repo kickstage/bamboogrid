@@ -7,7 +7,9 @@ import type {
   NetworkSummary,
   SessionMeta,
   ShortCircuitResult,
+  ShortCircuitSettings,
   StateEstimationResult,
+  StateEstimationSettings,
   User,
   ViewModel,
   YbusResult,
@@ -351,6 +353,56 @@ export async function updateLoadFlowSettings(
 ): Promise<LoadFlowSettings> {
   return json(
     await fetch(`${BASE}/session/loadflow-settings`, {
+      method: "PUT",
+      headers: sessionHeaders(id, JSON_HEADERS),
+      body: JSON.stringify(settings),
+    }),
+  );
+}
+
+// The session's current short-circuit (calc_sc) settings.
+export async function getShortCircuitSettings(
+  id: string,
+): Promise<ShortCircuitSettings> {
+  return json(
+    await fetch(`${BASE}/session/shortcircuit-settings`, {
+      headers: sessionHeaders(id),
+    }),
+  );
+}
+
+// Persist updated short-circuit settings; returns the stored settings.
+export async function updateShortCircuitSettings(
+  id: string,
+  settings: ShortCircuitSettings,
+): Promise<ShortCircuitSettings> {
+  return json(
+    await fetch(`${BASE}/session/shortcircuit-settings`, {
+      method: "PUT",
+      headers: sessionHeaders(id, JSON_HEADERS),
+      body: JSON.stringify(settings),
+    }),
+  );
+}
+
+// The session's current state-estimation (WLS) settings.
+export async function getEstimationSettings(
+  id: string,
+): Promise<StateEstimationSettings> {
+  return json(
+    await fetch(`${BASE}/session/estimation-settings`, {
+      headers: sessionHeaders(id),
+    }),
+  );
+}
+
+// Persist updated state-estimation settings; returns the stored settings.
+export async function updateEstimationSettings(
+  id: string,
+  settings: StateEstimationSettings,
+): Promise<StateEstimationSettings> {
+  return json(
+    await fetch(`${BASE}/session/estimation-settings`, {
       method: "PUT",
       headers: sessionHeaders(id, JSON_HEADERS),
       body: JSON.stringify(settings),

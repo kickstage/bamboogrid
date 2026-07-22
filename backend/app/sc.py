@@ -10,12 +10,34 @@ from __future__ import annotations
 
 import pandas as pd
 
-from .schema import BusScResult, ShortCircuitResult
+from .schema import BusScResult, ShortCircuitResult, ShortCircuitSettings
 from .solve import _f, _uuid_index
 
+
+def get_sc_settings(net) -> ShortCircuitSettings:
+    """Read the session's short-circuit settings from ``user_sc_options`` (a plain
+    dict on the net), falling back to the model defaults for anything not set."""
+    opts = net.get("user_sc_options") or {}
+    fields = ShortCircuitSettings.model_fields
+    return ShortCircuitSettings(**{k: opts[k] for k in fields if k in opts})
+
+
+def set_sc_settings(net, settings: ShortCircuitSettings) -> None:
+    """Persist the session's short-circuit settings onto the net so the next short
+    circuit uses them and they round-trip with export and sharing."""
+    net["user_sc_options"] = settings.model_dump()
+
 # Defaults matching the schema, used to backfill nets that lack the columns
-# (e.g. anything imported from a pandapower JSON without SC data).
-_EXT_GRID_DEFAULTS = {"s_sc_max_mva": 1000.0, "rx_max": 0.1}
+# (e.g. anything imported from a pandapower JSON without SC data). Min-case columns
+# fall back to the max-case values so the minimum case is runnable for nets that
+# carry no separate min data; calc_sc still applies the lower voltage factor, so
+# minimum currents come out below the maximum case.
+_EXT_GRID_DEFAULTS = {
+    "s_sc_max_mva": 1000.0,
+    "rx_max": 0.1,
+    "s_sc_min_mva": 1000.0,
+    "rx_min": 0.1,
+}
 _GEN_DEFAULTS = {"sn_mva": 1.0, "xdss_pu": 0.2, "cos_phi": 0.8}
 # Generator R/X for deriving rdss_ohm when absent.
 _GEN_RX = 0.1
@@ -52,6 +74,11 @@ def _prepare(net) -> None:
                 sn = float(net.gen.at[i, "sn_mva"])
                 xdss_ohm = float(net.gen.at[i, "xdss_pu"]) * vn * vn / sn
                 net.gen.at[i, "rdss_ohm"] = _GEN_RX * xdss_ohm
+    # The minimum-case calc corrects line resistance to the conductor's end
+    # temperature, which it requires on every line. The editor doesn't model it,
+    # so backfill the ambient 20 °C (no correction) for any line that lacks it.
+    if not net.line.empty:
+        _backfill(net.line, {"endtemp_degree": 20.0})
     # Static generators have no IEC 60909 model here; treat them as
     # non-contributing so they don't force per-sgen SC data (v1).
     if not net.sgen.empty:
@@ -64,21 +91,27 @@ def run_shortcircuit(net) -> ShortCircuitResult:
             ok=False, message="No short-circuit source (external grid or generator)."
         )
     _prepare(net)
+    s = get_sc_settings(net)
     try:
         from pandapower.shortcircuit import calc_sc
 
-        calc_sc(net, fault="3ph", case="max", ip=True, ith=True, tk_s=1.0)
+        calc_sc(net, fault=s.fault, case=s.case, ip=s.ip, ith=s.ith, tk_s=s.tk_s)
     except Exception as exc:  # noqa: BLE001 - surface SC errors to the UI
         return ShortCircuitResult(ok=False, message=f"Short-circuit error: {exc}")
 
     res = net.res_bus_sc
+
+    # ip/ith columns are only present when their calculation was requested.
+    def _col(idx, col: str):
+        return _f(res.at[idx, col]) if col in res.columns else None
+
     res_bus = [
         BusScResult(
             id=uid,
             ikss_ka=_f(res.at[idx, "ikss_ka"]),
             skss_mw=_f(res.at[idx, "skss_mw"]),
-            ip_ka=_f(res.at[idx, "ip_ka"]),
-            ith_ka=_f(res.at[idx, "ith_ka"]),
+            ip_ka=_col(idx, "ip_ka"),
+            ith_ka=_col(idx, "ith_ka"),
         )
         for uid, idx in _uuid_index(net, "bus")
         if idx in res.index

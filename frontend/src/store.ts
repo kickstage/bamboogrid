@@ -53,6 +53,16 @@ import type {
 // or state-estimation voltage.
 export type StudyMode = "loadflow" | "shortcircuit" | "estimation";
 
+// The most recent study run (via the Run button) and its outcome, so the network
+// summary reports on the latest study rather than always load flow. `badData` is
+// estimation-only (the chi² test flagged a suspect measurement).
+export type LastRun = {
+  study: StudyMode;
+  ok: boolean;
+  message: string;
+  badData?: boolean;
+};
+
 // Leaving now would discard real work: there are unsaved edits *and* a saved state
 // they'd be thrown away in favour of. A never-saved scenario keeps its working
 // copy, so it has nothing to warn about — see App's leave/unload guards.
@@ -288,6 +298,8 @@ interface EditorState {
   studyMode: StudyMode;
   // Network-wide max initial fault current, for scaling the SC heatmap.
   scMaxIkss: number;
+  // The most recent study run and its status; null until the first run of a net.
+  lastRun: LastRun | null;
   // State-estimation measurements. Not canvas nodes — they annotate existing
   // buses/lines/transformers and are edited through the inspector.
   measurements: Measurement[];
@@ -726,6 +738,7 @@ export const useEditor = create<EditorState>((set, get) => ({
   showResults: true,
   studyMode: "loadflow",
   scMaxIkss: 0,
+  lastRun: null,
   measurements: [],
   estResiduals: {},
   estById: {},
@@ -1352,6 +1365,11 @@ export const useEditor = create<EditorState>((set, get) => ({
       // successful result (which would be misleading). Unsupplied buses come
       // back as null — also treated as "no result".
       return {
+        lastRun: {
+          study: "loadflow" as const,
+          ok: result.converged,
+          message: result.message,
+        },
         edges: s.edges.map((e) => {
           if (e.type !== "line") return e;
           const r = result.converged ? byLine.get(e.id) : undefined;
@@ -1466,6 +1484,13 @@ export const useEditor = create<EditorState>((set, get) => ({
   },
 
   applyShortCircuit: (result) => {
+    set({
+      lastRun: {
+        study: "shortcircuit",
+        ok: result.ok,
+        message: result.message,
+      },
+    });
     if (!result.ok) {
       toast.error(`Short circuit failed: ${result.message}`);
       set((s) => ({
@@ -1514,6 +1539,14 @@ export const useEditor = create<EditorState>((set, get) => ({
   },
 
   applyEstimation: (result) => {
+    set({
+      lastRun: {
+        study: "estimation",
+        ok: result.ok,
+        message: result.message,
+        badData: result.bad_data,
+      },
+    });
     if (!result.ok) {
       toast.error(`State estimation failed: ${result.message}`);
       set((s) => ({
@@ -2072,6 +2105,8 @@ export const useEditor = create<EditorState>((set, get) => ({
       measurements: network.measurements ?? [],
       estResiduals: {},
       estById: {},
+      // A freshly loaded net hasn't been solved yet — clear any prior run status.
+      lastRun: null,
       selectedId: null,
       selectedEdgeId: null,
       // Undo/redo restore the same diagram in place, so they keep the viewport.

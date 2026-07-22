@@ -25,9 +25,23 @@ from .schema import (
     LineEstResult,
     MeasurementResidual,
     StateEstimationResult,
+    StateEstimationSettings,
     TrafoEstResult,
 )
 from .solve import _f, _uuid_index
+
+def get_est_settings(net) -> StateEstimationSettings:
+    """Read the session's state-estimation settings from ``user_est_options`` (a
+    plain dict on the net), falling back to the model defaults for anything not set."""
+    opts = net.get("user_est_options") or {}
+    fields = StateEstimationSettings.model_fields
+    return StateEstimationSettings(**{k: opts[k] for k in fields if k in opts})
+
+
+def set_est_settings(net, settings: StateEstimationSettings) -> None:
+    """Persist the session's state-estimation settings onto the net so the next
+    estimation uses them and they round-trip with export and sharing."""
+    net["user_est_options"] = settings.model_dump()
 
 # Largest-normalized-residual threshold for flagging a bad measurement (the
 # standard value: a residual beyond 3 standard deviations of its own spread).
@@ -155,11 +169,17 @@ def _estimate(net):
     est_logger = logging.getLogger("pandapower.estimation")
     prev_level = est_logger.level
     est_logger.setLevel(logging.CRITICAL)
+    s = get_est_settings(net)
     try:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            se = StateEstimation(net, tolerance=1e-6, maximum_iterations=50, algorithm="wls")
-            v_start, delta_start = _initialize_voltage(net, "flat")
+            se = StateEstimation(
+                net,
+                tolerance=s.tolerance,
+                maximum_iterations=s.maximum_iterations,
+                algorithm=s.algorithm,
+            )
+            v_start, delta_start = _initialize_voltage(net, s.init)
             result = se.estimate(v_start=v_start, delta_start=delta_start)
     finally:
         est_logger.setLevel(prev_level)
@@ -183,6 +203,20 @@ def run_estimation(net) -> StateEstimationResult:
             message="State estimation needs a voltage angle reference — add an "
             "external grid or a slack generator.",
         )
+
+    # Initializing from load-flow results needs a solved res_bus. This is an
+    # app-level "has a load flow been run?" check — a clear message up front
+    # instead of pandapower's opaque "Init from results not possible" (its exact
+    # index-match precondition is left to the library to enforce).
+    if get_est_settings(net).init == "results":
+        res_bus = net.get("res_bus")
+        if res_bus is None or res_bus.empty:
+            return StateEstimationResult(
+                ok=False,
+                message="State estimation is set to start from load-flow results, "
+                "but there are none yet. Run a load flow first, or switch the "
+                "estimator initialization to a flat start.",
+            )
 
     # Measurements the user toggled off are kept in the model but excluded from
     # the solve — drop them from the table for the run, then restore it.

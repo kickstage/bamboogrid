@@ -246,6 +246,56 @@ def _default_settings() -> dict:
     }
 
 
+def test_shortcircuit_settings_roundtrip_and_undo(client):
+    sid = new_session(client)
+    build_one_bus(client, sid)
+
+    # Defaults mirror what the short circuit ran with before it was configurable.
+    defaults = client.get("/session/shortcircuit-settings", headers=auth(sid)).json()
+    assert defaults["fault"] == "3ph"
+    assert defaults["case"] == "max"
+    assert defaults["ip"] is True
+
+    update = {"fault": "2ph", "case": "min", "ip": False, "ith": True, "tk_s": 2.5}
+    res = client.put("/session/shortcircuit-settings", json=update, headers=auth(sid))
+    assert res.status_code == 200
+    assert res.json()["case"] == "min"
+
+    again = client.get("/session/shortcircuit-settings", headers=auth(sid)).json()
+    assert again["fault"] == "2ph"
+    assert again["tk_s"] == pytest.approx(2.5)
+
+    # Persisted on the net (user_sc_options) so they round-trip through export.
+    assert '"user_sc_options"' in client.get(
+        "/session/export", headers=auth(sid)
+    ).text
+
+
+def test_estimation_settings_roundtrip(client):
+    sid = new_session(client)
+    build_one_bus(client, sid)
+
+    defaults = client.get("/session/estimation-settings", headers=auth(sid)).json()
+    assert defaults["algorithm"] == "wls"
+    assert defaults["maximum_iterations"] == 50
+
+    update = {
+        "algorithm": "lav",
+        "init": "results",
+        "tolerance": 1e-5,
+        "maximum_iterations": 10,
+    }
+    res = client.put("/session/estimation-settings", json=update, headers=auth(sid))
+    assert res.status_code == 200
+
+    again = client.get("/session/estimation-settings", headers=auth(sid)).json()
+    assert again["algorithm"] == "lav"
+    assert again["maximum_iterations"] == 10
+    assert '"user_est_options"' in client.get(
+        "/session/export", headers=auth(sid)
+    ).text
+
+
 def test_view_reflects_commands(client):
     sid = new_session(client)
     build_one_bus(client, sid)
@@ -563,6 +613,34 @@ def test_run_shortcircuit_reports_fault_current(client):
     assert by_bus["b1"]["ip_ka"] is not None
 
 
+def test_shortcircuit_settings_affect_run(client):
+    sid = new_session(client)
+    _two_bus_grid(client, sid)
+
+    # Turning ip/ith off: the run still succeeds and those columns come back null.
+    client.put(
+        "/session/shortcircuit-settings",
+        json={"fault": "3ph", "case": "max", "ip": False, "ith": False, "tk_s": 1.0},
+        headers=auth(sid),
+    )
+    off = client.post("/session/run-shortcircuit", headers=auth(sid)).json()
+    assert off["ok"] is True
+    b1_off = next(r for r in off["res_bus"] if r["id"] == "b1")
+    assert b1_off["ip_ka"] is None and b1_off["ith_ka"] is None
+    assert b1_off["ikss_ka"] > 0
+
+    # The minimum case yields a lower fault current than the maximum case.
+    client.put(
+        "/session/shortcircuit-settings",
+        json={"fault": "3ph", "case": "min", "ip": True, "ith": True, "tk_s": 1.0},
+        headers=auth(sid),
+    )
+    mn = client.post("/session/run-shortcircuit", headers=auth(sid)).json()
+    b1_min = next(r for r in mn["res_bus"] if r["id"] == "b1")
+    assert b1_min["ip_ka"] is not None
+    assert b1_min["ikss_ka"] < b1_off["ikss_ka"]
+
+
 def test_run_shortcircuit_without_source_fails(client):
     sid = new_session(client)
     _add_bus(client, sid, "b1")
@@ -648,6 +726,30 @@ def test_run_estimation_reconstructs_voltages(client):
     # Every measurement gets a normalized residual back for bad-data review.
     assert len(body["residuals"]) == 8
     assert all(r["normalized_residual"] is not None for r in body["residuals"])
+
+
+def test_estimation_init_from_results_needs_a_load_flow(client):
+    sid = new_session(client)
+    _estimation_grid(client, sid)
+    # Ask the estimator to start from load-flow results without a prior load flow.
+    client.put(
+        "/session/estimation-settings",
+        json={
+            "algorithm": "wls",
+            "init": "results",
+            "tolerance": 1e-6,
+            "maximum_iterations": 50,
+        },
+        headers=auth(sid),
+    )
+    body = client.post("/session/run-estimation", headers=auth(sid)).json()
+    assert body["ok"] is False
+    assert "load flow" in body["message"].lower()
+
+    # Running a load flow first populates res_bus, so the estimation then works.
+    assert client.post("/session/run-loadflow", headers=auth(sid)).json()["converged"]
+    ok = client.post("/session/run-estimation", headers=auth(sid)).json()
+    assert ok["ok"] is True
 
 
 def test_measurements_roundtrip_in_view(client):
