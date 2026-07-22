@@ -148,10 +148,6 @@ export function MeasurementsSection({
   return (
     <Stack gap="xs">
       <Divider label="Measurements" labelPosition="left" />
-      <Text size="xs" c="dimmed">
-        Feed state estimation with measured quantities and their noise (σ), then
-        press Run.
-      </Text>
       {mine.length === 0 && (
         <Text size="xs" c="dimmed">
           None yet on this element.
