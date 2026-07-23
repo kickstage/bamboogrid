@@ -321,6 +321,8 @@ interface EditorState {
   searchOpen: boolean;
   // Whether the floating admittance-matrix (Y-bus) panel is open.
   ybusOpen: boolean;
+  // Whether the floating measurement-Jacobian panel is open.
+  jacobianOpen: boolean;
   // Whether the floating network-summary panel is open.
   summaryOpen: boolean;
   // Whether the floating load-flow-settings panel is open.
@@ -405,6 +407,8 @@ interface EditorState {
   setSearchOpen: (open: boolean) => void;
   // Open/close the admittance-matrix panel; closing clears any spotlight.
   setYbusOpen: (open: boolean) => void;
+  // Open/close the measurement-Jacobian panel; closing clears any spotlight.
+  setJacobianOpen: (open: boolean) => void;
   setSummaryOpen: (open: boolean) => void;
   setSettingsOpen: (open: boolean) => void;
   // Clear the inspector selection and every node/edge highlight on the canvas.
@@ -747,6 +751,7 @@ export const useEditor = create<EditorState>((set, get) => ({
   focusRequest: null,
   searchOpen: false,
   ybusOpen: false,
+  jacobianOpen: false,
   summaryOpen: false,
   settingsOpen: false,
   spotlightIds: null,
@@ -1316,6 +1321,13 @@ export const useEditor = create<EditorState>((set, get) => ({
 
   setYbusOpen: (open) =>
     set(open ? { ybusOpen: true } : { ybusOpen: false, spotlightIds: null }),
+
+  setJacobianOpen: (open) =>
+    set(
+      open
+        ? { jacobianOpen: true }
+        : { jacobianOpen: false, spotlightIds: null },
+    ),
 
   setSummaryOpen: (open) => set({ summaryOpen: open }),
   setSettingsOpen: (open) => set({ settingsOpen: open }),

@@ -32,6 +32,7 @@ import { Waveforms } from "../diagrams/Waveforms";
 import { NodeContextMenu, type BusGraphKind } from "./NodeContextMenu";
 import { SearchPanel } from "./SearchPanel";
 import { YbusPanel } from "../study/YbusPanel";
+import { JacobianPanel } from "../study/JacobianPanel";
 import { SummaryPanel } from "../study/SummaryPanel";
 import { StudySettingsPanel } from "../study/StudySettingsPanel";
 import { useClampedPosition } from "../ui/useClampedPosition";
@@ -566,6 +567,7 @@ export function Canvas() {
 
       <SearchPanel />
       <YbusPanel />
+      <JacobianPanel />
       <SummaryPanel />
       <StudySettingsPanel />
 

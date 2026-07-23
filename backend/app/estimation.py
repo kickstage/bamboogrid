@@ -202,23 +202,23 @@ def _estimate(net):
     return se, bool(success)
 
 
-def run_estimation(net) -> StateEstimationResult:
+def precondition_message(net) -> str | None:
+    """The reason state estimation can't run yet (no measurements, no reference,
+    or init-from-results without a load flow), or None when it's good to go.
+    Shared by the estimation run and the Jacobian view so both gate identically."""
     meas = net.get("measurement")
     if meas is None or not len(meas):
-        return StateEstimationResult(
-            ok=False,
-            message="No measurements. Add measurements to buses, lines or "
-            "transformers to run state estimation.",
+        return (
+            "No measurements. Add measurements to buses, lines or transformers "
+            "to run state estimation."
         )
     if net.ext_grid.empty and not (
         "slack" in net.gen.columns and net.gen["slack"].any()
     ):
-        return StateEstimationResult(
-            ok=False,
-            message="State estimation needs a voltage angle reference — add an "
-            "external grid or a slack generator.",
+        return (
+            "State estimation needs a voltage angle reference — add an external "
+            "grid or a slack generator."
         )
-
     # Initializing from load-flow results needs a solved res_bus. This is an
     # app-level "has a load flow been run?" check — a clear message up front
     # instead of pandapower's opaque "Init from results not possible" (its exact
@@ -226,23 +226,36 @@ def run_estimation(net) -> StateEstimationResult:
     if get_est_settings(net).init == "results":
         res_bus = net.get("res_bus")
         if res_bus is None or res_bus.empty:
-            return StateEstimationResult(
-                ok=False,
-                message="State estimation is set to start from load-flow results, "
-                "but there are none yet. Run a load flow first, or switch the "
-                "estimator initialization to a flat start.",
+            return (
+                "State estimation is set to start from load-flow results, but "
+                "there are none yet. Run a load flow first, or switch the "
+                "estimator initialization to a flat start."
             )
+    return None
 
-    # Measurements the user toggled off are kept in the model but excluded from
-    # the solve — drop them from the table for the run, then restore it.
+
+def disabled_measurement_indices(net, meas) -> list[int]:
+    """Indices of measurements the user toggled off — kept in the model but
+    excluded from the solve."""
     d_meas = net.get("diagram_measurement")
-    disabled = []
-    if d_meas is not None and "enabled" in d_meas.columns:
-        disabled = [
-            i
-            for i in meas.index
-            if i in d_meas.index and not bool(d_meas.at[i, "enabled"])
-        ]
+    if d_meas is None or "enabled" not in d_meas.columns:
+        return []
+    return [
+        i
+        for i in meas.index
+        if i in d_meas.index and not bool(d_meas.at[i, "enabled"])
+    ]
+
+
+def run_estimation(net) -> StateEstimationResult:
+    msg = precondition_message(net)
+    if msg:
+        return StateEstimationResult(ok=False, message=msg)
+
+    meas = net.get("measurement")
+    # Toggled-off measurements are dropped from the table for the run, then
+    # restored.
+    disabled = disabled_measurement_indices(net, meas)
     if disabled and len(disabled) == len(meas):
         return StateEstimationResult(
             ok=False,

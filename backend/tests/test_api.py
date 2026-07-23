@@ -778,6 +778,37 @@ def test_run_estimation_flags_critical_measurements(client):
     assert body["bad_data"] is False
 
 
+def test_jacobian_after_estimation(client):
+    sid = new_session(client)
+    _estimation_grid(client, sid)
+    body = client.post("/session/jacobian", headers=auth(sid)).json()
+    assert body["ok"] is True
+    # One row per measurement; columns are the states (bus angles + magnitudes).
+    assert len(body["rows"]) == 8
+    assert {c["kind"] for c in body["cols"]} == {"angle", "magnitude"}
+    # 3 buses, ref at b1: 2 angle states + 3 magnitude states.
+    kinds = [c["kind"] for c in body["cols"]]
+    assert kinds.count("angle") == 2 and kinds.count("magnitude") == 3
+    # A voltage measurement's row touches exactly one state (its own |V|).
+    v_rows = [i for i, r in enumerate(body["rows"]) if r["meas_type"] == "v"]
+    assert v_rows
+    for i in v_rows:
+        touched = [e for e in body["entries"] if e["i"] == i]
+        assert len(touched) == 1
+        assert body["cols"][touched[0]["j"]]["kind"] == "magnitude"
+    # Rows link back to the measured element for canvas highlighting.
+    assert all(r["ids"] for r in body["rows"])
+
+
+def test_jacobian_without_estimation_reports_message(client):
+    sid = new_session(client)
+    build_one_bus(client, sid)  # a bus but no measurements
+    body = client.post("/session/jacobian", headers=auth(sid)).json()
+    assert body["ok"] is False
+    assert "measurement" in body["message"].lower()
+    assert body["entries"] == []
+
+
 def test_measurements_roundtrip_in_view(client):
     sid = new_session(client)
     _estimation_grid(client, sid)

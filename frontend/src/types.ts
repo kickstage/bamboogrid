@@ -796,6 +796,34 @@ export interface YbusResult {
   omitted_buses: number;
 }
 
+// Measurement Jacobian H (∂h/∂x): rows are measurements, columns are states
+// (bus voltage angles then magnitudes). Only available after estimation runs.
+export interface JacobianRow {
+  ids: string[]; // editor uuid(s) of the measured element, for highlighting
+  label: string; // "P Line 1-2 (from)", "V Bus 3"
+  meas_type: string; // v / va / p / q / i
+}
+
+export interface JacobianCol {
+  ids: string[]; // editor uuid(s) of the bus (empty for an internal node)
+  label: string; // "∠ Bus 2", "|V| Bus 1"
+  kind: "angle" | "magnitude";
+}
+
+export interface JacobianEntry {
+  i: number;
+  j: number;
+  value: number;
+}
+
+export interface JacobianResult {
+  ok: boolean;
+  message: string;
+  rows: JacobianRow[];
+  cols: JacobianCol[];
+  entries: JacobianEntry[];
+}
+
 export interface BusScResult {
   id: string;
   ikss_ka: number | null;

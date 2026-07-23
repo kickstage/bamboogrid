@@ -609,6 +609,45 @@ class YbusResult(BaseModel):
     omitted_buses: int = 0
 
 
+class JacobianRow(BaseModel):
+    """One row of the measurement Jacobian H — a single measurement. ``ids`` are
+    the editor uuid(s) of the element it sits on (for canvas highlighting)."""
+
+    ids: list[str] = Field(default_factory=list)
+    label: str  # e.g. "P Line 1-2 (from)", "V Bus 3"
+    meas_type: str  # v / va / p / q / i, for the unit/description in the UI
+
+
+class JacobianCol(BaseModel):
+    """One column of H — a state variable: either a bus voltage **angle** or its
+    **magnitude**. ``ids`` are the editor uuid(s) of the bus (empty for an
+    internal node like a 3W transformer's star point)."""
+
+    ids: list[str] = Field(default_factory=list)
+    label: str  # e.g. "∠ Bus 2", "|V| Bus 1"
+    kind: Literal["angle", "magnitude"]
+
+
+class JacobianEntry(BaseModel):
+    """A non-zero cell H[i, j] = ∂(measurement i)/∂(state j)."""
+
+    i: int
+    j: int
+    value: float
+
+
+class JacobianResult(BaseModel):
+    """The measurement Jacobian H (∂h/∂x) at the estimated state, as labeled
+    sparse triplets. Only available after a state estimation converges — the
+    WLS solver retains H only on success."""
+
+    ok: bool
+    message: str = ""
+    rows: list[JacobianRow] = Field(default_factory=list)
+    cols: list[JacobianCol] = Field(default_factory=list)
+    entries: list[JacobianEntry] = Field(default_factory=list)
+
+
 # --- Short-circuit (IEC 60909) result types --------------------------------
 
 

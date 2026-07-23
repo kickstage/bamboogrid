@@ -2,6 +2,7 @@ import type {
   AuthResponse,
   Command,
   GridSummary,
+  JacobianResult,
   LoadFlowResult,
   LoadFlowSettings,
   NetworkSummary,
@@ -426,6 +427,17 @@ export async function networkSummary(id: string): Promise<NetworkSummary> {
 export async function fetchYbus(id: string): Promise<YbusResult> {
   return json(
     await fetch(`${BASE}/session/ybus`, {
+      method: "POST",
+      headers: { [SESSION_HEADER]: id },
+    }),
+  );
+}
+
+// Run a state estimation and return its measurement Jacobian H as labeled sparse
+// triplets, keyed back to editor element/bus ids.
+export async function fetchJacobian(id: string): Promise<JacobianResult> {
+  return json(
+    await fetch(`${BASE}/session/jacobian`, {
       method: "POST",
       headers: { [SESSION_HEADER]: id },
     }),

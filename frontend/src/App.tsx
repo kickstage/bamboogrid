@@ -200,9 +200,14 @@ export default function App() {
     redo,
     setSearchOpen,
     setYbusOpen,
+    setJacobianOpen,
     setSummaryOpen,
     setSettingsOpen,
+    estById,
   } = useEditor();
+  // The measurement Jacobian comes from a solved estimation, so it's only
+  // available once one has produced results (cleared on load/reset).
+  const hasEstimation = Object.keys(estById).length > 0;
   const [busy, setBusy] = useState(false);
   // A blocking message shown over the canvas while a network is being built
   // server-side (opening an example / importing), which can take a moment.
@@ -1074,6 +1079,17 @@ export default function App() {
                   disabled={studyMode === "shortcircuit"}
                 >
                   Admittance matrix…
+                </Menu.Item>
+                <Menu.Item
+                  onClick={() => hasEstimation && setJacobianOpen(true)}
+                  disabled={!hasEstimation}
+                  title={
+                    hasEstimation
+                      ? undefined
+                      : "Run state estimation first — the Jacobian comes from the solved estimator."
+                  }
+                >
+                  Measurement Jacobian…
                 </Menu.Item>
                 <Menu.Item onClick={() => setSettingsOpen(true)}>
                   Study settings…

@@ -41,6 +41,7 @@ from .schema import (
     LoadFlowResult,
     LoadFlowSettings,
     NetworkSummary,
+    JacobianResult,
     RenameRequest,
     SessionInfo,
     SessionMeta,
@@ -53,6 +54,7 @@ from .schema import (
     YbusResult,
 )
 from .estimation import get_est_settings, run_estimation, set_est_settings
+from .jacobian import compute_jacobian
 from .sc import get_sc_settings, run_shortcircuit, set_sc_settings
 from .session import ConflictError, Session, store
 from .solve import get_loadflow_settings, set_loadflow_settings, solve_net
@@ -401,6 +403,29 @@ async def session_ybus(
                     span.set_attribute("session.id", session.id)
                     span.set_attribute("net.bus_count", int(len(session.net.bus)))
                     return compute_ybus(session.net)
+
+        return await run_in_threadpool(_compute)
+
+
+@app.post("/session/jacobian", response_model=JacobianResult)
+async def session_jacobian(
+    request: Request, session: Session = Depends(current_session)
+) -> JacobianResult:
+    """Build the measurement Jacobian H of the retained net. Shares the solve
+    limiter with the load flow since it runs a state estimation to populate the
+    solver matrices before reading H back."""
+    if await request.is_disconnected():
+        raise HTTPException(status_code=499, detail="Client closed request.")
+
+    async with _solve_limiter:
+        if await request.is_disconnected():
+            raise HTTPException(status_code=499, detail="Client closed request.")
+
+        def _compute() -> JacobianResult:
+            with session.lock:
+                with tracer.start_as_current_span("jacobian.compute") as span:
+                    span.set_attribute("session.id", session.id)
+                    return compute_jacobian(session.net)
 
         return await run_in_threadpool(_compute)
 
