@@ -126,7 +126,10 @@ function ResidualBadge({
   unit: string;
 }) {
   return (
-    <Group justify="space-between" gap="xs" wrap="nowrap">
+    // Offset the whole row down a little so the residual pill doesn't hug the
+    // input above (its filled background starts at its box top, unlike the text),
+    // while keeping the estimate and badge centered together on one line.
+    <Group justify="space-between" gap="xs" wrap="nowrap" mt={3}>
       <Text
         size="xs"
         c="dimmed"
