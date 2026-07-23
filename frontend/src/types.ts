@@ -483,14 +483,49 @@ export type MeasSide = "from" | "to" | "hv" | "mv" | "lv";
 // and the canvas badge (kept here next to the type so they can't drift).
 export const MEAS_META: Record<
   MeasType,
-  { label: string; symbol: string; unit: string; dp: number }
+  { label: string; symbol: string; unit: string; dp: number; description: string }
 > = {
-  v: { label: "Voltage |V|", symbol: "|V|", unit: "p.u.", dp: 4 },
-  va: { label: "Voltage angle", symbol: "∠V", unit: "°", dp: 2 },
-  p: { label: "Active power P", symbol: "P", unit: "MW", dp: 3 },
-  q: { label: "Reactive power Q", symbol: "Q", unit: "Mvar", dp: 3 },
-  i: { label: "Current I", symbol: "I", unit: "kA", dp: 4 },
+  v: { label: "Voltage |V|", symbol: "|V|", unit: "p.u.", dp: 4, description: "Voltage magnitude" },
+  va: { label: "Voltage angle", symbol: "∠V", unit: "°", dp: 2, description: "Voltage angle" },
+  p: { label: "Active power P", symbol: "P", unit: "MW", dp: 3, description: "Active power" },
+  q: { label: "Reactive power Q", symbol: "Q", unit: "Mvar", dp: 3, description: "Reactive power" },
+  i: { label: "Current I", symbol: "I", unit: "kA", dp: 4, description: "Current magnitude" },
 };
+
+// The `symbol · side (unit)` heading for a measured quantity. Shared by the
+// inspector and the canvas badge so the two can't drift.
+export function measLabel(measType: MeasType, side: MeasSide | null): string {
+  const m = MEAS_META[measType];
+  return `${m.symbol}${side ? ` · ${side}` : ""} (${m.unit})`;
+}
+
+export interface QuantityGroup<T> {
+  key: string;
+  measType: MeasType;
+  side: MeasSide | null;
+  items: T[];
+}
+
+// Group items by measured quantity (and branch side), preserving first-seen
+// order; `meas` extracts the quantity+side from each item. Used by both the
+// inspector and the canvas badge to stack same-quantity readings together.
+export function groupByQuantity<T>(
+  items: T[],
+  meas: (item: T) => { meas_type: MeasType; side: MeasSide | null },
+): QuantityGroup<T>[] {
+  const byKey = new Map<string, QuantityGroup<T>>();
+  for (const item of items) {
+    const { meas_type, side } = meas(item);
+    const key = `${meas_type}|${side ?? ""}`;
+    let g = byKey.get(key);
+    if (!g) {
+      g = { key, measType: meas_type, side, items: [] };
+      byKey.set(key, g);
+    }
+    g.items.push(item);
+  }
+  return [...byKey.values()];
+}
 
 export interface Measurement {
   id: string;

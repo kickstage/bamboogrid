@@ -1,10 +1,10 @@
-import { type ReactNode, useEffect, useState } from "react";
-import { Badge, Group, Popover, Stack, Text } from "@mantine/core";
+import { Fragment, type ReactNode, useEffect, useState } from "react";
+import { Group, Popover, Stack, Text } from "@mantine/core";
 import { ACCENT } from "../theme";
 import { fixed } from "../format";
 import { estimateRows } from "../inspector/results";
 import { useEditor } from "../store";
-import { MEAS_META, type MeasType } from "../types";
+import { groupByQuantity, MEAS_META, measLabel } from "../types";
 
 // A small "≈" tag overlapping an element that has a state-estimation result,
 // shown only in estimation mode after a run. Clicking it opens a popover with
@@ -61,15 +61,16 @@ export function EstimationBadge({
   // Nothing to show until estimation has run (no result and no residuals here).
   if (!est && rows.length === 0) return null;
 
+  // Group readings of the same quantity (and branch side) under one symbol, so a
+  // bus with several voltage readings shows one heading with the rows beneath.
+  const measGroups = groupByQuantity(rows, (x) => x.m);
+
   const anyBad = rows.some((x) => x.r.is_bad);
   const color = anyBad
     ? "var(--mantine-color-red-6)"
     : selected
       ? ACCENT
       : "currentColor";
-
-  const fmt = (t: MeasType, v: number | null) =>
-    v === null ? "—" : `${fixed(v, MEAS_META[t].dp)} ${MEAS_META[t].unit}`;
 
   const isEdge = edgeX !== undefined && edgeY !== undefined;
 
@@ -154,28 +155,68 @@ export function EstimationBadge({
               ))}
             </Stack>
           )}
-          {rows.length > 0 && (
-            <Stack gap={6}>
+          {measGroups.length > 0 && (
+            <Stack gap={8}>
               <Text size="xs" fw={700} tt="uppercase" c="dimmed">
                 Measurements
               </Text>
-              {rows.map(({ m, r }) => (
-                <Stack key={m.id} gap={1}>
-                  <Group justify="space-between" gap="xs" wrap="nowrap">
-                    <Text size="xs" fw={600} c={r.is_bad ? "red" : undefined}>
-                      {MEAS_META[m.meas_type].symbol}
-                      {m.side ? ` (${m.side})` : ""}
+              {measGroups.map((g) => {
+                const meta = MEAS_META[g.measType];
+                const num = (v: number | null) =>
+                  v === null ? "—" : fixed(v, meta.dp);
+                return (
+                  <Stack key={g.key} gap={2}>
+                    {/* Quantity heading, symbol (unit), with a describing tooltip. */}
+                    <Text
+                      size="xs"
+                      fw={600}
+                      title={meta.description}
+                      style={{ width: "fit-content", cursor: "help" }}
+                    >
+                      {measLabel(g.measType, g.side)}
                     </Text>
-                    <Badge size="sm" variant="light" color={r.is_bad ? "red" : "gray"}>
-                      r{"ₙ"} {fixed(r.normalized_residual ?? 0, 2)}
-                      {r.is_bad ? " · bad" : ""}
-                    </Badge>
-                  </Group>
-                  <Line label="measured" value={fmt(m.meas_type, r.measured)} />
-                  <Line label="estimated" value={fmt(m.meas_type, r.estimated)} />
-                  <Line label="residual" value={fmt(m.meas_type, r.residual)} />
-                </Stack>
-              ))}
+                    {/* Readings as an aligned measured / estimated / rₙ table. */}
+                    <div
+                      style={{
+                        display: "grid",
+                        gridTemplateColumns: "1fr 1fr auto",
+                        columnGap: 12,
+                        rowGap: 2,
+                        paddingLeft: 4,
+                      }}
+                    >
+                      <Text size="xs" c="dimmed">
+                        measured
+                      </Text>
+                      <Text size="xs" c="dimmed">
+                        estimated
+                      </Text>
+                      <Text size="xs" c="dimmed" ta="right">
+                        r{"ₙ"}
+                      </Text>
+                      {g.items.map(({ m, r }) => (
+                        <Fragment key={m.id}>
+                          <Text size="xs" ff="monospace">
+                            {num(r.measured)}
+                          </Text>
+                          <Text size="xs" ff="monospace">
+                            {num(r.estimated)}
+                          </Text>
+                          <Text
+                            size="xs"
+                            ff="monospace"
+                            ta="right"
+                            c={r.is_bad ? "red" : undefined}
+                          >
+                            {fixed(r.normalized_residual ?? 0, 2)}
+                            {r.is_bad ? " ⚠" : ""}
+                          </Text>
+                        </Fragment>
+                      ))}
+                    </div>
+                  </Stack>
+                );
+              })}
             </Stack>
           )}
         </Stack>

@@ -5,9 +5,9 @@ import {
   Checkbox,
   Divider,
   Group,
+  Menu,
   NumberInput,
   type NumberInputProps,
-  Select,
   Stack,
   Text,
 } from "@mantine/core";
@@ -16,7 +16,9 @@ import { useEffect, useState } from "react";
 import { fixed } from "../format";
 import { useEditor } from "../store";
 import {
+  groupByQuantity,
   MEAS_META,
+  measLabel,
   type MeasElementType,
   type MeasSide,
   type MeasType,
@@ -34,20 +36,43 @@ const SIDES: Record<Exclude<MeasElementType, "bus">, MeasSide[]> = {
   trafo3w: ["hv", "mv", "lv"],
 };
 
-function defaultMeasurement(
+function newMeasurement(
   elementType: MeasElementType,
   elementId: string,
+  measType: MeasType,
+  side: MeasSide | null,
 ): Omit<Measurement, "id"> {
-  const base = {
+  return {
     name: "Measurement",
     element_type: elementType,
     element_id: elementId,
+    meas_type: measType,
+    side,
+    // A voltage reads ~1 p.u.; power/current start at zero.
+    value: measType === "v" ? 1.0 : 0,
     std_dev: 0.01,
     enabled: true,
   };
-  return elementType === "bus"
-    ? { ...base, meas_type: "v", side: null, value: 1.0 }
-    : { ...base, meas_type: "p", side: SIDES[elementType][0], value: 0 };
+}
+
+// The quantities that can be added to an element, as flat menu options — one per
+// quantity for a bus, one per quantity×side for a branch.
+function addOptions(elementType: MeasElementType) {
+  if (elementType === "bus")
+    return BUS_TYPES.map((t) => ({
+      key: t,
+      measType: t,
+      side: null as MeasSide | null,
+      label: MEAS_META[t].label,
+    }));
+  return BRANCH_TYPES.flatMap((t) =>
+    SIDES[elementType].map((s) => ({
+      key: `${t}|${s}`,
+      measType: t,
+      side: s as MeasSide | null,
+      label: `${MEAS_META[t].label} · ${s}`,
+    })),
+  );
 }
 
 // A number field that buffers its shown text locally while focused, so clearing
@@ -55,10 +80,9 @@ function defaultMeasurement(
 // leading zero on the next keystroke). Mirrors the inspector's ParamInput; the
 // store still commits live through `onChange`.
 function NumField({
-  label,
   value,
   ...rest
-}: { label: string; value: number } & Omit<NumberInputProps, "label" | "value">) {
+}: { value: number } & Omit<NumberInputProps, "label" | "value">) {
   const [display, setDisplay] = useState<number | string>(value);
   const [editing, setEditing] = useState(false);
   useEffect(() => {
@@ -66,7 +90,6 @@ function NumField({
   }, [value, editing]);
   return (
     <NumberInput
-      label={label}
       size="xs"
       {...rest}
       value={display}
@@ -83,10 +106,12 @@ function NumField({
   );
 }
 
-// The estimated value and normalized residual (rᴺ) from the last estimation.
-// Only the single measurement the solver identified as bad is reddened: a gross
-// error inflates other measurements' residuals too (smearing), so a high rᴺ
-// elsewhere usually just reflects that, not a second fault.
+// The estimated value and normalized residual (rᴺ) from the last estimation, one
+// per reading. `justify="space-between"` pins the estimate to the left and the
+// badge to the right so stacked readings line up in two columns. Only the single
+// measurement the solver identified as bad is reddened: a gross error inflates
+// other measurements' residuals too (smearing), so a high rᴺ elsewhere usually
+// just reflects that, not a second fault.
 function ResidualBadge({
   normalized,
   estimated,
@@ -99,7 +124,7 @@ function ResidualBadge({
   unit: string;
 }) {
   return (
-    <Group gap="xs" wrap="nowrap">
+    <Group justify="space-between" gap="xs" wrap="nowrap">
       <Text
         size="xs"
         c="dimmed"
@@ -141,131 +166,164 @@ export function MeasurementsSection({
   const removeMeasurement = useEditor((s) => s.removeMeasurement);
 
   const mine = measurements.filter((m) => m.element_id === elementId);
-  const typeOptions = (elementType === "bus" ? BUS_TYPES : BRANCH_TYPES).map(
-    (t) => ({ value: t, label: MEAS_META[t].label }),
-  );
+  // Group this element's measurements by quantity (and branch side) so repeated
+  // readings of the same thing stack in one card instead of each getting its own.
+  const groups = groupByQuantity(mine, (m) => m);
 
   return (
     <Stack gap="xs">
       <Divider label="Measurements" labelPosition="left" />
-      {mine.length === 0 && (
+      {groups.length === 0 && (
         <Text size="xs" c="dimmed">
           None yet on this element.
         </Text>
       )}
-      {mine.map((m) => {
-        const r = residuals[m.id];
-        const unit = MEAS_META[m.meas_type].unit;
+      {groups.map((g) => {
+        const meta = MEAS_META[g.measType];
+        const unit = meta.unit;
         return (
           <Stack
-            key={m.id}
+            key={g.key}
             gap={6}
             p="xs"
             style={{
               border: "1px solid var(--mantine-color-default-border)",
               borderRadius: "var(--mantine-radius-sm)",
-              // Dim when excluded from the estimation (kept, just not used).
-              opacity: m.enabled ? 1 : 0.55,
             }}
           >
-            {/* Top row: the include toggle (left) and delete (right). */}
-            <Group justify="space-between" wrap="nowrap">
+            {/* Parameter named symbol (unit) with a tooltip, matching the load
+                flow / short circuit result convention. */}
+            <Text
+              size="xs"
+              fw={600}
+              title={meta.description}
+              style={{ width: "fit-content", cursor: "help" }}
+            >
+              {measLabel(g.measType, g.side)}
+            </Text>
+            {/* Column labels, shown once. Invisible checkbox/× reserve the exact
+                widths of the controls below so the Value/σ columns line up. */}
+            <Group gap="xs" wrap="nowrap" align="center">
               <Checkbox
                 size="xs"
-                checked={m.enabled}
-                disabled={readOnly}
-                onChange={(e) =>
-                  updateMeasurement(m.id, { enabled: e.currentTarget.checked })
-                }
-                aria-label="Include in the state estimation"
-                title="Include this measurement in the state estimation"
-                styles={{ input: { cursor: "pointer" } }}
+                readOnly
+                checked={false}
+                aria-hidden
+                tabIndex={-1}
+                style={{ visibility: "hidden" }}
               />
+              <Text size="xs" c="dimmed" style={{ flex: 1 }}>
+                Value
+              </Text>
+              <Text size="xs" c="dimmed" style={{ flex: 1 }}>
+                σ
+              </Text>
               <ActionIcon
-                variant="subtle"
-                color="gray"
                 size="sm"
-                disabled={readOnly}
-                onClick={() => removeMeasurement(m.id)}
-                aria-label="Remove measurement"
-                title="Remove measurement"
+                aria-hidden
+                tabIndex={-1}
+                style={{ visibility: "hidden" }}
               >
                 {"×"}
               </ActionIcon>
             </Group>
-            {/* The dropdown value already names the quantity, so no label. */}
-            <Select
-              aria-label="Quantity"
-              size="xs"
-              data={typeOptions}
-              value={m.meas_type}
-              allowDeselect={false}
-              disabled={readOnly}
-              onChange={(v) =>
-                v && updateMeasurement(m.id, { meas_type: v as MeasType })
-              }
-            />
-            {/* Side gets its own full-width row so it (and Quantity) aren't
-                squished — branches only; a bus has no side. */}
-            {elementType !== "bus" && (
-              <Select
-                label="Side"
-                size="xs"
-                data={SIDES[elementType]}
-                value={m.side}
-                allowDeselect={false}
-                disabled={readOnly}
-                onChange={(v) =>
-                  v && updateMeasurement(m.id, { side: v as MeasSide })
-                }
-              />
-            )}
-            <Group gap="xs" wrap="nowrap">
-              <NumField
-                label={`Value (${unit})`}
-                value={m.value}
-                step={0.01}
-                decimalScale={4}
-                disabled={readOnly}
-                onChange={(v) =>
-                  updateMeasurement(m.id, { value: Number(v) || 0 })
-                }
-                style={{ flex: 1 }}
-              />
-              <NumField
-                label={`σ (${unit})`}
-                value={m.std_dev}
-                min={1e-6}
-                step={0.001}
-                decimalScale={4}
-                disabled={readOnly}
-                onChange={(v) =>
-                  updateMeasurement(m.id, { std_dev: Number(v) || 1e-6 })
-                }
-                style={{ flex: 1 }}
-              />
-            </Group>
-            {r && r.normalized_residual !== null && (
-              <ResidualBadge
-                normalized={r.normalized_residual}
-                estimated={r.estimated}
-                isBad={r.is_bad}
-                unit={unit}
-              />
-            )}
+            {g.items.map((m) => {
+              const r = residuals[m.id];
+              return (
+                <Stack
+                  key={m.id}
+                  gap={2}
+                  // Dim when excluded from the estimation (kept, just not used).
+                  style={{ opacity: m.enabled ? 1 : 0.55 }}
+                >
+                  <Group gap="xs" wrap="nowrap" align="center">
+                    <Checkbox
+                      size="xs"
+                      checked={m.enabled}
+                      disabled={readOnly}
+                      onChange={(e) =>
+                        updateMeasurement(m.id, {
+                          enabled: e.currentTarget.checked,
+                        })
+                      }
+                      aria-label="Include in the state estimation"
+                      title="Include this measurement in the state estimation"
+                      styles={{ input: { cursor: "pointer" } }}
+                    />
+                    <NumField
+                      value={m.value}
+                      step={0.01}
+                      decimalScale={4}
+                      disabled={readOnly}
+                      onChange={(v) =>
+                        updateMeasurement(m.id, { value: Number(v) || 0 })
+                      }
+                      style={{ flex: 1 }}
+                    />
+                    <NumField
+                      value={m.std_dev}
+                      min={1e-6}
+                      step={0.001}
+                      decimalScale={4}
+                      disabled={readOnly}
+                      onChange={(v) =>
+                        updateMeasurement(m.id, { std_dev: Number(v) || 1e-6 })
+                      }
+                      style={{ flex: 1 }}
+                    />
+                    <ActionIcon
+                      variant="subtle"
+                      color="gray"
+                      size="sm"
+                      disabled={readOnly}
+                      onClick={() => removeMeasurement(m.id)}
+                      aria-label="Remove measurement"
+                      title="Remove measurement"
+                    >
+                      {"×"}
+                    </ActionIcon>
+                  </Group>
+                  {r && r.normalized_residual !== null && (
+                    <ResidualBadge
+                      normalized={r.normalized_residual}
+                      estimated={r.estimated}
+                      isBad={r.is_bad}
+                      unit={unit}
+                    />
+                  )}
+                </Stack>
+              );
+            })}
           </Stack>
         );
       })}
       {!readOnly && (
-        <Button
-          variant="light"
-          size="xs"
-          onClick={() =>
-            addMeasurement(defaultMeasurement(elementType, elementId))
-          }
-        >
-          + Add measurement
-        </Button>
+        <Menu shadow="md" position="bottom-start" withinPortal>
+          <Menu.Target>
+            <Button variant="light" size="xs">
+              + Add measurement
+            </Button>
+          </Menu.Target>
+          <Menu.Dropdown>
+            {addOptions(elementType).map((opt) => (
+              <Menu.Item
+                key={opt.key}
+                onClick={() =>
+                  addMeasurement(
+                    newMeasurement(
+                      elementType,
+                      elementId,
+                      opt.measType,
+                      opt.side,
+                    ),
+                  )
+                }
+              >
+                {opt.label}
+              </Menu.Item>
+            ))}
+          </Menu.Dropdown>
+        </Menu>
       )}
     </Stack>
   );
