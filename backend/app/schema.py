@@ -672,7 +672,12 @@ class MeasurementResidual(BaseModel):
     ``is_bad`` marks the single measurement the largest-normalized-residual test
     identified as the most likely bad one. A gross error smears across many
     measurements' residuals, so only the largest is flagged — fix or remove it
-    and re-run to check the next."""
+    and re-run to check the next.
+
+    ``is_critical`` marks a measurement with no redundancy: removing it would make
+    the network unobservable. Its residual is structurally zero and its error is
+    undetectable, so it carries no meaningful normalized residual
+    (``normalized_residual`` is null)."""
 
     id: str
     measured: float | None = None
@@ -680,6 +685,7 @@ class MeasurementResidual(BaseModel):
     residual: float | None = None
     normalized_residual: float | None = None
     is_bad: bool = False
+    is_critical: bool = False
 
 
 class StateEstimationResult(BaseModel):

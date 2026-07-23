@@ -860,7 +860,9 @@ export type ElementEstimate =
 // (measured − estimated) and the (non-negative) normalized residual rᴺ used by
 // the bad-data test. `is_bad` marks the single measurement the largest-
 // normalized-residual test identified as most likely bad (a gross error smears
-// across many residuals, so only the largest is flagged).
+// across many residuals, so only the largest is flagged). `is_critical` marks a
+// measurement with no redundancy: removing it would make the network
+// unobservable, so its error is undetectable and it has no normalized residual.
 export interface MeasurementResidual {
   id: string;
   measured: number | null;
@@ -868,6 +870,7 @@ export interface MeasurementResidual {
   residual: number | null;
   normalized_residual: number | null;
   is_bad: boolean;
+  is_critical: boolean;
 }
 
 export interface StateEstimationResult {

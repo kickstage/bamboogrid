@@ -752,6 +752,32 @@ def test_estimation_init_from_results_needs_a_load_flow(client):
     assert ok["ok"] is True
 
 
+def test_run_estimation_flags_critical_measurements(client):
+    """With exactly enough measurements to be observable and no more, every
+    measurement is critical: its error is undetectable and it carries no
+    normalized residual."""
+    sid = new_session(client)
+    cmds = [
+        {"op": "add_bus", "payload": {"id": "b1", "name": "B1", "vn_kv": 1.0, "x": 0, "y": 0, "width": 220}},
+        {"op": "add_bus", "payload": {"id": "b2", "name": "B2", "vn_kv": 1.0, "x": 300, "y": 0, "width": 220}},
+        {"op": "add_element", "payload": {"id": "eg", "kind": "extgrid", "bus_id": "b1", "port": "p0", "x": 0, "y": -100, "data": {"name": "Grid", "vm_pu": 1.0, "va_degree": 0.0}}},
+        {"op": "add_line", "payload": {"id": "l12", "from_bus": "b1", "to_bus": "b2", "port_from": "p1", "port_to": "p0", "data": {"name": "L12", "length_km": 1.0, "r_ohm_per_km": 0.01, "x_ohm_per_km": 0.03, "c_nf_per_km": 0.0, "max_i_ka": 1.0, "std_type": ""}}},
+        # 3 measurements for 3 states (vm_b1, vm_b2, va_b2): observable, no
+        # redundancy -> all critical.
+        _measure("m1", "v", "bus", "b1", 1.0, 0.004),
+        _measure("m2", "v", "bus", "b2", 0.99, 0.004),
+        _measure("m3", "p", "line", "l12", 0.1, 0.008, side="from"),
+    ]
+    assert client.post("/session/commands", json=cmds, headers=auth(sid)).status_code == 200
+    body = client.post("/session/run-estimation", headers=auth(sid)).json()
+    assert body["ok"] is True
+    assert all(r["is_critical"] for r in body["residuals"])
+    # A critical measurement has no meaningful normalized residual and is never
+    # flagged as the bad one.
+    assert all(r["normalized_residual"] is None for r in body["residuals"])
+    assert body["bad_data"] is False
+
+
 def test_measurements_roundtrip_in_view(client):
     sid = new_session(client)
     _estimation_grid(client, sid)

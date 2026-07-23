@@ -86,13 +86,18 @@ def _estimated_value(net, row) -> float | None:
     return _f(res.at[element, cols[side]])
 
 
-def _normalized_residuals(se) -> dict[int, float]:
-    """Proper normalized residuals rᴺ = |r| / √Ωᵢᵢ, keyed by pandapower
-    measurement index. Ω = R − H·G⁻¹·Hᵀ is the residual covariance, so unlike a
+def _normalized_residuals(se) -> tuple[dict[int, float], set[int]]:
+    """Normalized residuals and the set of *critical* measurements, both keyed by
+    pandapower measurement index.
+
+    rᴺ = |r| / √Ωᵢᵢ, where Ω = R − H·G⁻¹·Hᵀ is the residual covariance — unlike a
     plain weighted residual this scales each residual by how observable that
-    measurement actually is — the metric the bad-data test needs. A critical
-    measurement (no redundancy) has Ωᵢᵢ ≈ 0 and an undetectable error; its
-    normalized residual is left at 0 rather than dividing by ~0."""
+    measurement actually is, the metric the bad-data test needs. A *critical*
+    measurement has no redundancy: removing it would make the network
+    unobservable. Its residual is structurally zero (Ωᵢᵢ ≈ 0), so its error can
+    never surface as a residual and is undetectable. Critical measurements are
+    returned separately (not in the rᴺ dict) since dividing by √0 is meaningless
+    — the caller reports them as critical rather than as a residual of 0."""
     solver = se.solver
     r = np.abs(np.asarray(solver.r, dtype=float)).ravel()
     r_inv = np.asarray(solver.R_inv, dtype=float)
@@ -106,14 +111,20 @@ def _normalized_residuals(se) -> dict[int, float]:
     hm = np.linalg.solve(gm, h.T).T
     diag_hgh = np.einsum("ij,ij->i", hm, h)
     sqrt_omega = np.sqrt(np.abs(diag_r - diag_hgh))
-    rn = np.where(sqrt_omega > 1e-9, r / sqrt_omega, 0.0)
+    is_critical = sqrt_omega <= 1e-9
+    with np.errstate(divide="ignore", invalid="ignore"):
+        rn = np.where(is_critical, 0.0, r / sqrt_omega)
     indices = np.asarray(solver.pp_meas_indices).ravel()
     n = min(len(rn), len(indices))
-    return {int(indices[k]): float(rn[k]) for k in range(n)}
+    normalized = {
+        int(indices[k]): float(rn[k]) for k in range(n) if not is_critical[k]
+    }
+    critical = {int(indices[k]) for k in range(n) if is_critical[k]}
+    return normalized, critical
 
 
 def _residuals(
-    net, normalized: dict[int, float], suspect: int | None
+    net, normalized: dict[int, float], critical: set[int], suspect: int | None
 ) -> list[MeasurementResidual]:
     """Per-measurement residuals for display, pairing the intuitive
     measured−estimated difference (real units) with the normalized residual
@@ -135,10 +146,13 @@ def _residuals(
             if measured is not None and estimated is not None
             else None
         )
+        is_critical = int(i) in critical
         rn = normalized.get(int(i))
-        # No normalized residual from the solver (rare): fall back to the plain
-        # standardized residual for display, but never flag it as bad from that.
-        if rn is None and residual is not None:
+        # No normalized residual from the solver (rare) and not critical: fall
+        # back to the plain standardized residual for display, but never flag it
+        # as bad from that. Critical measurements have no meaningful rᴺ and are
+        # reported as such instead.
+        if rn is None and not is_critical and residual is not None:
             std = float(meas.at[i, "std_dev"])
             if std > 0:
                 rn = abs(residual) / std
@@ -150,6 +164,7 @@ def _residuals(
                 residual=residual,
                 normalized_residual=rn,
                 is_bad=int(i) == suspect,
+                is_critical=is_critical,
             )
         )
     return residuals
@@ -256,9 +271,11 @@ def run_estimation(net) -> StateEstimationResult:
         # only if it breaches the threshold). A gross error inflates other
         # residuals too, so flag one at a time rather than everything over the line.
         try:
-            normalized = _normalized_residuals(se)
+            normalized, critical = _normalized_residuals(se)
         except Exception:  # noqa: BLE001 - fall back to display-only residuals
-            normalized = {}
+            normalized, critical = {}, set()
+        # A critical measurement can never be the suspect — its error is
+        # undetectable — so it's absent from ``normalized`` and skipped here.
         suspect: int | None = None
         if normalized:
             worst = max(normalized, key=normalized.__getitem__)
@@ -268,7 +285,7 @@ def run_estimation(net) -> StateEstimationResult:
 
         # Built against the reduced (enabled-only) table, so disabled measurements
         # get no residual entry.
-        residuals = _residuals(net, normalized, suspect)
+        residuals = _residuals(net, normalized, critical, suspect)
 
         res_bus = [
             BusEstResult(

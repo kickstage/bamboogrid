@@ -116,11 +116,13 @@ function ResidualBadge({
   normalized,
   estimated,
   isBad,
+  isCritical,
   unit,
 }: {
-  normalized: number;
+  normalized: number | null;
   estimated: number | null;
   isBad: boolean;
+  isCritical: boolean;
   unit: string;
 }) {
   return (
@@ -136,16 +138,19 @@ function ResidualBadge({
       <Badge
         size="sm"
         variant="light"
-        color={isBad ? "red" : "gray"}
+        color={isBad ? "red" : isCritical ? "yellow" : "gray"}
         style={{ cursor: "help" }}
         title={
-          isBad
-            ? "Largest normalized residual — most likely the bad measurement. Fix or remove it and re-run to check the rest."
-            : "Normalized residual (rᴺ). A single bad measurement inflates others too (smearing); only the largest is flagged."
+          isCritical
+            ? "Critical measurement — no redundancy. Removing it would make the network unobservable, so its error can't surface as a residual and is undetectable. Add another measurement nearby to check it."
+            : isBad
+              ? "Largest normalized residual — most likely the bad measurement. Fix or remove it and re-run to check the rest."
+              : "Normalized residual (rᴺ). A single bad measurement inflates others too (smearing); only the largest is flagged."
         }
       >
-        r{"ₙ"} = {fixed(normalized, 2)}
-        {isBad ? " · likely bad" : ""}
+        {isCritical
+          ? "critical"
+          : `rₙ = ${fixed(normalized ?? 0, 2)}${isBad ? " · likely bad" : ""}`}
       </Badge>
     </Group>
   );
@@ -283,11 +288,12 @@ export function MeasurementsSection({
                       {"×"}
                     </ActionIcon>
                   </Group>
-                  {r && r.normalized_residual !== null && (
+                  {r && (r.normalized_residual !== null || r.is_critical) && (
                     <ResidualBadge
                       normalized={r.normalized_residual}
                       estimated={r.estimated}
                       isBad={r.is_bad}
+                      isCritical={r.is_critical}
                       unit={unit}
                     />
                   )}

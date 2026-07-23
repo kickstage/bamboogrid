@@ -206,9 +206,17 @@ export function EstimationBadge({
                             size="xs"
                             ff="monospace"
                             ta="right"
-                            c={r.is_bad ? "red" : undefined}
+                            c={r.is_bad ? "red" : r.is_critical ? "yellow.7" : undefined}
+                            title={
+                              r.is_critical
+                                ? "Critical — no redundancy, so its error is undetectable (no normalized residual)."
+                                : undefined
+                            }
+                            style={r.is_critical ? { cursor: "help" } : undefined}
                           >
-                            {fixed(r.normalized_residual ?? 0, 2)}
+                            {r.is_critical
+                              ? "crit"
+                              : fixed(r.normalized_residual ?? 0, 2)}
                             {r.is_bad ? " ⚠" : ""}
                           </Text>
                         </Fragment>
