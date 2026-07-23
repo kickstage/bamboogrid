@@ -8,6 +8,9 @@ export interface Draggable {
   pos: { x: number; y: number } | null;
   // Wire to the drag handle's onPointerDown.
   onPointerDown: (e: React.PointerEvent) => void;
+  // Pin the position directly (e.g. a resize converts a right-anchored panel to
+  // fixed coords so it grows from a stable top-left).
+  setPos: (pos: { x: number; y: number } | null) => void;
 }
 
 // Pointer-drag for a floating panel. Positions are viewport-relative and clamped
@@ -43,5 +46,5 @@ export function useDraggable(): Draggable {
     window.addEventListener("pointerup", onUp);
   };
 
-  return { ref, pos, onPointerDown };
+  return { ref, pos, onPointerDown, setPos };
 }

@@ -25,6 +25,7 @@ import {
   trafo2wNames,
   trafo3wNames,
 } from "../trafo";
+import { MeasurementsSection } from "./Measurements";
 import {
   FaultCurrentLegend,
   HEADERS,
@@ -32,6 +33,7 @@ import {
   VoltageLegend,
   busInjectionRows,
   busScRows,
+  estimateRows,
   nodeResultRows,
   type ResultRow,
 } from "./results";
@@ -43,6 +45,7 @@ import type {
   ImpedanceData,
   LineData,
   LoadData,
+  MeasElementType,
   SgenData,
   ShuntData,
   SvcData,
@@ -55,6 +58,14 @@ import type {
   Trafo3WParams,
   XwardData,
 } from "../types";
+
+// Editor node type -> the measurement element type it carries (a line is an
+// edge, handled separately). Absent means the node can't hold measurements.
+const NODE_MEAS_ELEMENT: Partial<Record<string, MeasElementType>> = {
+  bus: "bus",
+  trafo2w: "trafo",
+  trafo3w: "trafo3w",
+};
 
 // A physical-quantity symbol with an upright subscript (and optional
 // superscript), e.g. S_N, v_kr or x″_d, so labels read in the usual scientific
@@ -727,6 +738,7 @@ export function Inspector() {
     updateEdgeData,
     setTrafoTapPos,
     studyMode,
+    estById,
   } = useEditor();
 
   // pandapower's std transformer catalog, fetched once (cached in api.ts). Used
@@ -781,46 +793,52 @@ export function Inspector() {
           value={d.name}
           onChange={(e) => set({ name: e.currentTarget.value })}
         />
-        {num("Length", <em>l</em>, "km", "length_km", 0.1, 3)}
-        {num(
-          "Resistance per length",
+        {/* Line parameters are hidden in estimation mode to keep the panel
+            focused on measurements and results. */}
+        {studyMode !== "estimation" && (
           <>
-            <em>R</em>′
-          </>,
-          "Ω/km",
-          "r_ohm_per_km",
-          0.01,
-          4,
+            {num("Length", <em>l</em>, "km", "length_km", 0.1, 3)}
+            {num(
+              "Resistance per length",
+              <>
+                <em>R</em>′
+              </>,
+              "Ω/km",
+              "r_ohm_per_km",
+              0.01,
+              4,
+            )}
+            {num(
+              "Reactance per length",
+              <>
+                <em>X</em>′
+              </>,
+              "Ω/km",
+              "x_ohm_per_km",
+              0.01,
+              4,
+            )}
+            {num(
+              "Capacitance per length",
+              <>
+                <em>C</em>′
+              </>,
+              "nF/km",
+              "c_nf_per_km",
+              1,
+              2,
+            )}
+            {num(
+              "Max current (thermal limit)",
+              <Sym sub="max">I</Sym>,
+              "kA",
+              "max_i_ka",
+              0.01,
+              4,
+            )}
+          </>
         )}
-        {num(
-          "Reactance per length",
-          <>
-            <em>X</em>′
-          </>,
-          "Ω/km",
-          "x_ohm_per_km",
-          0.01,
-          4,
-        )}
-        {num(
-          "Capacitance per length",
-          <>
-            <em>C</em>′
-          </>,
-          "nF/km",
-          "c_nf_per_km",
-          1,
-          2,
-        )}
-        {num(
-          "Max current (thermal limit)",
-          <Sym sub="max">I</Sym>,
-          "kA",
-          "max_i_ka",
-          0.01,
-          4,
-        )}
-        {d.res_loading_percent !== undefined && (
+        {studyMode === "loadflow" && d.res_loading_percent !== undefined && (
           <ResultList
             rows={[
               ["Loading", `${fixed(d.res_loading_percent, 1)} %`],
@@ -833,6 +851,15 @@ export function Inspector() {
                 : []),
             ]}
           />
+        )}
+        {studyMode === "estimation" && estById[lineEdge.id] && (
+          <ResultList
+            label="State estimation result"
+            rows={estimateRows(estById[lineEdge.id])}
+          />
+        )}
+        {studyMode === "estimation" && (
+          <MeasurementsSection elementType="line" elementId={lineEdge.id} />
         )}
       </Stack>
     );
@@ -878,6 +905,10 @@ export function Inspector() {
   const bus = node.type === "bus" ? (node.data as BusData) : null;
   const inj =
     bus && bus.vm_pu !== undefined ? busInjection(node.id, nodes, edges) : null;
+  // Estimation mode is about measurements and results, not editing the network,
+  // so the element's parameter editors are hidden to keep the panel focused
+  // (they're set up in load-flow mode). Physical params still feed the solve.
+  const showParams = studyMode !== "estimation";
 
   return (
     <Stack gap="sm" p="sm">
@@ -887,6 +918,9 @@ export function Inspector() {
         value={(node.data as { name: string }).name}
         onChange={(e) => update({ name: e.currentTarget.value })}
       />
+
+      {showParams && (
+        <>
 
       {node.type === "bus" &&
         (() => {
@@ -986,41 +1020,45 @@ export function Inspector() {
               onChange={(v) => update({ slack_weight: Number(v) || 0 })}
             />
           )}
-          <Divider label="Short-circuit" labelPosition="left" />
-          <ParamInput
-            name="Rated apparent power"
-            symbol={<Sym sub="N">S</Sym>}
-            unit="MVA"
-            value={(node.data as GeneratorData).sn_mva}
-            min={0}
-            step={0.1}
-            decimalScale={3}
-            onChange={(v) => update({ sn_mva: Number(v) || 0 })}
-          />
-          <ParamInput
-            name="Subtransient reactance — drives the machine's fault contribution"
-            symbol={
-              <Sym sub="d" sup="″">
-                X
-              </Sym>
-            }
-            unit="p.u."
-            value={(node.data as GeneratorData).xdss_pu}
-            min={0}
-            step={0.01}
-            decimalScale={4}
-            onChange={(v) => update({ xdss_pu: Number(v) || 0 })}
-          />
-          <ParamInput
-            name="Power factor"
-            symbol={<>cos φ</>}
-            value={(node.data as GeneratorData).cos_phi}
-            min={0}
-            max={1}
-            step={0.01}
-            decimalScale={3}
-            onChange={(v) => update({ cos_phi: Number(v) || 0 })}
-          />
+          {studyMode === "shortcircuit" && (
+            <>
+              <Divider label="Short-circuit" labelPosition="left" />
+              <ParamInput
+                name="Rated apparent power"
+                symbol={<Sym sub="N">S</Sym>}
+                unit="MVA"
+                value={(node.data as GeneratorData).sn_mva}
+                min={0}
+                step={0.1}
+                decimalScale={3}
+                onChange={(v) => update({ sn_mva: Number(v) || 0 })}
+              />
+              <ParamInput
+                name="Subtransient reactance — drives the machine's fault contribution"
+                symbol={
+                  <Sym sub="d" sup="″">
+                    X
+                  </Sym>
+                }
+                unit="p.u."
+                value={(node.data as GeneratorData).xdss_pu}
+                min={0}
+                step={0.01}
+                decimalScale={4}
+                onChange={(v) => update({ xdss_pu: Number(v) || 0 })}
+              />
+              <ParamInput
+                name="Power factor"
+                symbol={<>cos φ</>}
+                value={(node.data as GeneratorData).cos_phi}
+                min={0}
+                max={1}
+                step={0.01}
+                decimalScale={3}
+                onChange={(v) => update({ cos_phi: Number(v) || 0 })}
+              />
+            </>
+          )}
         </>
       )}
 
@@ -1071,30 +1109,34 @@ export function Inspector() {
           <Text size="xs" c="dimmed">
             Always a slack (voltage reference) that balances the network.
           </Text>
-          <Divider label="Short-circuit" labelPosition="left" />
-          <ParamInput
-            name="Fault level — max short-circuit power at this connection"
-            symbol={
-              <Sym sub="k" sup="″">
-                S
-              </Sym>
-            }
-            unit="MVA"
-            value={(node.data as ExtGridData).s_sc_max_mva}
-            min={0}
-            step={10}
-            decimalScale={2}
-            onChange={(v) => update({ s_sc_max_mva: Number(v) || 0 })}
-          />
-          <ParamInput
-            name="R/X ratio (max case)"
-            symbol={<>R/X</>}
-            value={(node.data as ExtGridData).rx_max}
-            min={0}
-            step={0.01}
-            decimalScale={4}
-            onChange={(v) => update({ rx_max: Number(v) || 0 })}
-          />
+          {studyMode === "shortcircuit" && (
+            <>
+              <Divider label="Short-circuit" labelPosition="left" />
+              <ParamInput
+                name="Fault level — max short-circuit power at this connection"
+                symbol={
+                  <Sym sub="k" sup="″">
+                    S
+                  </Sym>
+                }
+                unit="MVA"
+                value={(node.data as ExtGridData).s_sc_max_mva}
+                min={0}
+                step={10}
+                decimalScale={2}
+                onChange={(v) => update({ s_sc_max_mva: Number(v) || 0 })}
+              />
+              <ParamInput
+                name="R/X ratio (max case)"
+                symbol={<>R/X</>}
+                value={(node.data as ExtGridData).rx_max}
+                min={0}
+                step={0.01}
+                decimalScale={4}
+                onChange={(v) => update({ rx_max: Number(v) || 0 })}
+              />
+            </>
+          )}
         </>
       )}
 
@@ -1634,25 +1676,51 @@ export function Inspector() {
             </>
           );
         })()}
-
-      <ResultList
-        rows={[
-          ...nodeResultRows(node.type, node.data),
-          ...(inj ? busInjectionRows(inj) : []),
-        ]}
-      />
-
-      {node.type === "bus" && (
-        <ResultList label="Short-circuit result" rows={busScRows(bus!)} />
+        </>
       )}
 
+      {/* Results for the active study only, so the panel isn't cluttered with
+          other simulations' output. */}
+      {studyMode === "loadflow" && (
+        <ResultList
+          rows={[
+            ...nodeResultRows(node.type, node.data),
+            ...(inj ? busInjectionRows(inj) : []),
+          ]}
+        />
+      )}
+      {studyMode === "shortcircuit" && node.type === "bus" && (
+        <ResultList label="Short-circuit result" rows={busScRows(bus!)} />
+      )}
+      {studyMode === "estimation" && estById[node.id] && (
+        <ResultList
+          label="State estimation result"
+          rows={estimateRows(estById[node.id])}
+        />
+      )}
+
+      {/* Measurements belong to state estimation only. */}
+      {studyMode === "estimation" && node.type && NODE_MEAS_ELEMENT[node.type] && (
+        <MeasurementsSection
+          elementType={NODE_MEAS_ELEMENT[node.type]!}
+          elementId={node.id}
+        />
+      )}
+
+      {/* The bus color legend is a reference key — kept at the bottom. */}
       {node.type === "bus" && (
         <>
           <Divider my="xs" />
           {studyMode === "shortcircuit" ? (
             <FaultCurrentLegend />
           ) : (
-            <VoltageLegend />
+            <VoltageLegend
+              caption={
+                studyMode === "estimation"
+                  ? "Estimated bus voltage"
+                  : "Bus voltage after load flow"
+              }
+            />
           )}
         </>
       )}

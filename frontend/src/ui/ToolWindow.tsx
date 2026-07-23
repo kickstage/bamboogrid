@@ -4,6 +4,7 @@ import { ActionIcon, Group, Paper } from "@mantine/core";
 import { DetachedWindow } from "./DetachedWindow";
 import { SectionLabel } from "./Section";
 import { useDraggable } from "./useDraggable";
+import { useResizable } from "./useResizable";
 import {
   raiseWindow,
   registerWindow,
@@ -29,6 +30,10 @@ interface ToolWindowProps {
   offset?: number;
   // Extra buttons for the header (e.g. a refresh action), left of pop-out/close.
   headerActions?: React.ReactNode;
+  // Give the docked panel a definite height (the `height` prop) instead of
+  // sizing to content. Panels whose body scales to fit (the matrix heatmaps)
+  // need this so they can measure a stable available height.
+  fill?: boolean;
   children: React.ReactNode;
 }
 
@@ -45,10 +50,12 @@ export function ToolWindow({
   minHeight = 280,
   offset = 0,
   headerActions,
+  fill = false,
   children,
 }: ToolWindowProps) {
   const [detached, setDetached] = useState(false);
   const drag = useDraggable();
+  const resize = useResizable(drag.ref, { width: minWidth, height: minHeight });
 
   // Join the shared stacking order while open so the last-opened/clicked window
   // sits on top (registering appends to the top; clicking raises it).
@@ -62,10 +69,24 @@ export function ToolWindow({
 
   // Closing (from anywhere) returns the tool to its docked default next time.
   useEffect(() => {
-    if (!opened) setDetached(false);
-  }, [opened]);
+    if (!opened) {
+      setDetached(false);
+      resize.reset();
+    }
+  }, [opened, resize.reset]);
 
   if (!opened) return null;
+
+  // Begin a corner-resize. Before the first drag the panel is right-anchored
+  // (position: absolute); pin its current top-left so it grows from there
+  // instead of the anchored edge fighting the pointer.
+  const startResize = (e: React.PointerEvent) => {
+    if (!drag.pos && drag.ref.current) {
+      const r = drag.ref.current.getBoundingClientRect();
+      drag.setPos({ x: r.left, y: r.top });
+    }
+    resize.onPointerDown(e);
+  };
 
   const header = (isDetached: boolean) => (
     <Group
@@ -161,12 +182,19 @@ export function ToolWindow({
       // the matrix) brings it to the front, even if a child handles the event.
       onPointerDownCapture={() => raiseWindow(id)}
       style={{
-        // Default: docked over the canvas (top-right). Once dragged, switch to
-        // viewport-fixed coords so it can be moved over the sidebars too.
+        // Default: docked over the canvas (top-left), so a panel has room to
+        // grow rightward as it's resized. Once dragged, switch to viewport-fixed
+        // coords so it can be moved over the sidebars too.
         position: drag.pos ? "fixed" : "absolute",
+        // `offset` cascades sibling windows opened together so they don't stack
+        // exactly.
         top: drag.pos ? drag.pos.y : 12 + offset,
-        ...(drag.pos ? { left: drag.pos.x } : { right: 12 + offset }),
-        width,
+        left: drag.pos ? drag.pos.x : 12 + offset,
+        // Once resized, honor the dragged size; otherwise size to the default
+        // width and grow with content up to the viewport cap. `fill` panels take
+        // a definite default height so their body has a stable box to fit into.
+        width: resize.size ? resize.size.width : width,
+        ...(resize.size ? { height: resize.size.height } : fill ? { height } : {}),
         minWidth,
         minHeight,
         maxWidth: "calc(100% - 24px)",
@@ -178,6 +206,32 @@ export function ToolWindow({
     >
       {header(false)}
       {body}
+      {/* Bottom-right grip to resize the docked panel (detached windows resize
+          natively). */}
+      <div
+        onPointerDown={startResize}
+        title="Drag to resize"
+        aria-hidden
+        style={{
+          position: "absolute",
+          right: 2,
+          bottom: 2,
+          width: 16,
+          height: 16,
+          cursor: "nwse-resize",
+          touchAction: "none",
+          zIndex: 1,
+        }}
+      >
+        <svg width="16" height="16" viewBox="0 0 16 16" style={{ display: "block" }}>
+          <path
+            d="M14.5 6.5 L6.5 14.5 M14.5 11 L11 14.5"
+            stroke="var(--mantine-color-dimmed)"
+            strokeWidth="1.5"
+            fill="none"
+          />
+        </svg>
+      </div>
     </Paper>
   );
 }

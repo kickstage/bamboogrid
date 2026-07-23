@@ -28,6 +28,9 @@ export type BusData = {
   ip_ka?: number;
   ith_ka?: number;
   skss_mw?: number;
+  // Filled in after a state estimation (estimated voltage magnitude/angle).
+  est_vm_pu?: number;
+  est_va_degree?: number;
 };
 
 export type GeneratorData = {
@@ -465,6 +468,78 @@ export interface Impedance {
   y: number;
 }
 
+// A state-estimation measurement (pandapower `measurement`). Unlike every other
+// element it has no canvas presence — it annotates an existing bus, line or
+// transformer. `meas_type` is the measured quantity (voltage magnitude `v`,
+// active/reactive power `p`/`q`, current `i`, voltage angle `va`) and `std_dev`
+// its Gaussian noise in that unit. `side` picks a branch end (from/to on a line,
+// hv/mv/lv on a transformer) and is null for a bus.
+export type MeasType = "v" | "p" | "q" | "i" | "va";
+export type MeasElementType = "bus" | "line" | "trafo" | "trafo3w";
+export type MeasSide = "from" | "to" | "hv" | "mv" | "lv";
+
+// Display metadata for each measured quantity — the descriptive label, compact
+// symbol, unit and decimal precision. Single source consumed by the inspector
+// and the canvas badge (kept here next to the type so they can't drift).
+export const MEAS_META: Record<
+  MeasType,
+  { label: string; symbol: string; unit: string; dp: number; description: string }
+> = {
+  v: { label: "Voltage |V|", symbol: "|V|", unit: "p.u.", dp: 4, description: "Voltage magnitude" },
+  va: { label: "Voltage angle", symbol: "∠V", unit: "°", dp: 2, description: "Voltage angle" },
+  p: { label: "Active power P", symbol: "P", unit: "MW", dp: 3, description: "Active power" },
+  q: { label: "Reactive power Q", symbol: "Q", unit: "Mvar", dp: 3, description: "Reactive power" },
+  i: { label: "Current I", symbol: "I", unit: "kA", dp: 4, description: "Current magnitude" },
+};
+
+// The `symbol · side (unit)` heading for a measured quantity. Shared by the
+// inspector and the canvas badge so the two can't drift.
+export function measLabel(measType: MeasType, side: MeasSide | null): string {
+  const m = MEAS_META[measType];
+  return `${m.symbol}${side ? ` · ${side}` : ""} (${m.unit})`;
+}
+
+export interface QuantityGroup<T> {
+  key: string;
+  measType: MeasType;
+  side: MeasSide | null;
+  items: T[];
+}
+
+// Group items by measured quantity (and branch side), preserving first-seen
+// order; `meas` extracts the quantity+side from each item. Used by both the
+// inspector and the canvas badge to stack same-quantity readings together.
+export function groupByQuantity<T>(
+  items: T[],
+  meas: (item: T) => { meas_type: MeasType; side: MeasSide | null },
+): QuantityGroup<T>[] {
+  const byKey = new Map<string, QuantityGroup<T>>();
+  for (const item of items) {
+    const { meas_type, side } = meas(item);
+    const key = `${meas_type}|${side ?? ""}`;
+    let g = byKey.get(key);
+    if (!g) {
+      g = { key, measType: meas_type, side, items: [] };
+      byKey.set(key, g);
+    }
+    g.items.push(item);
+  }
+  return [...byKey.values()];
+}
+
+export interface Measurement {
+  id: string;
+  name: string;
+  meas_type: MeasType;
+  element_type: MeasElementType;
+  element_id: string;
+  side: MeasSide | null;
+  value: number;
+  std_dev: number;
+  // When false the measurement is kept but excluded from the estimation.
+  enabled: boolean;
+}
+
 export interface Network {
   id: string;
   name: string;
@@ -483,6 +558,7 @@ export interface Network {
   xwards: Xward[];
   svcs: Svc[];
   impedances: Impedance[];
+  measurements: Measurement[];
   // Positions are the coarse server fallback; the client recomputes (ELK) and
   // persists a proper layout, which clears this.
   needs_layout?: boolean;
@@ -642,6 +718,24 @@ export interface LoadFlowSettings {
   check_connectivity: boolean;
 }
 
+// Mirrors the backend `ShortCircuitSettings` (pandapower calc_sc options).
+export interface ShortCircuitSettings {
+  fault: "3ph" | "2ph";
+  case: "max" | "min";
+  ip: boolean;
+  ith: boolean;
+  // Fault duration [s] for the thermal-equivalent current i_th.
+  tk_s: number;
+}
+
+// Mirrors the backend `StateEstimationSettings` (WLS estimator options).
+export interface StateEstimationSettings {
+  algorithm: "wls";
+  init: "flat" | "results";
+  tolerance: number;
+  maximum_iterations: number;
+}
+
 export interface LoadFlowResult {
   converged: boolean;
   message: string;
@@ -702,6 +796,34 @@ export interface YbusResult {
   omitted_buses: number;
 }
 
+// Measurement Jacobian H (∂h/∂x): rows are measurements, columns are states
+// (bus voltage angles then magnitudes). Only available after estimation runs.
+export interface JacobianRow {
+  ids: string[]; // editor uuid(s) of the measured element, for highlighting
+  label: string; // "P Line 1-2 (from)", "V Bus 3"
+  meas_type: string; // v / va / p / q / i
+}
+
+export interface JacobianCol {
+  ids: string[]; // editor uuid(s) of the bus (empty for an internal node)
+  label: string; // "∠ Bus 2", "|V| Bus 1"
+  kind: "angle" | "magnitude";
+}
+
+export interface JacobianEntry {
+  i: number;
+  j: number;
+  value: number;
+}
+
+export interface JacobianResult {
+  ok: boolean;
+  message: string;
+  rows: JacobianRow[];
+  cols: JacobianCol[];
+  entries: JacobianEntry[];
+}
+
 export interface BusScResult {
   id: string;
   ikss_ka: number | null;
@@ -714,4 +836,78 @@ export interface ShortCircuitResult {
   ok: boolean;
   message: string;
   res_bus: BusScResult[];
+}
+
+// --- State estimation (WLS) -----------------------------------------------
+
+export interface BusEstResult {
+  id: string;
+  vm_pu: number | null;
+  va_degree: number | null;
+  p_mw: number | null;
+  q_mvar: number | null;
+}
+
+// Estimated flow into one end of a branch — a line (from/to) or a transformer
+// winding (hv/mv/lv). Power in ≠ power out (branch losses), so each end differs.
+export interface BranchSideEst {
+  side: string;
+  p_mw: number | null;
+  q_mvar: number | null;
+  i_ka: number | null;
+}
+
+export interface LineEstResult {
+  id: string;
+  loading_percent: number | null;
+  sides: BranchSideEst[]; // "from" and "to"
+}
+
+export interface TrafoEstResult {
+  id: string;
+  loading_percent: number | null;
+  sides: BranchSideEst[]; // hv/lv (2W) or hv/mv/lv (3W)
+}
+
+// The estimated state of one element, as the canvas badge consumes it (keyed by
+// element id in the store). A discriminated union so the badge renders the right
+// quantities for a bus, a line or a transformer (both branches carry per-end
+// flows).
+export type ElementEstimate =
+  | {
+      kind: "bus";
+      vm_pu: number | null;
+      va_degree: number | null;
+      p_mw: number | null;
+      q_mvar: number | null;
+    }
+  | { kind: "line"; loading_percent: number | null; sides: BranchSideEst[] }
+  | { kind: "trafo"; loading_percent: number | null; sides: BranchSideEst[] };
+
+// Per-measurement diagnostics: the estimated value, the raw residual
+// (measured − estimated) and the (non-negative) normalized residual rᴺ used by
+// the bad-data test. `is_bad` marks the single measurement the largest-
+// normalized-residual test identified as most likely bad (a gross error smears
+// across many residuals, so only the largest is flagged). `is_critical` marks a
+// measurement with no redundancy: removing it would make the network
+// unobservable, so its error is undetectable and it has no normalized residual.
+export interface MeasurementResidual {
+  id: string;
+  measured: number | null;
+  estimated: number | null;
+  residual: number | null;
+  normalized_residual: number | null;
+  is_bad: boolean;
+  is_critical: boolean;
+}
+
+export interface StateEstimationResult {
+  ok: boolean;
+  message: string;
+  // True when the chi² test flags the measurement set as containing bad data.
+  bad_data: boolean;
+  res_bus: BusEstResult[];
+  res_line: LineEstResult[];
+  res_trafo: TrafoEstResult[];
+  residuals: MeasurementResidual[];
 }

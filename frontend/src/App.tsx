@@ -22,7 +22,7 @@ import { Submenu } from "./ui/Submenu";
 import { Canvas } from "./canvas/Canvas";
 import { Inspector } from "./inspector/Inspector";
 import { Palette } from "./palette/Palette";
-import { applySavedLoadFlowSettings } from "./study/loadFlowSettings";
+import { applySavedStudySettings } from "./study/studySettings";
 import { MobileApp } from "./mobile/MobileApp";
 import { useIsMobile } from "./mobile/useIsMobile";
 import { authEnabled, AuthControls } from "./auth/GoogleSignIn";
@@ -44,6 +44,7 @@ import {
   importPandapower,
   openShare,
   renameGrid,
+  runEstimation,
   runLoadFlow,
   runShortCircuit,
   type Scenario,
@@ -209,6 +210,7 @@ export default function App() {
     networkName,
     applyResults,
     applyShortCircuit,
+    applyEstimation,
     studyMode,
     setStudyMode,
     showResults,
@@ -224,9 +226,14 @@ export default function App() {
     redo,
     setSearchOpen,
     setYbusOpen,
+    setJacobianOpen,
     setSummaryOpen,
     setSettingsOpen,
+    estById,
   } = useEditor();
+  // The measurement Jacobian comes from a solved estimation, so it's only
+  // available once one has produced results (cleared on load/reset).
+  const hasEstimation = Object.keys(estById).length > 0;
   const [busy, setBusy] = useState(false);
   // A blocking message shown over the canvas while a network is being built
   // server-side (opening an example / importing), which can take a moment.
@@ -614,7 +621,7 @@ export default function App() {
           }
         }
         const { id, view } = await createSession();
-        await applySavedLoadFlowSettings(id);
+        await applySavedStudySettings(id);
         await attachSession(id, view);
         rememberSession(id);
       } catch (err) {
@@ -702,7 +709,7 @@ export default function App() {
     try {
       await flushPending();
       const { id, view } = await createScenarioSession(scenario.id);
-      await applySavedLoadFlowSettings(id);
+      await applySavedStudySettings(id);
       await attachSession(id, view);
       rememberSession(id);
       toast.success(`Opened "${scenario.label}".`);
@@ -745,7 +752,7 @@ export default function App() {
     try {
       await flushPending();
       const { id, view } = await createSession();
-      await applySavedLoadFlowSettings(id);
+      await applySavedStudySettings(id);
       await attachSession(id, view);
       rememberSession(id);
       toast.success("Started a new scenario.");
@@ -798,8 +805,19 @@ export default function App() {
     // instead of surfacing that failure.
     const { nodes } = useEditor.getState();
     if (nodes.length === 0) {
-      const study = studyMode === "shortcircuit" ? "short circuit" : "load flow";
-      const ieee14 = scenarios.find((s) => s.id === "case14");
+      const study =
+        studyMode === "shortcircuit"
+          ? "short circuit"
+          : studyMode === "estimation"
+            ? "state estimation"
+            : "load flow";
+      // State estimation needs measurements, which the IEEE 14-bus example has
+      // none of — point it at the state-estimation demo instead.
+      const [demoId, demoLabel] =
+        studyMode === "estimation"
+          ? (["se_demo", "the state estimation demo"] as const)
+          : (["case14", "the IEEE 14-bus example"] as const);
+      const demo = scenarios.find((s) => s.id === demoId);
       const noticeId = "empty-canvas-run";
       notifications.show({
         id: noticeId,
@@ -810,7 +828,7 @@ export default function App() {
           <Text size="sm">
             Add some buses and equipment to build a grid before running a{" "}
             {study}
-            {ieee14 && (
+            {demo && (
               <>
                 , or{" "}
                 <Anchor
@@ -818,10 +836,10 @@ export default function App() {
                   fw={500}
                   onClick={() => {
                     notifications.hide(noticeId);
-                    void onOpenScenario(ieee14);
+                    void onOpenScenario(demo);
                   }}
                 >
-                  try the IEEE 14-bus example
+                  try {demoLabel}
                 </Anchor>
               </>
             )}
@@ -839,6 +857,11 @@ export default function App() {
         const result = await runShortCircuit(sessionId);
         applyShortCircuit(result);
         if (result.ok) toast.success("Short circuit complete.");
+      } else if (studyMode === "estimation") {
+        const result = await runEstimation(sessionId);
+        applyEstimation(result);
+        if (result.ok && !result.bad_data)
+          toast.success("State estimation converged.");
       } else {
         const result = await runLoadFlow(sessionId);
         applyResults(result);
@@ -1083,8 +1106,19 @@ export default function App() {
                 >
                   Admittance matrix…
                 </Menu.Item>
+                <Menu.Item
+                  onClick={() => hasEstimation && setJacobianOpen(true)}
+                  disabled={!hasEstimation}
+                  title={
+                    hasEstimation
+                      ? undefined
+                      : "Run state estimation first — the Jacobian comes from the solved estimator."
+                  }
+                >
+                  Measurement Jacobian…
+                </Menu.Item>
                 <Menu.Item onClick={() => setSettingsOpen(true)}>
-                  Load flow settings…
+                  Study settings…
                 </Menu.Item>
               </Menu.Dropdown>
             </Menu>
@@ -1183,15 +1217,27 @@ export default function App() {
               size="xs"
               value={studyMode}
               onChange={(v) => setStudyMode(v as typeof studyMode)}
+              // Keep the current selection when switching studies (the toolbar
+              // deselects on pointer-down; the inspector re-renders for the new
+              // mode on the same element).
+              onPointerDown={(e) => e.stopPropagation()}
               data={[
                 { label: "Load flow", value: "loadflow" },
                 { label: "Short circuit", value: "shortcircuit" },
+                { label: "Estimation", value: "estimation" },
               ]}
             />
             <Tooltip
               label={`Run ${/Mac/i.test(navigator.platform) ? "⌘R" : "Ctrl+R"}`}
             >
-              <Button size="xs" onClick={onRun} loading={busy}>
+              <Button
+                size="xs"
+                onClick={onRun}
+                loading={busy}
+                // Keep the current selection when running (the toolbar deselects
+                // on pointer-down), so its results stay visible in the inspector.
+                onPointerDown={(e) => e.stopPropagation()}
+              >
                 Run
               </Button>
             </Tooltip>
