@@ -153,11 +153,12 @@ export function ToolWindow({
       withBorder
       radius="md"
       style={{
-        // Default: docked over the canvas (top-right). Once dragged, switch to
-        // viewport-fixed coords so it can be moved over the sidebars too.
+        // Default: docked over the canvas (top-left), so a panel has room to
+        // grow rightward as it's resized. Once dragged, switch to viewport-fixed
+        // coords so it can be moved over the sidebars too.
         position: drag.pos ? "fixed" : "absolute",
         top: drag.pos ? drag.pos.y : 12,
-        ...(drag.pos ? { left: drag.pos.x } : { right: 12 }),
+        left: drag.pos ? drag.pos.x : 12,
         // Once resized, honor the dragged size; otherwise size to the default
         // width and grow with content up to the viewport cap. `fill` panels take
         // a definite default height so their body has a stable box to fit into.

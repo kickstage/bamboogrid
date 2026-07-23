@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Center, Loader, Text } from "@mantine/core";
+import { Center, Group, Loader, Select, Text } from "@mantine/core";
 
 import { fetchJacobian } from "../api";
 import { fixed } from "../format";
 import { flushPending } from "../sync";
 import { useEditor } from "../store";
 import { toast } from "../toast";
-import type { JacobianResult } from "../types";
+import type { JacobianCol, JacobianResult } from "../types";
 import { ToolWindow } from "../ui/ToolWindow";
 // Cells use the diverging ramp (signed sensitivities); the blank zero cells are
 // the "this measurement can't see that state" structure worth showing.
@@ -19,6 +19,18 @@ import {
   MIN_CELL,
 } from "./heatmap";
 import { useLiveRefresh } from "./useLiveRefresh";
+
+// Select value standing in for "no focus" (Mantine Select can't hold null).
+const ALL = "__all__";
+
+// Strip the "∠ " / "|V| " state prefix to get the underlying bus name.
+const busName = (label: string) => label.replace(/^(?:∠|\|V\|)\s+/, "");
+
+// A stable key for the bus a state column belongs to: its editor id(s) when it
+// has them, else the (internal-node) name. Both the ∠ and |V| column of a bus
+// share this key, so focusing on it selects the pair.
+const colKey = (c: JacobianCol) =>
+  c.ids.length ? c.ids.join(",") : busName(c.label);
 
 // A floating panel showing the measurement Jacobian H (∂h/∂x) as a heatmap.
 // Rows are the measurements, columns are the states (bus voltage angles then
@@ -35,6 +47,8 @@ export function JacobianPanel() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [hover, setHover] = useState<{ i: number; j: number } | null>(null);
+  // Focus on one bus: null shows the whole matrix, otherwise a colKey.
+  const [focus, setFocus] = useState<string | null>(null);
 
   const reqIdRef = useRef(0);
   const load = useMemo(
@@ -65,30 +79,74 @@ export function JacobianPanel() {
     if (!open) setHover(null);
   }, [open]);
 
-  const nRows = data?.ok ? data.rows.length : 0;
-  const nCols = data?.ok ? data.cols.length : 0;
+  // The buses that can be focused on, in column order.
+  const busOptions = useMemo(() => {
+    if (!data?.ok) return [] as { key: string; label: string }[];
+    const seen = new Map<string, { key: string; label: string }>();
+    for (const c of data.cols) {
+      const key = colKey(c);
+      if (!seen.has(key)) seen.set(key, { key, label: busName(c.label) });
+    }
+    return [...seen.values()];
+  }, [data]);
+
+  // Drop a stale focus if a refresh removed that bus.
+  useEffect(() => {
+    if (focus && !busOptions.some((b) => b.key === focus)) setFocus(null);
+  }, [busOptions, focus]);
+
+  // The matrix to render. With a bus focused, keep the rows (measurements) that
+  // touch it and every column (state) those rows reach — so you see the bus,
+  // plus the neighbor states its measurements also couple to — then reindex.
+  const view = useMemo(() => {
+    if (!data?.ok) return { rows: [], cols: [], entries: [] } as const;
+    const full = { rows: data.rows, cols: data.cols, entries: data.entries };
+    if (!focus) return full;
+    const focusCols = new Set<number>();
+    data.cols.forEach((c, j) => colKey(c) === focus && focusCols.add(j));
+    if (!focusCols.size) return full;
+    const rowSet = new Set<number>();
+    for (const e of data.entries) if (focusCols.has(e.j)) rowSet.add(e.i);
+    const colSet = new Set<number>();
+    for (const e of data.entries) if (rowSet.has(e.i)) colSet.add(e.j);
+    const rowIdx = [...rowSet].sort((a, b) => a - b);
+    const colIdx = [...colSet].sort((a, b) => a - b);
+    const rowPos = new Map(rowIdx.map((r, i) => [r, i]));
+    const colPos = new Map(colIdx.map((c, j) => [c, j]));
+    return {
+      rows: rowIdx.map((r) => data.rows[r]),
+      cols: colIdx.map((c) => data.cols[c]),
+      entries: data.entries
+        .filter((e) => rowSet.has(e.i) && colSet.has(e.j))
+        .map((e) => ({ i: rowPos.get(e.i)!, j: colPos.get(e.j)!, value: e.value })),
+    };
+  }, [data, focus]);
+
+  const nRows = view.rows.length;
+  const nCols = view.cols.length;
 
   // Sparse cell lookup and the color domain (largest absolute sensitivity).
   const { byCell, colorOf } = useMemo(() => {
     const map = new Map<number, number>();
-    if (!data?.ok) return { byCell: map, colorOf: () => EMPTY_CELL };
-    for (const e of data.entries) map.set(e.i * data.cols.length + e.j, e.value);
-    const maxAbs = Math.max(1e-12, ...data.entries.map((e) => Math.abs(e.value)));
+    if (!view.entries.length)
+      return { byCell: map, colorOf: () => EMPTY_CELL };
+    for (const e of view.entries) map.set(e.i * view.cols.length + e.j, e.value);
+    const maxAbs = Math.max(1e-12, ...view.entries.map((e) => Math.abs(e.value)));
     return {
       byCell: map,
       colorOf: (v: number): CellStyle => divColor(v / maxAbs),
     };
-  }, [data]);
+  }, [view]);
 
   // Gutters sized to the actual labels (row labels like "P Line 1-2 (from)" run
   // longer than the state labels), so the grid isn't lost in oversized margins.
   const rowChars = Math.min(
     22,
-    (data?.rows ?? []).reduce((m, r) => Math.max(m, r.label.length), 2),
+    view.rows.reduce((m, r) => Math.max(m, r.label.length), 2),
   );
   const colChars = Math.min(
     12,
-    (data?.cols ?? []).reduce((m, c) => Math.max(m, c.label.length), 2),
+    view.cols.reduce((m, c) => Math.max(m, c.label.length), 2),
   );
   const headL = Math.round(rowChars * CHAR_W + 10);
   const headT = Math.round(colChars * CHAR_W * 0.72 + 14);
@@ -136,24 +194,28 @@ export function JacobianPanel() {
   const svgH = headT + nRows * cell + 6;
   const rowMaxChars = Math.max(4, Math.floor((headL - 8) / CHAR_W));
 
-  // Initial docked/pop-out size, derived from the matrix shape.
+  // Initial docked/pop-out size, from the *full* matrix so the panel doesn't
+  // jump when a focus filters it down (the grid then zooms-to-fit inside).
+  const fullRows = data?.ok ? data.rows.length : 0;
+  const fullCols = data?.ok ? data.cols.length : 0;
   const baseCell = Math.max(
     16,
-    Math.min(MAX_CELL, Math.round(420 / Math.max(1, Math.max(nRows, nCols)))),
+    Math.min(MAX_CELL, Math.round(420 / Math.max(1, fullRows, fullCols))),
   );
-  const width = data?.ok ? Math.min(headL + nCols * baseCell + 40, 720) : 340;
+  const width = data?.ok ? Math.min(headL + fullCols * baseCell + 40, 720) : 340;
   const height = data?.ok
-    ? Math.min(headT + nRows * baseCell + 200, 820)
+    ? Math.min(headT + fullRows * baseCell + 200, 820)
     : 320;
 
   const clip = (s: string, n: number) =>
     s.length > n ? s.slice(0, n - 1) + "…" : s;
 
   const hoveredDetail = () => {
-    if (!data?.ok || !hover) return null;
+    if (!hover) return null;
+    const row = view.rows[hover.i];
+    const col = view.cols[hover.j];
+    if (!row || !col) return null;
     const v = byCell.get(hover.i * nCols + hover.j);
-    const row = data.rows[hover.i];
-    const col = data.cols[hover.j];
     return (
       <Text size="xs" ff="monospace">
         ∂({row.label}) / ∂({col.label}) = {v === undefined ? "0" : fixed(v, 3)}
@@ -175,6 +237,28 @@ export function JacobianPanel() {
           ∂(measurement) / ∂(state) at the estimated state — rows are
           measurements, columns are bus angles ∠ and magnitudes |V|.
         </Text>
+
+        {data?.ok && busOptions.length > 1 && (
+          <Group gap="xs" wrap="nowrap" mb={6} align="center">
+            <Text size="xs" c="dimmed">
+              Focus
+            </Text>
+            <Select
+              size="xs"
+              style={{ flex: 1 }}
+              value={focus ?? ALL}
+              onChange={(v) => {
+                setFocus(v && v !== ALL ? v : null);
+                setHover(null);
+              }}
+              allowDeselect={false}
+              data={[
+                { value: ALL, label: "All states" },
+                ...busOptions.map((b) => ({ value: b.key, label: b.label })),
+              ]}
+            />
+          </Group>
+        )}
 
         {loading || !data ? (
           <Center py="xl">
@@ -221,7 +305,7 @@ export function JacobianPanel() {
                 }}
               >
                 {/* Column headers (states), rotated. */}
-                {data.cols.map((col, j) => {
+                {view.cols.map((col, j) => {
                   const x = headL + j * cell;
                   const active = hover?.j === j;
                   const interactive = col.ids.length > 0;
@@ -251,7 +335,7 @@ export function JacobianPanel() {
                 })}
 
                 {/* Row headers (measurements). */}
-                {data.rows.map((row, i) => {
+                {view.rows.map((row, i) => {
                   const y = headT + i * cell;
                   const active = hover?.i === i;
                   const interactive = row.ids.length > 0;
@@ -281,8 +365,8 @@ export function JacobianPanel() {
                 })}
 
                 {/* Cells */}
-                {data.rows.map((_, i) =>
-                  data.cols.map((__, j) => {
+                {view.rows.map((_, i) =>
+                  view.cols.map((__, j) => {
                     const v = byCell.get(i * nCols + j);
                     const x = headL + j * cell;
                     const y = headT + i * cell;
@@ -305,13 +389,13 @@ export function JacobianPanel() {
                           onMouseEnter={() => {
                             setHover({ i, j });
                             highlightElement([
-                              ...data.rows[i].ids,
-                              ...data.cols[j].ids,
+                              ...view.rows[i].ids,
+                              ...view.cols[j].ids,
                             ]);
                           }}
                         >
                           <title>
-                            {`∂(${data.rows[i].label}) / ∂(${data.cols[j].label}) = ${
+                            {`∂(${view.rows[i].label}) / ∂(${view.cols[j].label}) = ${
                               v === undefined ? "0" : fixed(v, 3)
                             }`}
                           </title>
@@ -347,7 +431,10 @@ export function JacobianPanel() {
             </div>
             <Text size="xs" c="dimmed" mt={2}>
               {nRows} measurement{nRows === 1 ? "" : "s"} × {nCols} state
-              {nCols === 1 ? "" : "s"}. Linearized at the estimated state.
+              {nCols === 1 ? "" : "s"}
+              {focus
+                ? ` that involve the focused bus (of ${fullRows}×${fullCols}).`
+                : ". Linearized at the estimated state."}
             </Text>
           </>
         )}
