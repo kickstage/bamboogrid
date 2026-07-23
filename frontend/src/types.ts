@@ -730,7 +730,7 @@ export interface ShortCircuitSettings {
 
 // Mirrors the backend `StateEstimationSettings` (WLS estimator options).
 export interface StateEstimationSettings {
-  algorithm: "wls" | "lav";
+  algorithm: "wls";
   init: "flat" | "results";
   tolerance: number;
   maximum_iterations: number;

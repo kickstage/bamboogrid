@@ -477,10 +477,7 @@ function EstimationTab({ open }: { open: boolean }) {
         <SimpleGrid cols={2} spacing="sm">
           <Select
             label="Algorithm"
-            data={[
-              { value: "wls", label: "Weighted least squares" },
-              { value: "lav", label: "Least absolute value" },
-            ]}
+            data={[{ value: "wls", label: "Weighted least squares" }]}
             value={draft.algorithm}
             allowDeselect={false}
             onChange={(v) =>

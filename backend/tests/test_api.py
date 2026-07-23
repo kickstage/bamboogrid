@@ -280,7 +280,7 @@ def test_estimation_settings_roundtrip(client):
     assert defaults["maximum_iterations"] == 50
 
     update = {
-        "algorithm": "lav",
+        "algorithm": "wls",
         "init": "results",
         "tolerance": 1e-5,
         "maximum_iterations": 10,
@@ -289,7 +289,7 @@ def test_estimation_settings_roundtrip(client):
     assert res.status_code == 200
 
     again = client.get("/session/estimation-settings", headers=auth(sid)).json()
-    assert again["algorithm"] == "lav"
+    assert again["init"] == "results"
     assert again["maximum_iterations"] == 10
     assert '"user_est_options"' in client.get(
         "/session/export", headers=auth(sid)

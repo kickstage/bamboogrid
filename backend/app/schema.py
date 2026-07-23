@@ -499,9 +499,10 @@ class StateEstimationSettings(BaseModel):
     like ``user_pf_options``. Defaults mirror the values the estimator ran with
     before it was configurable (see ``estimation._estimate``)."""
 
-    # Estimator: weighted least squares, or least absolute value (robust to bad
-    # data at the cost of speed).
-    algorithm: Literal["wls", "lav"] = "wls"
+    # Estimator: weighted least squares. (WLS is the only algorithm whose solver
+    # exposes the residual-covariance matrices our normalized-residual, bad-data
+    # and critical-measurement diagnostics rely on.)
+    algorithm: Literal["wls"] = "wls"
     # Voltage start: a flat profile, or warm-start from the last load-flow results.
     init: Literal["flat", "results"] = "flat"
     # Convergence tolerance on the state update.
