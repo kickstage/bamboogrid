@@ -1,10 +1,16 @@
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { ActionIcon, Group, Paper } from "@mantine/core";
 
 import { DetachedWindow } from "./DetachedWindow";
 import { SectionLabel } from "./Section";
 import { useDraggable } from "./useDraggable";
 import { useResizable } from "./useResizable";
+import {
+  raiseWindow,
+  registerWindow,
+  unregisterWindow,
+  useWindowZ,
+} from "./zStack";
 
 interface ToolWindowProps {
   title: string;
@@ -18,6 +24,10 @@ interface ToolWindowProps {
   // tiny content).
   minWidth?: number;
   minHeight?: number;
+  // Nudge (px) applied to the default docked anchor so sibling windows opened at
+  // once (e.g. the power triangle and the U/I waveform) cascade instead of
+  // stacking exactly on top of each other.
+  offset?: number;
   // Extra buttons for the header (e.g. a refresh action), left of pop-out/close.
   headerActions?: React.ReactNode;
   // Give the docked panel a definite height (the `height` prop) instead of
@@ -38,6 +48,7 @@ export function ToolWindow({
   height = 640,
   minWidth = 360,
   minHeight = 280,
+  offset = 0,
   headerActions,
   fill = false,
   children,
@@ -45,6 +56,16 @@ export function ToolWindow({
   const [detached, setDetached] = useState(false);
   const drag = useDraggable();
   const resize = useResizable(drag.ref, { width: minWidth, height: minHeight });
+
+  // Join the shared stacking order while open so the last-opened/clicked window
+  // sits on top (registering appends to the top; clicking raises it).
+  const id = useId();
+  const z = useWindowZ(id);
+  useEffect(() => {
+    if (!opened) return;
+    registerWindow(id);
+    return () => unregisterWindow(id);
+  }, [opened, id]);
 
   // Closing (from anywhere) returns the tool to its docked default next time.
   useEffect(() => {
@@ -86,7 +107,12 @@ export function ToolWindow({
           variant="subtle"
           color="gray"
           size="sm"
-          onClick={() => setDetached((d) => !d)}
+          onClick={() => {
+            // Docking back happens in the popped-out window, so it can't hit the
+            // docked Paper's raise handler — surface it on top explicitly.
+            if (isDetached) raiseWindow(id);
+            setDetached((d) => !d);
+          }}
           aria-label={isDetached ? "Dock into app" : "Pop out to a window"}
           title={isDetached ? "Dock back into the app" : "Pop out to a window"}
         >
@@ -152,13 +178,18 @@ export function ToolWindow({
       shadow="md"
       withBorder
       radius="md"
+      // Capture so clicking anywhere in the window (headers, buttons, canvas of
+      // the matrix) brings it to the front, even if a child handles the event.
+      onPointerDownCapture={() => raiseWindow(id)}
       style={{
         // Default: docked over the canvas (top-left), so a panel has room to
         // grow rightward as it's resized. Once dragged, switch to viewport-fixed
         // coords so it can be moved over the sidebars too.
         position: drag.pos ? "fixed" : "absolute",
-        top: drag.pos ? drag.pos.y : 12,
-        left: drag.pos ? drag.pos.x : 12,
+        // `offset` cascades sibling windows opened together so they don't stack
+        // exactly.
+        top: drag.pos ? drag.pos.y : 12 + offset,
+        left: drag.pos ? drag.pos.x : 12 + offset,
         // Once resized, honor the dragged size; otherwise size to the default
         // width and grow with content up to the viewport cap. `fill` panels take
         // a definite default height so their body has a stable box to fit into.
@@ -170,7 +201,7 @@ export function ToolWindow({
         maxHeight: "calc(100vh - 24px)",
         display: "flex",
         flexDirection: "column",
-        zIndex: 200,
+        zIndex: z,
       }}
     >
       {header(false)}
