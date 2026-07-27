@@ -8,6 +8,7 @@ import {
 import { useEffect } from "react";
 import type { BusData } from "../types";
 import { Readout, Value } from "./Readout";
+import { EstimationBadge } from "./EstimationBadge";
 import { ACCENT } from "../theme";
 import { fixed } from "../format";
 import { useEditor } from "../store";
@@ -68,20 +69,25 @@ export function BusNode({ id, data, selected, width, positionAbsoluteY }: NodePr
   const nodes = useEditor((s) => s.nodes);
   const edges = useEditor((s) => s.edges);
   const isSc = studyMode === "shortcircuit";
-  const hasResult = showResults && (isSc ? d.ikss_ka !== undefined : d.vm_pu !== undefined);
+  const isEst = studyMode === "estimation";
+  // Load flow and state estimation both produce a bus voltage; the estimation
+  // one lives in its own fields so a stale load-flow result isn't mislabeled.
+  const vm = isEst ? d.est_vm_pu : d.vm_pu;
+  const va = isEst ? d.est_va_degree : d.va_degree;
+  const hasResult = showResults && (isSc ? d.ikss_ka !== undefined : vm !== undefined);
   let color = "currentColor";
-  if (hasResult) color = isSc ? faultColor(d.ikss_ka, scMaxIkss) : voltageColor(d.vm_pu);
+  if (hasResult) color = isSc ? faultColor(d.ikss_ka, scMaxIkss) : voltageColor(vm);
   const ports = portOffsets(width ?? BUS_DEFAULT_WIDTH);
 
   // The color metric always tracks per-unit deviation; only the readout text
   // switches between actual kV (vm_pu × vn_kv) and per-unit.
   const voltageReadout = () => {
-    const angle = `${fixed(d.va_degree ?? 0, 1)}°`;
+    const angle = `${fixed(va ?? 0, 1)}°`;
     if (voltageUnit === "kv") {
-      const kv = d.vm_pu! * d.vn_kv;
+      const kv = vm! * d.vn_kv;
       return `${fixed(kv, kv >= 100 ? 1 : 3)} kV · ${angle}`;
     }
-    return `${fixed(d.vm_pu!, 3)} p.u. · ${angle}`;
+    return `${fixed(vm!, 3)} p.u. · ${angle}`;
   };
 
   const faultReadout = () => (
@@ -181,6 +187,7 @@ export function BusNode({ id, data, selected, width, positionAbsoluteY }: NodePr
       {hasResult && (
         <Readout>{isSc ? faultReadout() : voltageReadout()}</Readout>
       )}
+      <EstimationBadge nodeId={id} top={-7} selected={!!selected} />
     </div>
   );
 }

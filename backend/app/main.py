@@ -41,15 +41,21 @@ from .schema import (
     LoadFlowResult,
     LoadFlowSettings,
     NetworkSummary,
+    JacobianResult,
     RenameRequest,
     SessionInfo,
     SessionMeta,
     ShortCircuitResult,
+    ShortCircuitSettings,
+    StateEstimationResult,
+    StateEstimationSettings,
     User,
     ViewModel,
     YbusResult,
 )
-from .sc import run_shortcircuit
+from .estimation import get_est_settings, run_estimation, set_est_settings
+from .jacobian import compute_jacobian
+from .sc import get_sc_settings, run_shortcircuit, set_sc_settings
 from .session import ConflictError, Session, store
 from .solve import get_loadflow_settings, set_loadflow_settings, solve_net
 from .summary import network_summary
@@ -401,6 +407,29 @@ async def session_ybus(
         return await run_in_threadpool(_compute)
 
 
+@app.post("/session/jacobian", response_model=JacobianResult)
+async def session_jacobian(
+    request: Request, session: Session = Depends(current_session)
+) -> JacobianResult:
+    """Build the measurement Jacobian H of the retained net. Shares the solve
+    limiter with the load flow since it runs a state estimation to populate the
+    solver matrices before reading H back."""
+    if await request.is_disconnected():
+        raise HTTPException(status_code=499, detail="Client closed request.")
+
+    async with _solve_limiter:
+        if await request.is_disconnected():
+            raise HTTPException(status_code=499, detail="Client closed request.")
+
+        def _compute() -> JacobianResult:
+            with session.lock:
+                with tracer.start_as_current_span("jacobian.compute") as span:
+                    span.set_attribute("session.id", session.id)
+                    return compute_jacobian(session.net)
+
+        return await run_in_threadpool(_compute)
+
+
 @app.get("/session/loadflow-settings", response_model=LoadFlowSettings)
 def get_loadflow_settings_endpoint(
     session: Session = Depends(current_session),
@@ -425,6 +454,52 @@ def put_loadflow_settings(
             return get_loadflow_settings(session.net)
 
 
+@app.get("/session/shortcircuit-settings", response_model=ShortCircuitSettings)
+def get_shortcircuit_settings_endpoint(
+    session: Session = Depends(current_session),
+) -> ShortCircuitSettings:
+    """The session's current short-circuit (calc_sc) settings."""
+    with session.lock:
+        return get_sc_settings(session.net)
+
+
+@app.put("/session/shortcircuit-settings", response_model=ShortCircuitSettings)
+def put_shortcircuit_settings(
+    settings: ShortCircuitSettings, session: Session = Depends(current_session)
+) -> ShortCircuitSettings:
+    """Update the session's short-circuit settings. Stored on the net, so the next
+    short circuit uses them and they round-trip with export and sharing."""
+    with session.lock:
+        with tracer.start_as_current_span("shortcircuit.settings.update") as span:
+            span.set_attribute("session.id", session.id)
+            set_sc_settings(session.net, settings)
+            store.update_settings(session)
+            return get_sc_settings(session.net)
+
+
+@app.get("/session/estimation-settings", response_model=StateEstimationSettings)
+def get_estimation_settings_endpoint(
+    session: Session = Depends(current_session),
+) -> StateEstimationSettings:
+    """The session's current state-estimation settings."""
+    with session.lock:
+        return get_est_settings(session.net)
+
+
+@app.put("/session/estimation-settings", response_model=StateEstimationSettings)
+def put_estimation_settings(
+    settings: StateEstimationSettings, session: Session = Depends(current_session)
+) -> StateEstimationSettings:
+    """Update the session's state-estimation settings. Stored on the net, so the
+    next estimation uses them and they round-trip with export and sharing."""
+    with session.lock:
+        with tracer.start_as_current_span("estimation.settings.update") as span:
+            span.set_attribute("session.id", session.id)
+            set_est_settings(session.net, settings)
+            store.update_settings(session)
+            return get_est_settings(session.net)
+
+
 @app.post("/session/run-shortcircuit", response_model=ShortCircuitResult)
 def run_short_circuit(
     session: Session = Depends(current_session),
@@ -435,6 +510,23 @@ def run_short_circuit(
             span.set_attribute("session.id", session.id)
             span.set_attribute("net.bus_count", int(len(session.net.bus)))
             return run_shortcircuit(session.net)
+
+
+@app.post("/session/run-estimation", response_model=StateEstimationResult)
+async def run_state_estimation(
+    session: Session = Depends(current_session),
+) -> StateEstimationResult:
+    """Run a WLS state estimation over the session's measurements, results keyed
+    by editor id. CPU-bound like the load flow, so it shares the solve limiter."""
+    async with _solve_limiter:
+        def _estimate() -> StateEstimationResult:
+            with session.lock:
+                with tracer.start_as_current_span("estimation.run") as span:
+                    span.set_attribute("session.id", session.id)
+                    span.set_attribute("net.bus_count", int(len(session.net.bus)))
+                    return run_estimation(session.net)
+
+        return await run_in_threadpool(_estimate)
 
 
 @app.post("/session/summary", response_model=NetworkSummary)

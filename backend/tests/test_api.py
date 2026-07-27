@@ -246,6 +246,56 @@ def _default_settings() -> dict:
     }
 
 
+def test_shortcircuit_settings_roundtrip_and_undo(client):
+    sid = new_session(client)
+    build_one_bus(client, sid)
+
+    # Defaults mirror what the short circuit ran with before it was configurable.
+    defaults = client.get("/session/shortcircuit-settings", headers=auth(sid)).json()
+    assert defaults["fault"] == "3ph"
+    assert defaults["case"] == "max"
+    assert defaults["ip"] is True
+
+    update = {"fault": "2ph", "case": "min", "ip": False, "ith": True, "tk_s": 2.5}
+    res = client.put("/session/shortcircuit-settings", json=update, headers=auth(sid))
+    assert res.status_code == 200
+    assert res.json()["case"] == "min"
+
+    again = client.get("/session/shortcircuit-settings", headers=auth(sid)).json()
+    assert again["fault"] == "2ph"
+    assert again["tk_s"] == pytest.approx(2.5)
+
+    # Persisted on the net (user_sc_options) so they round-trip through export.
+    assert '"user_sc_options"' in client.get(
+        "/session/export", headers=auth(sid)
+    ).text
+
+
+def test_estimation_settings_roundtrip(client):
+    sid = new_session(client)
+    build_one_bus(client, sid)
+
+    defaults = client.get("/session/estimation-settings", headers=auth(sid)).json()
+    assert defaults["algorithm"] == "wls"
+    assert defaults["maximum_iterations"] == 50
+
+    update = {
+        "algorithm": "wls",
+        "init": "results",
+        "tolerance": 1e-5,
+        "maximum_iterations": 10,
+    }
+    res = client.put("/session/estimation-settings", json=update, headers=auth(sid))
+    assert res.status_code == 200
+
+    again = client.get("/session/estimation-settings", headers=auth(sid)).json()
+    assert again["init"] == "results"
+    assert again["maximum_iterations"] == 10
+    assert '"user_est_options"' in client.get(
+        "/session/export", headers=auth(sid)
+    ).text
+
+
 def test_view_reflects_commands(client):
     sid = new_session(client)
     build_one_bus(client, sid)
@@ -563,6 +613,34 @@ def test_run_shortcircuit_reports_fault_current(client):
     assert by_bus["b1"]["ip_ka"] is not None
 
 
+def test_shortcircuit_settings_affect_run(client):
+    sid = new_session(client)
+    _two_bus_grid(client, sid)
+
+    # Turning ip/ith off: the run still succeeds and those columns come back null.
+    client.put(
+        "/session/shortcircuit-settings",
+        json={"fault": "3ph", "case": "max", "ip": False, "ith": False, "tk_s": 1.0},
+        headers=auth(sid),
+    )
+    off = client.post("/session/run-shortcircuit", headers=auth(sid)).json()
+    assert off["ok"] is True
+    b1_off = next(r for r in off["res_bus"] if r["id"] == "b1")
+    assert b1_off["ip_ka"] is None and b1_off["ith_ka"] is None
+    assert b1_off["ikss_ka"] > 0
+
+    # The minimum case yields a lower fault current than the maximum case.
+    client.put(
+        "/session/shortcircuit-settings",
+        json={"fault": "3ph", "case": "min", "ip": True, "ith": True, "tk_s": 1.0},
+        headers=auth(sid),
+    )
+    mn = client.post("/session/run-shortcircuit", headers=auth(sid)).json()
+    b1_min = next(r for r in mn["res_bus"] if r["id"] == "b1")
+    assert b1_min["ip_ka"] is not None
+    assert b1_min["ikss_ka"] < b1_off["ikss_ka"]
+
+
 def test_run_shortcircuit_without_source_fails(client):
     sid = new_session(client)
     _add_bus(client, sid, "b1")
@@ -589,6 +667,284 @@ def test_run_shortcircuit_missing_session_is_404(client):
     assert (
         client.post("/session/run-shortcircuit", headers=auth("nope")).status_code == 404
     )
+
+
+# --- state estimation ------------------------------------------------------
+
+
+def _measure(mid, meas_type, element_type, element_id, value, std_dev, side=None):
+    return {
+        "op": "add_measurement",
+        "payload": {
+            "id": mid,
+            "data": {
+                "name": "M",
+                "meas_type": meas_type,
+                "element_type": element_type,
+                "element_id": element_id,
+                "side": side,
+                "value": value,
+                "std_dev": std_dev,
+            },
+        },
+    }
+
+
+def _estimation_grid(client, sid: str) -> None:
+    """The textbook 3-bus WLS example: a reference at b1, three lines, and a
+    redundant measurement set that is observable and converges."""
+    cmds = [
+        {"op": "add_bus", "payload": {"id": "b1", "name": "B1", "vn_kv": 1.0, "x": 0, "y": 0, "width": 220}},
+        {"op": "add_bus", "payload": {"id": "b2", "name": "B2", "vn_kv": 1.0, "x": 300, "y": 0, "width": 220}},
+        {"op": "add_bus", "payload": {"id": "b3", "name": "B3", "vn_kv": 1.0, "x": 600, "y": 0, "width": 220}},
+        {"op": "add_element", "payload": {"id": "eg", "kind": "extgrid", "bus_id": "b1", "port": "p0", "x": 0, "y": -100, "data": {"name": "Grid", "vm_pu": 1.0, "va_degree": 0.0}}},
+        {"op": "add_line", "payload": {"id": "l12", "from_bus": "b1", "to_bus": "b2", "port_from": "p1", "port_to": "p0", "data": {"name": "L12", "length_km": 1.0, "r_ohm_per_km": 0.01, "x_ohm_per_km": 0.03, "c_nf_per_km": 0.0, "max_i_ka": 1.0, "std_type": ""}}},
+        {"op": "add_line", "payload": {"id": "l13", "from_bus": "b1", "to_bus": "b3", "port_from": "p2", "port_to": "p0", "data": {"name": "L13", "length_km": 1.0, "r_ohm_per_km": 0.02, "x_ohm_per_km": 0.05, "c_nf_per_km": 0.0, "max_i_ka": 1.0, "std_type": ""}}},
+        {"op": "add_line", "payload": {"id": "l23", "from_bus": "b2", "to_bus": "b3", "port_from": "p1", "port_to": "p1", "data": {"name": "L23", "length_km": 1.0, "r_ohm_per_km": 0.03, "x_ohm_per_km": 0.08, "c_nf_per_km": 0.0, "max_i_ka": 1.0, "std_type": ""}}},
+        _measure("m1", "v", "bus", "b1", 1.006, 0.004),
+        _measure("m2", "v", "bus", "b2", 0.968, 0.004),
+        _measure("m3", "p", "bus", "b2", 0.501, 0.01),
+        _measure("m4", "q", "bus", "b2", 0.286, 0.01),
+        _measure("m5", "p", "line", "l12", 0.888, 0.008, side="from"),
+        _measure("m6", "q", "line", "l12", 0.568, 0.008, side="from"),
+        _measure("m7", "p", "line", "l13", 1.173, 0.008, side="from"),
+        _measure("m8", "q", "line", "l13", 0.663, 0.008, side="from"),
+    ]
+    assert client.post("/session/commands", json=cmds, headers=auth(sid)).status_code == 200
+
+
+def test_run_estimation_reconstructs_voltages(client):
+    sid = new_session(client)
+    _estimation_grid(client, sid)
+    body = client.post("/session/run-estimation", headers=auth(sid)).json()
+    assert body["ok"] is True
+    by_bus = {r["id"]: r for r in body["res_bus"]}
+    assert set(by_bus) == {"b1", "b2", "b3"}
+    # The reference bus is held near 1.0 and voltages drop away from it.
+    assert 0.99 < by_bus["b1"]["vm_pu"] < 1.01
+    assert by_bus["b3"]["vm_pu"] < by_bus["b1"]["vm_pu"]
+    # Every measurement gets a normalized residual back for bad-data review.
+    assert len(body["residuals"]) == 8
+    assert all(r["normalized_residual"] is not None for r in body["residuals"])
+
+
+def test_estimation_init_from_results_needs_a_load_flow(client):
+    sid = new_session(client)
+    _estimation_grid(client, sid)
+    # Ask the estimator to start from load-flow results without a prior load flow.
+    client.put(
+        "/session/estimation-settings",
+        json={
+            "algorithm": "wls",
+            "init": "results",
+            "tolerance": 1e-6,
+            "maximum_iterations": 50,
+        },
+        headers=auth(sid),
+    )
+    body = client.post("/session/run-estimation", headers=auth(sid)).json()
+    assert body["ok"] is False
+    assert "load flow" in body["message"].lower()
+
+    # Running a load flow first populates res_bus, so the estimation then works.
+    assert client.post("/session/run-loadflow", headers=auth(sid)).json()["converged"]
+    ok = client.post("/session/run-estimation", headers=auth(sid)).json()
+    assert ok["ok"] is True
+
+
+def test_run_estimation_flags_critical_measurements(client):
+    """With exactly enough measurements to be observable and no more, every
+    measurement is critical: its error is undetectable and it carries no
+    normalized residual."""
+    sid = new_session(client)
+    cmds = [
+        {"op": "add_bus", "payload": {"id": "b1", "name": "B1", "vn_kv": 1.0, "x": 0, "y": 0, "width": 220}},
+        {"op": "add_bus", "payload": {"id": "b2", "name": "B2", "vn_kv": 1.0, "x": 300, "y": 0, "width": 220}},
+        {"op": "add_element", "payload": {"id": "eg", "kind": "extgrid", "bus_id": "b1", "port": "p0", "x": 0, "y": -100, "data": {"name": "Grid", "vm_pu": 1.0, "va_degree": 0.0}}},
+        {"op": "add_line", "payload": {"id": "l12", "from_bus": "b1", "to_bus": "b2", "port_from": "p1", "port_to": "p0", "data": {"name": "L12", "length_km": 1.0, "r_ohm_per_km": 0.01, "x_ohm_per_km": 0.03, "c_nf_per_km": 0.0, "max_i_ka": 1.0, "std_type": ""}}},
+        # 3 measurements for 3 states (vm_b1, vm_b2, va_b2): observable, no
+        # redundancy -> all critical.
+        _measure("m1", "v", "bus", "b1", 1.0, 0.004),
+        _measure("m2", "v", "bus", "b2", 0.99, 0.004),
+        _measure("m3", "p", "line", "l12", 0.1, 0.008, side="from"),
+    ]
+    assert client.post("/session/commands", json=cmds, headers=auth(sid)).status_code == 200
+    body = client.post("/session/run-estimation", headers=auth(sid)).json()
+    assert body["ok"] is True
+    assert all(r["is_critical"] for r in body["residuals"])
+    # A critical measurement has no meaningful normalized residual and is never
+    # flagged as the bad one.
+    assert all(r["normalized_residual"] is None for r in body["residuals"])
+    assert body["bad_data"] is False
+
+
+def test_jacobian_after_estimation(client):
+    sid = new_session(client)
+    _estimation_grid(client, sid)
+    body = client.post("/session/jacobian", headers=auth(sid)).json()
+    assert body["ok"] is True
+    # One row per measurement; columns are the states (bus angles + magnitudes).
+    assert len(body["rows"]) == 8
+    assert {c["kind"] for c in body["cols"]} == {"angle", "magnitude"}
+    # 3 buses, ref at b1: 2 angle states + 3 magnitude states.
+    kinds = [c["kind"] for c in body["cols"]]
+    assert kinds.count("angle") == 2 and kinds.count("magnitude") == 3
+    # A voltage measurement's row touches exactly one state (its own |V|).
+    v_rows = [i for i, r in enumerate(body["rows"]) if r["meas_type"] == "v"]
+    assert v_rows
+    for i in v_rows:
+        touched = [e for e in body["entries"] if e["i"] == i]
+        assert len(touched) == 1
+        assert body["cols"][touched[0]["j"]]["kind"] == "magnitude"
+    # Rows link back to the measured element for canvas highlighting.
+    assert all(r["ids"] for r in body["rows"])
+
+
+def test_jacobian_without_estimation_reports_message(client):
+    sid = new_session(client)
+    build_one_bus(client, sid)  # a bus but no measurements
+    body = client.post("/session/jacobian", headers=auth(sid)).json()
+    assert body["ok"] is False
+    assert "measurement" in body["message"].lower()
+    assert body["entries"] == []
+
+
+def test_measurements_roundtrip_in_view(client):
+    sid = new_session(client)
+    _estimation_grid(client, sid)
+    network = client.get("/session", headers=auth(sid)).json()["network"]
+    assert len(network["measurements"]) == 8
+    v_on_b1 = [
+        m
+        for m in network["measurements"]
+        if m["element_id"] == "b1" and m["meas_type"] == "v"
+    ]
+    assert len(v_on_b1) == 1 and v_on_b1[0]["value"] == 1.006
+
+
+def test_update_and_delete_measurement(client):
+    sid = new_session(client)
+    _estimation_grid(client, sid)
+    client.post(
+        "/session/commands",
+        json=[{"op": "update_measurement", "payload": {"id": "m1", "patch": {"value": 1.02, "std_dev": 0.005}}}],
+        headers=auth(sid),
+    )
+    client.post(
+        "/session/commands",
+        json=[{"op": "delete_measurement", "payload": {"id": "m8"}}],
+        headers=auth(sid),
+    )
+    measurements = client.get("/session", headers=auth(sid)).json()["network"]["measurements"]
+    assert len(measurements) == 7
+    m1 = next(m for m in measurements if m["id"] == "m1")
+    assert m1["value"] == 1.02 and m1["std_dev"] == 0.005
+    assert all(m["id"] != "m8" for m in measurements)
+
+
+def test_deleting_bus_cascades_measurements(client):
+    sid = new_session(client)
+    _estimation_grid(client, sid)
+    # Deleting b2 drops it, the lines touching it, and every measurement on those.
+    client.post(
+        "/session/commands",
+        json=[{"op": "delete", "payload": {"kind": "bus", "id": "b2"}}],
+        headers=auth(sid),
+    )
+    measurements = client.get("/session", headers=auth(sid)).json()["network"]["measurements"]
+    # Survivors: b1 voltage (m1), and the l13 flows (m7, m8) — l13 is b1↔b3.
+    assert {m["id"] for m in measurements} == {"m1", "m7", "m8"}
+
+
+def test_se_demo_scenario_runs_estimation(client):
+    # The bundled "State estimation demo" opens with a full measurement set and
+    # estimates cleanly out of the box.
+    res = client.post("/session/scenario/se_demo")
+    assert res.status_code == 200
+    sid = res.json()["id"]
+    network = client.get("/session", headers=auth(sid)).json()["network"]
+    assert len(network["measurements"]) == 35
+    # Includes measurements on two- and three-winding transformers, not just
+    # buses and lines.
+    meas_types = {m["element_type"] for m in network["measurements"]}
+    assert {"trafo", "trafo3w"} <= meas_types
+    # The 3W transformer is metered on all three windings.
+    t3w_sides = {
+        m["side"] for m in network["measurements"] if m["element_type"] == "trafo3w"
+    }
+    assert t3w_sides == {"hv", "mv", "lv"}
+    body = client.post("/session/run-estimation", headers=auth(sid)).json()
+    assert body["ok"] is True
+    assert body["bad_data"] is False
+    assert len(body["res_bus"]) == 7
+    assert all(0.95 < r["vm_pu"] < 1.03 for r in body["res_bus"])
+
+
+def test_estimation_flags_single_bad_measurement(client):
+    # Corrupting one voltage inflates several residuals (smearing), but only the
+    # worst one — the corrupted measurement — is flagged bad.
+    res = client.post("/session/scenario/se_demo")
+    sid = res.json()["id"]
+    measurements = client.get("/session", headers=auth(sid)).json()["network"]["measurements"]
+    bad = next(m for m in measurements if m["meas_type"] == "v")
+    client.post(
+        "/session/commands",
+        json=[{"op": "update_measurement", "payload": {"id": bad["id"], "patch": {"value": 1.15}}}],
+        headers=auth(sid),
+    )
+    body = client.post("/session/run-estimation", headers=auth(sid)).json()
+    assert body["ok"] is True
+    assert body["bad_data"] is True
+    flagged = [r for r in body["residuals"] if r["is_bad"]]
+    assert len(flagged) == 1
+    assert flagged[0]["id"] == bad["id"]
+    # The flagged one has the largest normalized residual of all.
+    worst = max(body["residuals"], key=lambda r: r["normalized_residual"] or 0)
+    assert worst["id"] == bad["id"]
+
+
+def test_disabled_measurement_kept_but_excluded(client):
+    # Toggling a measurement off keeps it in the model but drops it from the
+    # solve — no need to delete and re-enter it.
+    res = client.post("/session/scenario/se_demo")
+    sid = res.json()["id"]
+    measurements = client.get("/session", headers=auth(sid)).json()["network"]["measurements"]
+    total = len(measurements)
+    target = measurements[0]["id"]
+
+    client.post(
+        "/session/commands",
+        json=[{"op": "update_measurement", "payload": {"id": target, "patch": {"enabled": False}}}],
+        headers=auth(sid),
+    )
+    after = client.get("/session", headers=auth(sid)).json()["network"]["measurements"]
+    # Still present (not deleted), just flagged off.
+    assert len(after) == total
+    assert next(m for m in after if m["id"] == target)["enabled"] is False
+
+    body = client.post("/session/run-estimation", headers=auth(sid)).json()
+    assert body["ok"] is True
+    # The disabled measurement contributes no residual.
+    assert len(body["residuals"]) == total - 1
+    assert all(r["id"] != target for r in body["residuals"])
+
+    # Re-enabling brings it back into the solve.
+    client.post(
+        "/session/commands",
+        json=[{"op": "update_measurement", "payload": {"id": target, "patch": {"enabled": True}}}],
+        headers=auth(sid),
+    )
+    body = client.post("/session/run-estimation", headers=auth(sid)).json()
+    assert len(body["residuals"]) == total
+
+
+def test_run_estimation_without_measurements_fails(client):
+    sid = new_session(client)
+    build_one_bus(client, sid)
+    body = client.post("/session/run-estimation", headers=auth(sid)).json()
+    assert body["ok"] is False
+    assert body["message"]
+    assert body["res_bus"] == []
 
 
 def test_open_unknown_share_is_404(client):
