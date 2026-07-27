@@ -1,10 +1,11 @@
 # BambooGrid
 
-A web-based editor for building power networks and running load-flow (power-flow)
-calculations with [pandapower](https://pandapower.org).
+A web-based editor for building power networks and running power-system studies —
+load flow, short circuit and state estimation — with
+[pandapower](https://pandapower.org).
 
 You drag elements onto a canvas, wire them together, set their parameters, and
-run a load flow. Each editing session is backed by a **pandapower network kept on
+run a study. Each editing session is backed by a **pandapower network kept on
 the server** as the source of truth; the browser holds only a projection of it
 (the modeled elements, their layout, and read-only placeholders for elements the
 editor doesn't model yet) and edits it through commands. The long-term aim is to
@@ -17,9 +18,13 @@ also export to CGMES.
 > two advanced elements (an **xward** network equivalent and a series
 > **impedance**) — enough to model multi-voltage-level networks and observe
 > voltage drop, transformer loading, dynamic voltage support and slack balancing
-> under load. Besides load flow it also runs an **IEC 60909 short circuit**.
-> Networks import and export as **pandapower JSON** (the file also carries the
-> diagram layout). CGMES export is a planned next step.
+> under load. Three studies run on that model: **load flow**, an **IEC 60909
+> short circuit**, and a weighted-least-squares **state estimation** (from
+> measurements you place on buses, lines and transformers, with bad-data
+> detection). Companion analysis tools show the **network summary**, the
+> **admittance matrix (Ybus)** and the **measurement Jacobian (H)**. Networks
+> import and export as **pandapower JSON** (the file also carries the diagram
+> layout). CGMES export is a planned next step.
 
 ## Elements
 
@@ -42,11 +47,45 @@ also export to CGMES.
 See [`examples/`](examples/) for a guided tour of these elements — three small,
 progressively richer networks you can import and solve.
 
+## Studies
+
+Pick a study from the toolbar, then **Run** it. Results paint straight onto the
+canvas; toggle the **Results** switch to show or hide them. A failed solve shows
+a banner and clears any stale results. Solver options for the active study
+(algorithm, tolerance, iterations, …) live under **Study ▸ Study settings**.
+
+| Study | What it does |
+| --- | --- |
+| **Load flow** | Solves bus voltages and branch flows. Paints each bus with its voltage (`vm_pu`, tinted green/amber/red by distance from 1.0 p.u.); sources show their solved P/Q and transformers their loading %. |
+| **Short circuit** | An **IEC 60909** fault calculation (3-phase, max) reporting fault levels per bus. |
+| **State estimation** | A **weighted-least-squares** estimate of the network state from the **measurements** you place on the grid — the most likely voltages given redundant, noisy readings. Reports each measurement's residual and **normalized residual**, flags a likely **bad measurement**, and marks **critical** (non-redundant) measurements whose error can't be detected. |
+
+### Measurements
+
+State estimation runs on measurements kept in pandapower's native `measurement`
+table. Select a bus, line or transformer and add measurements in the inspector:
+voltage `v`, angle `va`, and active/reactive power `p`/`q` on buses; `p`/`q` and
+current `i` on branch ends (from/to, or hv/mv/lv). Each carries a value and a
+standard deviation (its weight), and can be toggled off to exclude it from a run
+without deleting it. The **State estimation demo** under *File ▸ Open example* is
+a ready-made, fully measured network to try it on.
+
+### Analysis tools
+
+Under the **Study** menu, alongside the runs:
+
+- **Network summary** — element counts, extreme values and solve diagnostics.
+- **Admittance matrix (Ybus)** — the network's nodal admittance matrix as a
+  heatmap; hovering a cell spotlights the buses it couples on the diagram.
+- **Measurement Jacobian (H)** — ∂(measurement)/∂(state) at the estimated state,
+  as a heatmap (available once a state estimation has been run). A searchable
+  **Focus** field narrows it to one bus and the states its measurements reach.
+
 ## Architecture
 
 ```
 bamboogrid/
-  backend/    FastAPI + pandapower: session store, projection, command + load-flow API
+  backend/    FastAPI + pandapower: session store, projection, command + study API
   frontend/   Vite + React + TypeScript: React Flow canvas, palette, inspector
 ```
 
@@ -153,15 +192,14 @@ are stored there.
    you attach more.
 3. **Select** an element and edit its parameters in the right-hand inspector
    (e.g. bus `vn_kv`; generator `p_mw`/`vm_pu`; load `p_mw`/`q_mvar`; external
-   grid `vm_pu`; transformer standard type).
-4. **Run a study** — pick it from the toolbar. **Load flow** paints bus voltages
-   (`vm_pu`) onto the buses (tinted green/amber/red by how far they are from 1.0
-   p.u.); generators, sgens and external grids show their solved P/Q, and
-   transformers their loading %. Solver options (algorithm, tolerance, etc.) live
-   under the study's **settings**. **Short circuit** runs an IEC 60909 (3-phase,
-   max) calculation and shows the fault levels per bus. A failed solve shows a
-   banner and clears stale results. Toggle the **Results** switch to show/hide
-   them.
+   grid `vm_pu`; transformer standard type). Buses, lines and transformers also
+   take **measurements** here, which feed state estimation (see *Studies*).
+4. **Run a study** — pick **Load flow**, **Short circuit** or **State
+   estimation** from the toolbar and press **Run**; results paint onto the canvas
+   (see [Studies](#studies) for what each computes). Solver options live under
+   **Study ▸ Study settings**; the same menu opens the network summary,
+   admittance matrix and measurement Jacobian. A failed solve shows a banner and
+   clears stale results. Toggle the **Results** switch to show/hide them.
 5. **Import / Export** — *Export* downloads the network as a single pandapower
    JSON (a valid pandapower net plus `diagram_*` layout tables); *Import* loads a
    pandapower JSON back — either one we exported, or a plain pandapower net
