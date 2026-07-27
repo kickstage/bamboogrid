@@ -252,8 +252,10 @@ export function JacobianPanel() {
                 setHover(null);
               }}
               allowDeselect={false}
+              searchable
+              nothingFoundMessage="No matching bus"
               data={[
-                { value: ALL, label: "All states" },
+                { value: ALL, label: "All" },
                 ...busOptions.map((b) => ({ value: b.key, label: b.label })),
               ]}
             />
