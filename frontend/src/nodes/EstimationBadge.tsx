@@ -1,10 +1,21 @@
-import { Fragment, type ReactNode, useEffect, useState } from "react";
+import { Fragment, type ReactNode, useEffect } from "react";
 import { Group, Popover, Stack, Text } from "@mantine/core";
+import { create } from "zustand";
 import { ACCENT } from "../theme";
 import { fixed } from "../format";
 import { estimateRows } from "../inspector/results";
 import { useEditor } from "../store";
 import { groupByQuantity, MEAS_META, measLabel } from "../types";
+
+// Which badge's popover is open, shared across every badge: two dropdowns on
+// neighbouring elements cover each other, so opening one closes the rest.
+const useOpenBadge = create<{
+  id: string | null;
+  setId: (id: string | null) => void;
+}>((set) => ({
+  id: null,
+  setId: (id) => set({ id }),
+}));
 
 // A small "≈" tag overlapping an element that has a state-estimation result,
 // shown only in estimation mode after a run. Clicking it opens a popover with
@@ -36,7 +47,18 @@ export function EstimationBadge({
   const measurements = useEditor((s) => s.measurements);
   const residuals = useEditor((s) => s.estResiduals);
   const est = useEditor((s) => s.estById[nodeId]);
-  const [open, setOpen] = useState(false);
+  const setOpenId = useOpenBadge((s) => s.setId);
+  const open = useOpenBadge((s) => s.id === nodeId);
+  const setOpen = (next: boolean) => setOpenId(next ? nodeId : null);
+
+  // Don't leave the shared id pointing at an element that has gone away (mode
+  // switch, delete), or its badge would come back already open.
+  useEffect(
+    () => () => {
+      if (useOpenBadge.getState().id === nodeId) setOpenId(null);
+    },
+    [nodeId, setOpenId],
+  );
 
   // React Flow swallows pointer events, so detect click-outside ourselves in the
   // capture phase, ignoring clicks on the tag or its dropdown.
@@ -45,11 +67,11 @@ export function EstimationBadge({
     const onDown = (e: PointerEvent) => {
       const t = e.target as HTMLElement | null;
       if (t?.closest("[data-est-popover]")) return;
-      setOpen(false);
+      setOpenId(null);
     };
     document.addEventListener("pointerdown", onDown, true);
     return () => document.removeEventListener("pointerdown", onDown, true);
-  }, [open]);
+  }, [open, setOpenId]);
 
   if (studyMode !== "estimation") return null;
   const rows = measurements
@@ -82,7 +104,7 @@ export function EstimationBadge({
       onMouseDown={(e) => e.stopPropagation()}
       onClick={(e) => {
         e.stopPropagation();
-        setOpen((o) => !o);
+        setOpen(!open);
       }}
       style={{
         ...(isEdge
