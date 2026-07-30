@@ -2,11 +2,15 @@ import type {
   AuthResponse,
   Command,
   GridSummary,
+  JacobianResult,
   LoadFlowResult,
   LoadFlowSettings,
   NetworkSummary,
   SessionMeta,
   ShortCircuitResult,
+  ShortCircuitSettings,
+  StateEstimationResult,
+  StateEstimationSettings,
   User,
   ViewModel,
   YbusResult,
@@ -319,6 +323,19 @@ export async function runShortCircuit(id: string): Promise<ShortCircuitResult> {
   );
 }
 
+// Run a WLS state estimation over the session's measurements; results keyed by
+// element id.
+export async function runEstimation(
+  id: string,
+): Promise<StateEstimationResult> {
+  return json(
+    await fetch(`${BASE}/session/run-estimation`, {
+      method: "POST",
+      headers: sessionHeaders(id),
+    }),
+  );
+}
+
 // The session's current load-flow (runpp) settings.
 export async function getLoadFlowSettings(
   id: string,
@@ -344,6 +361,56 @@ export async function updateLoadFlowSettings(
   );
 }
 
+// The session's current short-circuit (calc_sc) settings.
+export async function getShortCircuitSettings(
+  id: string,
+): Promise<ShortCircuitSettings> {
+  return json(
+    await fetch(`${BASE}/session/shortcircuit-settings`, {
+      headers: sessionHeaders(id),
+    }),
+  );
+}
+
+// Persist updated short-circuit settings; returns the stored settings.
+export async function updateShortCircuitSettings(
+  id: string,
+  settings: ShortCircuitSettings,
+): Promise<ShortCircuitSettings> {
+  return json(
+    await fetch(`${BASE}/session/shortcircuit-settings`, {
+      method: "PUT",
+      headers: sessionHeaders(id, JSON_HEADERS),
+      body: JSON.stringify(settings),
+    }),
+  );
+}
+
+// The session's current state-estimation (WLS) settings.
+export async function getEstimationSettings(
+  id: string,
+): Promise<StateEstimationSettings> {
+  return json(
+    await fetch(`${BASE}/session/estimation-settings`, {
+      headers: sessionHeaders(id),
+    }),
+  );
+}
+
+// Persist updated state-estimation settings; returns the stored settings.
+export async function updateEstimationSettings(
+  id: string,
+  settings: StateEstimationSettings,
+): Promise<StateEstimationSettings> {
+  return json(
+    await fetch(`${BASE}/session/estimation-settings`, {
+      method: "PUT",
+      headers: sessionHeaders(id, JSON_HEADERS),
+      body: JSON.stringify(settings),
+    }),
+  );
+}
+
 // Solve the retained net and return a power-balance / voltage / loading
 // overview plus pandapower diagnostic findings.
 export async function networkSummary(id: string): Promise<NetworkSummary> {
@@ -360,6 +427,17 @@ export async function networkSummary(id: string): Promise<NetworkSummary> {
 export async function fetchYbus(id: string): Promise<YbusResult> {
   return json(
     await fetch(`${BASE}/session/ybus`, {
+      method: "POST",
+      headers: { [SESSION_HEADER]: id },
+    }),
+  );
+}
+
+// Run a state estimation and return its measurement Jacobian H as labeled sparse
+// triplets, keyed back to editor element/bus ids.
+export async function fetchJacobian(id: string): Promise<JacobianResult> {
+  return json(
+    await fetch(`${BASE}/session/jacobian`, {
       method: "POST",
       headers: { [SESSION_HEADER]: id },
     }),

@@ -38,6 +38,7 @@ from .schema import (
     Impedance,
     Line,
     Load,
+    Measurement,
     Network,
     Point,
     Sgen,
@@ -344,6 +345,14 @@ def ensure_diagram_tables(net) -> bool:
             ],
             index=list(net.impedance.index),
         )
+    # Measurements have no canvas layout — just a stable uuid so edits can
+    # address them (index-aligned to the native ``measurement`` table).
+    meas = net.get("measurement")
+    if net.get("diagram_measurement") is None and meas is not None and len(meas):
+        net["diagram_measurement"] = pd.DataFrame(
+            [{"uuid": uuid.uuid4().hex, "enabled": True} for _ in meas.index],
+            index=list(meas.index),
+        )
     return needs_layout
 
 
@@ -538,14 +547,22 @@ def net_to_network(net) -> Network:
     trafo_std = set(pp.available_std_types(net, "trafo").index)
     trafo3w_std = set(pp.available_std_types(net, "trafo3w").index)
 
+    # index -> uuid maps for the elements a measurement can annotate, so those
+    # measurements can be projected back to editor identities below.
+    line_uuid: dict[int, str] = {}
+    trafo_uuid: dict[int, str] = {}
+    trafo3w_uuid: dict[int, str] = {}
+
     transformers2w: list[Transformer2W] = []
     for t in net.trafo.index:
         lay = _layout(d_trafo, t)
         std_raw = net.trafo.at[t, "std_type"]
         std_name = std_raw if isinstance(std_raw, str) and std_raw in trafo_std else ""
+        trafo_uid = str(lay["uuid"]) if lay is not None else uuid.uuid4().hex
+        trafo_uuid[int(t)] = trafo_uid
         transformers2w.append(
             Transformer2W(
-                id=str(lay["uuid"]) if lay is not None else uuid.uuid4().hex,
+                id=trafo_uid,
                 name=_name(net.trafo.at[t, "name"], "Transformer"),
                 hv_bus=bus_uuid[int(net.trafo.at[t, "hv_bus"])],
                 lv_bus=bus_uuid[int(net.trafo.at[t, "lv_bus"])],
@@ -563,9 +580,11 @@ def net_to_network(net) -> Network:
         lay = _layout(d_trafo3w, t)
         std_raw = net.trafo3w.at[t, "std_type"]
         std_name = std_raw if isinstance(std_raw, str) and std_raw in trafo3w_std else ""
+        trafo3w_uid = str(lay["uuid"]) if lay is not None else uuid.uuid4().hex
+        trafo3w_uuid[int(t)] = trafo3w_uid
         transformers3w.append(
             Transformer3W(
-                id=str(lay["uuid"]) if lay is not None else uuid.uuid4().hex,
+                id=trafo3w_uid,
                 name=_name(net.trafo3w.at[t, "name"], "3W Transformer"),
                 hv_bus=bus_uuid[int(net.trafo3w.at[t, "hv_bus"])],
                 mv_bus=bus_uuid[int(net.trafo3w.at[t, "mv_bus"])],
@@ -583,9 +602,11 @@ def net_to_network(net) -> Network:
     lines: list[Line] = []
     for k in net.line.index:
         lay = _layout(d_line, k)
+        line_uid = str(lay["uuid"]) if lay is not None else uuid.uuid4().hex
+        line_uuid[int(k)] = line_uid
         lines.append(
             Line(
-                id=str(lay["uuid"]) if lay is not None else uuid.uuid4().hex,
+                id=line_uid,
                 name=_name(net.line.at[k, "name"], "Line"),
                 from_bus=bus_uuid[int(net.line.at[k, "from_bus"])],
                 to_bus=bus_uuid[int(net.line.at[k, "to_bus"])],
@@ -690,6 +711,44 @@ def net_to_network(net) -> Network:
             )
         )
 
+    # Measurements — projected back to the editor identity of the element they
+    # annotate. Rows whose target is a table/element the editor doesn't surface
+    # (or no longer exists) are skipped rather than dangling.
+    d_measurement = net.get("diagram_measurement")
+    element_uuids = {
+        "bus": bus_uuid,
+        "line": line_uuid,
+        "trafo": trafo_uuid,
+        "trafo3w": trafo3w_uuid,
+    }
+    measurements: list[Measurement] = []
+    meas_table = net.get("measurement")
+    if meas_table is not None:
+        for m in meas_table.index:
+            etype = str(meas_table.at[m, "element_type"])
+            uuids = element_uuids.get(etype)
+            elem = meas_table.at[m, "element"]
+            if uuids is None or pd.isna(elem) or int(elem) not in uuids:
+                continue
+            lay = _layout(d_measurement, m)
+            side = meas_table.at[m, "side"]
+            enabled = True
+            if lay is not None and "enabled" in lay:
+                enabled = bool(lay["enabled"])
+            measurements.append(
+                Measurement(
+                    id=str(lay["uuid"]) if lay is not None else uuid.uuid4().hex,
+                    name=_name(meas_table.at[m, "name"], "Measurement"),
+                    meas_type=str(meas_table.at[m, "measurement_type"]),
+                    element_type=etype,
+                    element_id=uuids[int(elem)],
+                    side=str(side) if isinstance(side, str) and side else None,
+                    value=float(meas_table.at[m, "value"]),
+                    std_dev=float(meas_table.at[m, "std_dev"]),
+                    enabled=enabled,
+                )
+            )
+
     return Network(
         id=network_id,
         name=network_name,
@@ -708,5 +767,6 @@ def net_to_network(net) -> Network:
         xwards=xwards,
         svcs=svcs,
         impedances=impedances,
+        measurements=measurements,
         needs_layout=needs_layout,
     )

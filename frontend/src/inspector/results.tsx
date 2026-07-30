@@ -5,6 +5,7 @@ import { fixed } from "../format";
 import { phaseAngleDeg, powerFactor, type BusInjection } from "../power";
 import type {
   BusData,
+  ElementEstimate,
   GeneratorData,
   ImpedanceData,
   ShuntData,
@@ -157,6 +158,32 @@ export function nodeResultRows(type: string | undefined, data: unknown): ResultR
   return [];
 }
 
+// A solved value to `dp` decimals + unit, or an em dash when unavailable.
+const estVal = (v: number | null, dp: number, unit: string) =>
+  v === null ? "—" : `${fixed(v, dp)} ${unit}`;
+
+// State-estimation result rows for any element — the estimator solves the whole
+// network, so a bus reports its voltage/injection and a line/transformer its
+// per-end flows and loading. Shared by the inspector result section and the
+// canvas badge.
+export function estimateRows(e: ElementEstimate): ResultRow[] {
+  if (e.kind === "bus")
+    return [
+      [SYM.vm, estVal(e.vm_pu, 4, "p.u.")],
+      [SYM.va, estVal(e.va_degree, 2, "°")],
+      ["P inj", estVal(e.p_mw, 3, "MW")],
+      ["Q inj", estVal(e.q_mvar, 3, "Mvar")],
+    ];
+  // A line or transformer: flow into each end (from/to or hv/mv/lv), plus loading.
+  const rows: ResultRow[] = e.sides.flatMap((s) => [
+    [`P (${s.side})`, estVal(s.p_mw, 3, "MW")],
+    [`Q (${s.side})`, estVal(s.q_mvar, 3, "Mvar")],
+    [`I (${s.side})`, estVal(s.i_ka, 4, "kA")],
+  ]);
+  rows.push(["Loading", estVal(e.loading_percent, 1, "%")]);
+  return rows;
+}
+
 // Short-circuit result rows for a bus, or [] before a short-circuit run.
 export function busScRows(data: BusData): ResultRow[] {
   if (data.ikss_ka === undefined) return [];
@@ -189,7 +216,11 @@ export function busInjectionRows(inj: BusInjection): ResultRow[] {
 
 // Explains the busbar colors a load flow paints on (see voltageColor in
 // BusNode): how far each bus's solved voltage sits from nominal (1.0 p.u.).
-export function VoltageLegend() {
+export function VoltageLegend({
+  caption = "Bus voltage after load flow",
+}: {
+  caption?: string;
+}) {
   const Row = ({ color, label }: { color: string; label: string }) => (
     <Group gap={6} wrap="nowrap">
       <span
@@ -202,7 +233,7 @@ export function VoltageLegend() {
   );
   return (
     <Stack gap={4}>
-      <SectionLabel>Bus voltage after load flow</SectionLabel>
+      <SectionLabel>{caption}</SectionLabel>
       <Row color="#16a34a" label="Green — within 5% of nominal" />
       <Row color="#d97706" label="Orange — 5–10% off nominal" />
       <Row color="#dc2626" label="Red — more than 10% off" />

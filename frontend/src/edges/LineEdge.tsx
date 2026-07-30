@@ -8,6 +8,7 @@ import {
 import { useEditor } from "../store";
 import type { LineData } from "../types";
 import { Readout } from "../nodes/Readout";
+import { EstimationBadge } from "../nodes/EstimationBadge";
 import { ACCENT } from "../theme";
 import { fixed } from "../format";
 
@@ -165,6 +166,12 @@ export function LineEdge({
             </Readout>
           </div>
         )}
+        <EstimationBadge
+          nodeId={id}
+          edgeX={dotX}
+          edgeY={dotY}
+          selected={!!selected}
+        />
         {selected && (
           <div
             className="nodrag nopan"

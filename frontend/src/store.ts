@@ -26,13 +26,17 @@ import type {
   ForeignElement,
   GeneratorData,
   ImpedanceData,
+  ElementEstimate,
   LineData,
   LoadData,
   LoadFlowResult,
+  Measurement,
+  MeasurementResidual,
   Network,
   SgenData,
   ShortCircuitResult,
   ShuntData,
+  StateEstimationResult,
   SvcData,
   SwitchData,
   Trafo2WData,
@@ -45,8 +49,19 @@ import type {
   XwardData,
 } from "./types";
 
-// Which study the canvas visualizes: load-flow voltage or short-circuit current.
-export type StudyMode = "loadflow" | "shortcircuit";
+// Which study the canvas visualizes: load-flow voltage, short-circuit current,
+// or state-estimation voltage.
+export type StudyMode = "loadflow" | "shortcircuit" | "estimation";
+
+// The most recent study run (via the Run button) and its outcome, so the network
+// summary reports on the latest study rather than always load flow. `badData` is
+// estimation-only (the chi² test flagged a suspect measurement).
+export type LastRun = {
+  study: StudyMode;
+  ok: boolean;
+  message: string;
+  badData?: boolean;
+};
 
 // Leaving now would discard real work: there are unsaved edits *and* a saved state
 // they'd be thrown away in favour of. A never-saved scenario keeps its working
@@ -283,6 +298,17 @@ interface EditorState {
   studyMode: StudyMode;
   // Network-wide max initial fault current, for scaling the SC heatmap.
   scMaxIkss: number;
+  // The most recent study run and its status; null until the first run of a net.
+  lastRun: LastRun | null;
+  // State-estimation measurements. Not canvas nodes — they annotate existing
+  // buses/lines/transformers and are edited through the inspector.
+  measurements: Measurement[];
+  // Per-measurement residuals from the last estimation, keyed by measurement id.
+  estResiduals: Record<string, MeasurementResidual>;
+  // Full estimated state of every solved element (bus/line/transformer), keyed
+  // by element id — what the canvas badge shows, including elements with no
+  // measurement of their own.
+  estById: Record<string, ElementEstimate>;
   // Whether bus voltage results show as kV or per-unit. A view-only preference,
   // persisted to localStorage (not part of the server net).
   voltageUnit: VoltageUnit;
@@ -295,6 +321,8 @@ interface EditorState {
   searchOpen: boolean;
   // Whether the floating admittance-matrix (Y-bus) panel is open.
   ybusOpen: boolean;
+  // Whether the floating measurement-Jacobian panel is open.
+  jacobianOpen: boolean;
   // Whether the floating network-summary panel is open.
   summaryOpen: boolean;
   // Whether the floating load-flow-settings panel is open.
@@ -379,6 +407,8 @@ interface EditorState {
   setSearchOpen: (open: boolean) => void;
   // Open/close the admittance-matrix panel; closing clears any spotlight.
   setYbusOpen: (open: boolean) => void;
+  // Open/close the measurement-Jacobian panel; closing clears any spotlight.
+  setJacobianOpen: (open: boolean) => void;
   setSummaryOpen: (open: boolean) => void;
   setSettingsOpen: (open: boolean) => void;
   // Clear the inspector selection and every node/edge highlight on the canvas.
@@ -391,6 +421,14 @@ interface EditorState {
   applyResults: (result: LoadFlowResult) => void;
   // Write short-circuit currents onto bus nodes (cleared when !ok).
   applyShortCircuit: (result: ShortCircuitResult) => void;
+  // Write estimated voltages onto bus nodes and store per-measurement residuals
+  // (both cleared when !ok).
+  applyEstimation: (result: StateEstimationResult) => void;
+  // Add a measurement to an existing bus/line/transformer.
+  addMeasurement: (m: Omit<Measurement, "id">) => void;
+  // Patch a measurement's editable fields (value, std_dev, type, side, ...).
+  updateMeasurement: (id: string, patch: Partial<Omit<Measurement, "id">>) => void;
+  removeMeasurement: (id: string) => void;
   loadNetwork: (
     network: Network,
     foreign?: ForeignElement[],
@@ -704,11 +742,16 @@ export const useEditor = create<EditorState>((set, get) => ({
   showResults: true,
   studyMode: "loadflow",
   scMaxIkss: 0,
+  lastRun: null,
+  measurements: [],
+  estResiduals: {},
+  estById: {},
   voltageUnit: initialVoltageUnit(),
   fitSignal: 0,
   focusRequest: null,
   searchOpen: false,
   ybusOpen: false,
+  jacobianOpen: false,
   summaryOpen: false,
   settingsOpen: false,
   spotlightIds: null,
@@ -1279,6 +1322,13 @@ export const useEditor = create<EditorState>((set, get) => ({
   setYbusOpen: (open) =>
     set(open ? { ybusOpen: true } : { ybusOpen: false, spotlightIds: null }),
 
+  setJacobianOpen: (open) =>
+    set(
+      open
+        ? { jacobianOpen: true }
+        : { jacobianOpen: false, spotlightIds: null },
+    ),
+
   setSummaryOpen: (open) => set({ summaryOpen: open }),
   setSettingsOpen: (open) => set({ settingsOpen: open }),
 
@@ -1292,40 +1342,11 @@ export const useEditor = create<EditorState>((set, get) => ({
     })),
 
   setShowResults: (show) => set({ showResults: show }),
-  // Switching study type clears every solved value so a stale load-flow result
-  // can't linger under short-circuit figures (or vice versa).
-  setStudyMode: (mode) =>
-    set((s) => {
-      if (mode === s.studyMode) return { studyMode: mode };
-      const stripRes = (data: unknown): ElementData => {
-        const d = { ...(data as Record<string, unknown>) };
-        delete d.res_p_mw;
-        delete d.res_q_mvar;
-        delete d.res_loading_percent;
-        delete d.res_i_ka;
-        return d as ElementData;
-      };
-      return {
-        studyMode: mode,
-        scMaxIkss: 0,
-        nodes: s.nodes.map((n) => {
-          if (n.type === "bus") {
-            const d = { ...(n.data as BusData) };
-            d.vm_pu = undefined;
-            d.va_degree = undefined;
-            d.ikss_ka = undefined;
-            d.ip_ka = undefined;
-            d.ith_ka = undefined;
-            d.skss_mw = undefined;
-            return { ...n, data: d } as ElementNode;
-          }
-          return { ...n, data: stripRes(n.data) } as ElementNode;
-        }),
-        edges: s.edges.map((e) =>
-          e.type === "line" ? { ...e, data: stripRes(e.data) } : e,
-        ),
-      };
-    }),
+  // Each study's results live in their own fields (vm_pu / ikss_ka / est_*), and
+  // the canvas and inspector only show the active study's — so switching mode
+  // just changes what's displayed and keeps every study's last result, letting
+  // you toggle back and forth without re-running.
+  setStudyMode: (mode) => set({ studyMode: mode }),
   setReadOnly: (readOnly) => set({ readOnly }),
 
   setVoltageUnit: (unit) => {
@@ -1356,6 +1377,11 @@ export const useEditor = create<EditorState>((set, get) => ({
       // successful result (which would be misleading). Unsupplied buses come
       // back as null — also treated as "no result".
       return {
+        lastRun: {
+          study: "loadflow" as const,
+          ok: result.converged,
+          message: result.message,
+        },
         edges: s.edges.map((e) => {
           if (e.type !== "line") return e;
           const r = result.converged ? byLine.get(e.id) : undefined;
@@ -1470,6 +1496,13 @@ export const useEditor = create<EditorState>((set, get) => ({
   },
 
   applyShortCircuit: (result) => {
+    set({
+      lastRun: {
+        study: "shortcircuit",
+        ok: result.ok,
+        message: result.message,
+      },
+    });
     if (!result.ok) {
       toast.error(`Short circuit failed: ${result.message}`);
       set((s) => ({
@@ -1515,6 +1548,121 @@ export const useEditor = create<EditorState>((set, get) => ({
         }),
       };
     });
+  },
+
+  applyEstimation: (result) => {
+    set({
+      lastRun: {
+        study: "estimation",
+        ok: result.ok,
+        message: result.message,
+        badData: result.bad_data,
+      },
+    });
+    if (!result.ok) {
+      toast.error(`State estimation failed: ${result.message}`);
+      set((s) => ({
+        estResiduals: {},
+        estById: {},
+        nodes: s.nodes.map((n) =>
+          n.type === "bus"
+            ? ({
+                ...n,
+                data: {
+                  ...(n.data as BusData),
+                  est_vm_pu: undefined,
+                  est_va_degree: undefined,
+                },
+              } as ElementNode)
+            : n,
+        ),
+      }));
+      return;
+    }
+    if (result.bad_data)
+      toast.error(
+        "Estimation converged, but a measurement looks bad — it's flagged red " +
+          "in the inspector. Fix or remove it and re-run.",
+      );
+    set((s) => {
+      // Full estimated state per element, for the canvas badges — every solved
+      // bus, line and transformer, not only the measured ones. (The spread's
+      // extra `id` is harmless.)
+      const estById: Record<string, ElementEstimate> = {};
+      for (const b of result.res_bus) estById[b.id] = { kind: "bus", ...b };
+      for (const l of result.res_line) estById[l.id] = { kind: "line", ...l };
+      for (const t of result.res_trafo) estById[t.id] = { kind: "trafo", ...t };
+      return {
+        estById,
+        estResiduals: Object.fromEntries(
+          result.residuals.map((r) => [r.id, r]),
+        ),
+        nodes: s.nodes.map((n) => {
+          if (n.type !== "bus") return n;
+          // The estimated bus voltage also drives the canvas coloring (the
+          // reused load-flow render path), so stamp it onto the node data.
+          const e = estById[n.id];
+          const bus = e?.kind === "bus" ? e : undefined;
+          return {
+            ...n,
+            data: {
+              ...(n.data as BusData),
+              est_vm_pu: bus?.vm_pu ?? undefined,
+              est_va_degree: bus?.va_degree ?? undefined,
+            },
+          } as ElementNode;
+        }),
+      };
+    });
+  },
+
+  addMeasurement: (m) => {
+    if (get().readOnly) return;
+    const id = newId();
+    const measurement: Measurement = { ...m, id };
+    set((s) => ({ measurements: [...s.measurements, measurement] }));
+    serverIds.add(id);
+    enqueue({
+      op: "add_measurement",
+      payload: {
+        id,
+        data: {
+          name: m.name,
+          meas_type: m.meas_type,
+          element_type: m.element_type,
+          element_id: m.element_id,
+          side: m.side,
+          value: m.value,
+          std_dev: m.std_dev,
+          enabled: m.enabled,
+        },
+      },
+    });
+  },
+
+  updateMeasurement: (id, patch) => {
+    if (get().readOnly) return;
+    set((s) => ({
+      measurements: s.measurements.map((m) =>
+        m.id === id ? { ...m, ...patch } : m,
+      ),
+    }));
+    enqueue({ op: "update_measurement", payload: { id, patch } });
+  },
+
+  removeMeasurement: (id) => {
+    if (get().readOnly) return;
+    set((s) => {
+      const { [id]: _removed, ...rest } = s.estResiduals;
+      return {
+        measurements: s.measurements.filter((m) => m.id !== id),
+        estResiduals: rest,
+      };
+    });
+    if (serverIds.has(id)) {
+      serverIds.delete(id);
+      enqueue({ op: "delete_measurement", payload: { id } });
+    }
   },
 
   loadNetwork: (network, foreign = [], opts = {}) => {
@@ -1950,10 +2098,13 @@ export const useEditor = create<EditorState>((set, get) => ({
       const portX = bus.position.x + PORT_MARGIN + i * PORT_SPACING;
       node.position = { ...node.position, x: portX - STUB_HALF };
     }
-    // Everything in the projection already lives on the server.
+    // Everything in the projection already lives on the server — including
+    // measurements, so deleting one enqueues a server command (they aren't
+    // canvas nodes, so they'd otherwise be missed here).
     resetServerIds([
       ...nodes.map((n) => n.id),
       ...edges.filter((e) => e.type === "line").map((e) => e.id),
+      ...(network.measurements ?? []).map((m) => m.id),
     ]);
     // Read-only placeholders for elements the editor doesn't model.
     for (const f of foreign) nodes.push(foreignNode(f));
@@ -1963,6 +2114,11 @@ export const useEditor = create<EditorState>((set, get) => ({
       sn_mva: network.sn_mva ?? 1.0,
       nodes,
       edges,
+      measurements: network.measurements ?? [],
+      estResiduals: {},
+      estById: {},
+      // A freshly loaded net hasn't been solved yet — clear any prior run status.
+      lastRun: null,
       selectedId: null,
       selectedEdgeId: null,
       // Undo/redo restore the same diagram in place, so they keep the viewport.
@@ -2051,6 +2207,9 @@ export const useEditor = create<EditorState>((set, get) => ({
       sn_mva: 1.0,
       nodes: [],
       edges: [],
+      measurements: [],
+      estResiduals: {},
+      estById: {},
       selectedId: null,
       selectedEdgeId: null,
       fitSignal: s.fitSignal + 1,

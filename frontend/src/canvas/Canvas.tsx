@@ -30,8 +30,9 @@ import { BusGraphWindow, type BusGraph } from "../diagrams/BusGraphWindow";
 import { NodeContextMenu } from "./NodeContextMenu";
 import { SearchPanel } from "./SearchPanel";
 import { YbusPanel } from "../study/YbusPanel";
+import { JacobianPanel } from "../study/JacobianPanel";
 import { SummaryPanel } from "../study/SummaryPanel";
-import { LoadFlowSettingsPanel } from "../study/LoadFlowSettingsPanel";
+import { StudySettingsPanel } from "../study/StudySettingsPanel";
 import { useClampedPosition } from "../ui/useClampedPosition";
 import { MENU_Z } from "../ui/zStack";
 import type { BusData, ElementKind } from "../types";
@@ -568,8 +569,9 @@ export function Canvas() {
 
       <SearchPanel />
       <YbusPanel />
+      <JacobianPanel />
       <SummaryPanel />
-      <LoadFlowSettingsPanel />
+      <StudySettingsPanel />
 
       {menu && (
         <Paper

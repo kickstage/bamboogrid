@@ -8,6 +8,7 @@ import { WINDING_LABEL } from "../trafo";
 import { windingFlip } from "./windingFlip";
 import { TransformerResult } from "./TransformerResult";
 import { TrafoTapBadge } from "./TrafoTapBadge";
+import { EstimationBadge } from "./EstimationBadge";
 import { useTrafoParams } from "./useTrafoParams";
 
 const W = 48;
@@ -75,6 +76,7 @@ export function Transformer3WNode({ id, data, selected, positionAbsoluteY }: Nod
           selected={!!selected}
         />
       )}
+      <EstimationBadge nodeId={id} left={-9} selected={!!selected} />
       <div
         style={{
           position: "absolute",

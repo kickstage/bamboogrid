@@ -8,15 +8,18 @@ import { useEditor } from "../store";
 import { toast } from "../toast";
 import type { YbusResult } from "../types";
 import { ToolWindow } from "../ui/ToolWindow";
+import {
+  CHAR_W,
+  type CellStyle,
+  divColor,
+  EMPTY_CELL,
+  magColor,
+  MAX_CELL,
+  MIN_CELL,
+} from "./heatmap";
 import { useLiveRefresh } from "./useLiveRefresh";
 
 type Mode = "mag" | "g" | "b";
-
-// Cell size bounds (px). Max keeps a tiny matrix from ballooning; min lets a
-// huge one shrink and scroll rather than collapse to sub-pixel.
-const MIN_CELL = 6;
-const MAX_CELL = 44;
-const CHAR_W = 6;
 
 const MODE_HELP: Record<Mode, string> = {
   mag: "|Y| — magnitude of each admittance (structure & coupling)",
@@ -30,32 +33,6 @@ function cellValue(mode: Mode, g: number, b: number): number {
   if (mode === "b") return b;
   return Math.hypot(g, b);
 }
-
-type CellStyle = { fill: string; text: string };
-
-// Text that stays readable on a given cell lightness (the heatmap fill is fixed
-// regardless of light/dark theme, so the in-cell numbers must not use the
-// theme's currentColor — a light cell in dark mode would render white on white).
-function textOn(lightness: number): string {
-  return lightness > 62 ? "#0b2e2b" : "#ffffff";
-}
-
-// Sequential teal ramp for |Y| (always >= 0): light -> saturated with magnitude.
-function magColor(t: number): CellStyle {
-  const l = 93 - 60 * t;
-  return { fill: `hsl(174, 62%, ${l}%)`, text: textOn(l) };
-}
-
-// Diverging red/blue ramp for G/B, centered on zero. Perceptual sqrt so small
-// off-diagonal terms stay visible next to the dominant diagonal.
-function divColor(t: number): CellStyle {
-  const m = Math.sqrt(Math.min(1, Math.abs(t)));
-  const l = 96 - 56 * m;
-  const sat = 12 + 68 * m;
-  return { fill: `hsl(${t >= 0 ? 0 : 217}, ${sat}%, ${l}%)`, text: textOn(l) };
-}
-
-const EMPTY_CELL: CellStyle = { fill: "transparent", text: "currentColor" };
 
 // A complex admittance as "g + bj" / "g − bj" in per-unit.
 function complex(g: number, b: number): string {
@@ -158,10 +135,7 @@ export function YbusPanel() {
   // popped-out window (a real window height to fill); docked, it grows with the
   // grid. Measured via ResizeObserver + the owning window's resize so the matrix
   // rescales as that window is resized.
-  const [box, setBox] = useState<{ w: number; h: number }>({
-    w: 0,
-    h: Infinity,
-  });
+  const [box, setBox] = useState<{ w: number; h: number }>({ w: 0, h: 0 });
   const roRef = useRef<ResizeObserver | null>(null);
   const measureRef = useRef<(() => void) | null>(null);
   const winRef = useRef<Window | null>(null);
@@ -176,15 +150,11 @@ export function YbusPanel() {
     if (!el) return;
     const win = el.ownerDocument.defaultView;
     if (!win) return;
+    // The panel has a definite height (fill), so the box gives a stable
+    // available size and the whole matrix fits into it (both dimensions),
+    // whether docked, resized, or popped out.
     const measure = () => {
-      // Docked: height grows with the grid (Infinity → width governs cell size).
-      // Popped out: the box flex-fills the window, so its measured height is the
-      // real space to fit into.
-      const detached = win !== window;
-      setBox({
-        w: el.clientWidth,
-        h: detached ? el.clientHeight : Infinity,
-      });
+      setBox({ w: el.clientWidth, h: el.clientHeight });
     };
     measureRef.current = measure;
     winRef.current = win;
@@ -196,12 +166,11 @@ export function YbusPanel() {
   }, []);
 
   // Fit square cells to the smaller of the available width/height, capped.
+  // Before the first measure both are 0 → fall back to MAX_CELL.
   const availW = box.w > 0 ? box.w - headL - 12 : 0;
+  const availH = box.h > 0 ? box.h - headT - 8 : 0;
   const fitW = availW > 0 ? Math.floor(availW / Math.max(1, n)) : MAX_CELL;
-  const fitH =
-    box.h === Infinity
-      ? MAX_CELL
-      : Math.floor((box.h - headT - 8) / Math.max(1, n));
+  const fitH = availH > 0 ? Math.floor(availH / Math.max(1, n)) : MAX_CELL;
   const cell = Math.max(MIN_CELL, Math.min(MAX_CELL, Math.min(fitW, fitH)));
 
   // Numbers only fit (and only aid learning) on small matrices with room.
@@ -239,6 +208,7 @@ export function YbusPanel() {
       onClose={() => setYbusOpen(false)}
       width={width}
       height={height}
+      fill
     >
       <>
         <SegmentedControl
@@ -289,8 +259,10 @@ export function YbusPanel() {
                 minHeight: 0,
                 width: "100%",
                 display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
+                // `safe` centers the matrix when it fits but scrolls from the
+                // top-left when it doesn't, instead of clipping both sides.
+                alignItems: "safe center",
+                justifyContent: "safe center",
                 overflow: "auto",
               }}
             >
