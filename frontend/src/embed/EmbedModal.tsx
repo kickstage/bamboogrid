@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActionIcon,
   Box,
@@ -151,7 +151,23 @@ export function EmbedModal({ opened, onClose, sessionId, networkName }: Props) {
     }
   }, [token, networkName, theme, controls, height, tab]);
 
-  const previewSrc = token ? buildEmbedUrl(token, theme, controls) : "";
+  // The preview iframe src stays *stable*: changing it would reload the embed
+  // and reset its viewport/zoom. Option changes are pushed into the running
+  // iframe via postMessage instead (see Root in embed/main.tsx); sending on
+  // load as well covers changes made while the iframe was still loading.
+  const previewSrc = useMemo(
+    () => (token ? buildEmbedUrl(token, theme, controls) : ""),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [token],
+  );
+  const previewRef = useRef<HTMLIFrameElement>(null);
+  const postOptions = useCallback(() => {
+    previewRef.current?.contentWindow?.postMessage(
+      { type: "bamboogrid:embed-options", theme, controls },
+      window.location.origin,
+    );
+  }, [theme, controls]);
+  useEffect(postOptions, [postOptions]);
 
   if (opened && !token) {
     return (
@@ -190,7 +206,9 @@ export function EmbedModal({ opened, onClose, sessionId, networkName }: Props) {
         {previewSrc && (
           <Box className="embed-preview-frame">
             <iframe
+              ref={previewRef}
               src={previewSrc}
+              onLoad={postOptions}
               title="Embed preview"
               style={{
                 width: "100%",

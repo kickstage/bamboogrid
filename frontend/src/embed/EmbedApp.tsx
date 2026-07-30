@@ -27,14 +27,11 @@ async function fetchEmbedView(
   return res.json();
 }
 
-export function EmbedApp() {
+export function EmbedApp({ showControls }: { showControls: boolean }) {
   const [view, setView] = useState<ViewModel | null>(null);
   const [name, setName] = useState("BambooGrid");
   const [error, setError] = useState<string | null>(null);
   const [token, setToken] = useState<string | null>(null);
-
-  const params = new URLSearchParams(window.location.search);
-  const showControls = params.get("controls") !== "false";
 
   useEffect(() => {
     const pathParts = window.location.pathname.split("/");
