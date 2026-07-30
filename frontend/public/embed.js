@@ -15,7 +15,10 @@
     iframe.style.cssText =
       "border:1px solid #e0e0e0;border-radius:8px;display:block;";
     iframe.loading = "lazy";
-    iframe.sandbox = "allow-scripts allow-same-origin";
+    // allow-popups(-to-escape-sandbox): the "Edit on BambooGrid" badge opens
+    // in a new tab and would otherwise be silently blocked by the sandbox.
+    iframe.sandbox =
+      "allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox";
     iframe.title = "BambooGrid Scenario";
     el.parentNode.replaceChild(iframe, el);
   }

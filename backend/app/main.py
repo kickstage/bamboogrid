@@ -8,9 +8,12 @@ editor doesn't model still influence the result.
 
 from __future__ import annotations
 
+import html
 import json
 import os
+import re
 from pathlib import Path
+from urllib.parse import parse_qs, quote, urlsplit
 
 import anyio
 import pandapower as pp
@@ -273,48 +276,87 @@ def share_session(session: Session = Depends(current_session)) -> dict[str, str]
     return {"token": store.create_share(session.id)}
 
 
-@app.get("/embed/view/{session_id}")
-def embed_view(session_id: str) -> dict:
-    """Return a read-only projection for embedding (no clone, no session mutation).
+@app.get("/embed/view/{token}")
+def embed_view(token: str) -> dict:
+    """Return a read-only projection for embedding, resolved by *share token*.
 
-    Unlike ``open_share`` this does NOT create a new session — it returns the
-    projection of the existing session for display only. The response also
-    carries the network name and a share token (minted if needed) so the embed
-    viewer can link back to the full editor."""
+    Never keyed by session id: the id is the session's bearer capability (see
+    ``current_session``), and embed markup is published in third-party page
+    source, so it must only ever carry the (clone-only) share token. The token
+    doubles as the "Edit on BambooGrid" link target, and minting it happens in
+    the authenticated ``share_session`` flow — this handler is a pure read.
+
+    Renders the saved snapshot when one exists (not in-progress edits), falling
+    back to the share-time snapshot if the session has been purged, so published
+    embeds stay stable. See ``SessionStore.resolve_embed``."""
     try:
-        session = store.get(session_id)
+        net_json, name = store.resolve_embed(token)
     except KeyError:
-        raise HTTPException(status_code=404, detail="Session not found.")
-    with session.lock:
-        view = _view(session)
-        name = session.net.get("name") or DEFAULT_SCENARIO_NAME
-        try:
-            share_token = store.create_share(session_id)
-        except Exception:
-            share_token = None
-        return {"view": view, "name": name, "shareToken": share_token}
+        raise HTTPException(status_code=404, detail="Embed link not found or expired.")
+    view = net_to_view(pp.from_json_string(net_json))
+    return {"view": view, "name": name}
+
+
+# Share tokens come from ``secrets.token_urlsafe`` — nothing else is worth
+# routing to the embed SPA or vouching for via oEmbed.
+_EMBED_TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 
 
 @app.get("/oembed")
-def oembed(url: str, maxwidth: int | None = None, maxheight: int | None = None, format: str = "json") -> dict:
-    """Standard oEmbed discovery endpoint (rich type). CMS platforms like
-    WordPress call this to auto-embed a BambooGrid scenario from a pasted URL."""
+def oembed(
+    request: Request,
+    url: str,
+    maxwidth: int | None = None,
+    maxheight: int | None = None,
+    format: str = "json",
+) -> dict:
+    """Standard oEmbed endpoint (rich type). CMS platforms like WordPress call
+    this to auto-embed a BambooGrid scenario from a pasted URL.
+
+    The ``url`` parameter is attacker-controlled: it is echoed into HTML that
+    consumers inject verbatim into their pages. So it is never echoed back —
+    it must be one of our own /embed/<token> URLs, and the iframe ``src`` is
+    rebuilt from the validated pieces (token plus whitelisted theme/controls
+    params) and HTML-escaped."""
     if format != "json":
         raise HTTPException(status_code=501, detail="Only JSON format is supported.")
-    width = min(maxwidth, 800) if maxwidth else 800
-    height = min(maxheight, 500) if maxheight else 500
+    parts = urlsplit(url)
+    if parts.scheme not in ("http", "https") or parts.netloc != request.url.netloc:
+        raise HTTPException(status_code=404, detail="Not a BambooGrid embed URL.")
+    prefix, _, token = parts.path.rpartition("/")
+    if prefix != "/embed" or not _EMBED_TOKEN_RE.fullmatch(token):
+        raise HTTPException(status_code=404, detail="Not a BambooGrid embed URL.")
+    try:
+        name = store.share_name(token)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Embed link not found or expired.")
+
+    query = parse_qs(parts.query)
+    params = []
+    if query.get("theme", [None])[0] in ("light", "dark"):
+        params.append(f"theme={query['theme'][0]}")
+    if query.get("controls", [None])[0] == "false":
+        params.append("controls=false")
+    src = f"{request.url.scheme}://{request.url.netloc}/embed/{token}"
+    if params:
+        src += "?" + "&".join(params)
+
+    width = max(200, min(maxwidth, 800)) if maxwidth else 800
+    height = max(200, min(maxheight, 1200)) if maxheight else 500
     return {
         "type": "rich",
         "version": "1.0",
-        "title": "BambooGrid Scenario",
+        "title": name,
         "provider_name": "BambooGrid",
-        "provider_url": "https://bamboo.kickstage.com",
+        "provider_url": f"{request.url.scheme}://{request.url.netloc}",
         "width": width,
         "height": height,
         "html": (
-            f'<iframe src="{url}" width="{width}" height="{height}" '
+            f'<iframe src="{html.escape(src)}" width="{width}" height="{height}" '
             f'style="border:1px solid #e0e0e0;border-radius:8px" '
-            f'loading="lazy" sandbox="allow-scripts allow-same-origin"></iframe>'
+            f'loading="lazy" title="{html.escape(name)}" '
+            f'sandbox="allow-scripts allow-same-origin allow-popups '
+            f'allow-popups-to-escape-sandbox"></iframe>'
         ),
     }
 
@@ -695,23 +737,39 @@ if os.path.isdir(_STATIC_DIR):
             {"googleClientId": os.getenv("GOOGLE_CLIENT_ID") or None}
         )
         script = f"<script>window.__BAMBOOGRID_CONFIG__={config_json};</script>"
-        html = _index_html_template.replace("</head>", f"{script}\n</head>", 1)
-        return HTMLResponse(content=html)
+        page = _index_html_template.replace("</head>", f"{script}\n</head>", 1)
+        # The editor itself must not be framable (clickjacking); only the embed
+        # page below opts in to third-party framing.
+        return HTMLResponse(
+            content=page,
+            headers={"Content-Security-Policy": "frame-ancestors 'self'"},
+        )
 
-    @app.get("/embed/{session_id:path}", include_in_schema=False)
-    def serve_embed(session_id: str) -> HTMLResponse:
-        """Serve the embed SPA for ``/embed/<session-id>``.
+    @app.get("/embed/{token}", include_in_schema=False)
+    def serve_embed(token: str, request: Request) -> HTMLResponse:
+        """Serve the embed SPA for ``/embed/<share-token>``.
 
         Unlike the main app, embeds are designed to live inside iframes on
-        third-party sites, so ``frame-ancestors`` is set to ``*``."""
+        third-party sites, so ``frame-ancestors`` is set to ``*``. An oEmbed
+        discovery link is injected so CMS platforms can auto-embed a pasted
+        embed URL (the token is validated before it is echoed into the tag)."""
         if _embed_html is None:
             raise HTTPException(status_code=404, detail="Embed page not built.")
+        page = _embed_html
+        if _EMBED_TOKEN_RE.fullmatch(token):
+            base = f"{request.url.scheme}://{request.url.netloc}"
+            oembed_href = (
+                f"{base}/oembed?url={quote(f'{base}/embed/{token}', safe='')}"
+                f"&format=json"
+            )
+            link = (
+                f'<link rel="alternate" type="application/json+oembed" '
+                f'href="{html.escape(oembed_href)}" title="BambooGrid oEmbed" />'
+            )
+            page = page.replace("</head>", f"{link}\n</head>", 1)
         return HTMLResponse(
-            content=_embed_html,
-            headers={
-                "Content-Security-Policy": "frame-ancestors *",
-                "X-Frame-Options": "",
-            },
+            content=page,
+            headers={"Content-Security-Policy": "frame-ancestors *"},
         )
 
     app.mount("/", StaticFiles(directory=_STATIC_DIR, html=True), name="static")

@@ -18,11 +18,11 @@ import { BambooGridBadge } from "./BambooGridBadge";
 interface Props {
   view: ViewModel;
   name: string;
-  shareToken: string | null;
+  token: string;
   showControls: boolean;
 }
 
-export function EmbedViewer({ view, name, shareToken, showControls }: Props) {
+export function EmbedViewer({ view, name, token, showControls }: Props) {
   const { fitView } = useReactFlow();
   const colorScheme = useComputedColorScheme("light");
   const { nodes, edges, loadNetwork } = useEditor();
@@ -40,9 +40,8 @@ export function EmbedViewer({ view, name, shareToken, showControls }: Props) {
     return () => clearTimeout(t);
   }, [fitView, nodes.length]);
 
-  const editUrl = shareToken
-    ? `${window.location.origin}/?s=${shareToken}`
-    : window.location.origin;
+  // The embed token *is* the share token, so it doubles as the edit link.
+  const editUrl = `${window.location.origin}/?s=${encodeURIComponent(token)}`;
 
   return (
     <div style={{ width: "100%", height: "100%", position: "relative" }}>

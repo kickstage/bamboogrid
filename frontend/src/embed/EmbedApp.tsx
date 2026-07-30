@@ -7,8 +7,13 @@ import type { ViewModel } from "../types";
 
 const BASE = "";
 
-async function fetchEmbedView(sessionId: string): Promise<{ view: ViewModel; name: string; shareToken: string | null }> {
-  const res = await fetch(`${BASE}/embed/view/${sessionId}`);
+// The URL carries a *share token* (see /session/share), never a session id —
+// the session id is the session's bearer capability and must not appear in
+// embed markup published on third-party pages.
+async function fetchEmbedView(
+  token: string,
+): Promise<{ view: ViewModel; name: string }> {
+  const res = await fetch(`${BASE}/embed/view/${encodeURIComponent(token)}`);
   if (!res.ok) {
     const body = await res.text();
     let detail: string;
@@ -25,8 +30,8 @@ async function fetchEmbedView(sessionId: string): Promise<{ view: ViewModel; nam
 export function EmbedApp() {
   const [view, setView] = useState<ViewModel | null>(null);
   const [name, setName] = useState("BambooGrid");
-  const [shareToken, setShareToken] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [token, setToken] = useState<string | null>(null);
 
   const params = new URLSearchParams(window.location.search);
   const showControls = params.get("controls") !== "false";
@@ -34,18 +39,18 @@ export function EmbedApp() {
   useEffect(() => {
     const pathParts = window.location.pathname.split("/");
     const embedIdx = pathParts.indexOf("embed");
-    const sessionId = embedIdx >= 0 ? pathParts[embedIdx + 1] : null;
+    const urlToken = embedIdx >= 0 ? pathParts[embedIdx + 1] : null;
 
-    if (!sessionId) {
-      setError("No session ID in URL.");
+    if (!urlToken) {
+      setError("No embed token in URL.");
       return;
     }
+    setToken(urlToken);
 
-    fetchEmbedView(sessionId)
+    fetchEmbedView(urlToken)
       .then((data) => {
         setView(data.view);
         setName(data.name);
-        setShareToken(data.shareToken);
       })
       .catch((err) => setError(err.message));
   }, []);
@@ -66,7 +71,7 @@ export function EmbedApp() {
     );
   }
 
-  if (!view) {
+  if (!view || !token) {
     return <LoadingOverlay visible />;
   }
 
@@ -75,7 +80,7 @@ export function EmbedApp() {
       <EmbedViewer
         view={view}
         name={name}
-        shareToken={shareToken}
+        token={token}
         showControls={showControls}
       />
     </ReactFlowProvider>

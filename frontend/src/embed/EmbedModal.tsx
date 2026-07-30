@@ -2,8 +2,10 @@ import { useEffect, useMemo, useState } from "react";
 import {
   ActionIcon,
   Box,
+  Center,
   CopyButton,
   Group,
+  Loader,
   Modal,
   NumberInput,
   SegmentedControl,
@@ -13,6 +15,7 @@ import {
   Textarea,
   Tooltip,
 } from "@mantine/core";
+import { shareSession } from "../api";
 import "./EmbedModal.css";
 
 function CopyIcon() {
@@ -41,12 +44,19 @@ interface Props {
 
 type EmbedTheme = "light" | "dark" | "auto";
 
+// allow-popups(-to-escape-sandbox) is required for the "Edit on BambooGrid"
+// badge (target="_blank") to work inside the sandboxed iframe.
+const SANDBOX =
+  "allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox";
+
+// Embed URLs carry the *share token* minted by the authed /session/share call —
+// never the session id, which is the session's bearer (edit) capability.
 function buildEmbedUrl(
-  sessionId: string,
+  token: string,
   theme: EmbedTheme,
   controls: boolean,
 ): string {
-  const base = `${window.location.origin}/embed/${sessionId}`;
+  const base = `${window.location.origin}/embed/${encodeURIComponent(token)}`;
   const params = new URLSearchParams();
   if (theme !== "auto") params.set("theme", theme);
   if (!controls) params.set("controls", "false");
@@ -55,13 +65,13 @@ function buildEmbedUrl(
 }
 
 function buildIframeCode(
-  sessionId: string,
+  token: string,
   networkName: string,
   theme: EmbedTheme,
   controls: boolean,
   height: number,
 ): string {
-  const src = buildEmbedUrl(sessionId, theme, controls);
+  const src = buildEmbedUrl(token, theme, controls);
   const escapedName = networkName.replace(/"/g, "&quot;");
   return [
     `<iframe`,
@@ -70,20 +80,20 @@ function buildIframeCode(
     `  height="${height}"`,
     `  style="border: 1px solid #e0e0e0; border-radius: 8px;"`,
     `  loading="lazy"`,
-    `  sandbox="allow-scripts allow-same-origin"`,
+    `  sandbox="${SANDBOX}"`,
     `  title="BambooGrid – ${escapedName}"`,
     `></iframe>`,
   ].join("\n");
 }
 
 function buildHtmlCode(
-  sessionId: string,
+  token: string,
   networkName: string,
   theme: EmbedTheme,
   controls: boolean,
   height: number,
 ): string {
-  const src = buildEmbedUrl(sessionId, theme, controls);
+  const src = buildEmbedUrl(token, theme, controls);
   return [
     `<div class="bamboogrid-embed"`,
     `     data-src="${src}"`,
@@ -98,8 +108,10 @@ function buildHtmlCode(
   ].join("\n");
 }
 
-function buildOembedUrl(sessionId: string): string {
-  const embedUrl = encodeURIComponent(`${window.location.origin}/embed/${sessionId}`);
+function buildOembedUrl(token: string): string {
+  const embedUrl = encodeURIComponent(
+    `${window.location.origin}/embed/${encodeURIComponent(token)}`,
+  );
   return `${window.location.origin}/oembed?url=${embedUrl}&format=json`;
 }
 
@@ -108,28 +120,61 @@ export function EmbedModal({ opened, onClose, sessionId, networkName }: Props) {
   const [controls, setControls] = useState(true);
   const [height, setHeight] = useState<number>(500);
   const [tab, setTab] = useState<string | null>("iframe");
+  const [token, setToken] = useState<string | null>(null);
+  const [tokenError, setTokenError] = useState<string | null>(null);
 
   useEffect(() => {
     if (opened) setTab("iframe");
   }, [opened]);
 
+  // Mint (or reuse) the share token through the authenticated share flow when
+  // the modal opens. The GET endpoints never mint tokens as a side effect.
+  useEffect(() => {
+    if (!opened || !sessionId) return;
+    setTokenError(null);
+    shareSession(sessionId)
+      .then(setToken)
+      .catch(() => setTokenError("Could not create an embed link. Try again."));
+  }, [opened, sessionId]);
+
   const code = useMemo(() => {
-    if (!sessionId) return "";
+    if (!token) return "";
     switch (tab) {
       case "iframe":
-        return buildIframeCode(sessionId, networkName, theme, controls, height);
+        return buildIframeCode(token, networkName, theme, controls, height);
       case "html":
-        return buildHtmlCode(sessionId, networkName, theme, controls, height);
+        return buildHtmlCode(token, networkName, theme, controls, height);
       case "oembed":
-        return buildOembedUrl(sessionId);
+        return buildOembedUrl(token);
       default:
         return "";
     }
-  }, [sessionId, networkName, theme, controls, height, tab]);
+  }, [token, networkName, theme, controls, height, tab]);
 
-  const previewSrc = sessionId
-    ? buildEmbedUrl(sessionId, theme, controls)
-    : "";
+  const previewSrc = token ? buildEmbedUrl(token, theme, controls) : "";
+
+  if (opened && !token) {
+    return (
+      <Modal
+        opened={opened}
+        onClose={onClose}
+        title="Embed This Scenario"
+        size="lg"
+        centered
+        overlayProps={{ backgroundOpacity: 0.4, blur: 2 }}
+      >
+        <Center h={120}>
+          {tokenError ? (
+            <Text size="sm" c="dimmed">
+              {tokenError}
+            </Text>
+          ) : (
+            <Loader size="sm" />
+          )}
+        </Center>
+      </Modal>
+    );
+  }
 
   return (
     <Modal
@@ -153,7 +198,7 @@ export function EmbedModal({ opened, onClose, sessionId, networkName }: Props) {
                 border: "1px solid var(--mantine-color-default-border)",
                 borderRadius: 8,
               }}
-              sandbox="allow-scripts allow-same-origin"
+              sandbox={SANDBOX}
               loading="lazy"
             />
           </Box>

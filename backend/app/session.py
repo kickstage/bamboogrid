@@ -187,6 +187,11 @@ class SessionStore:
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS shares_session ON shares (session_id)"
             )
+            # Snapshot of the net at share time. Embeds fall back to it when the
+            # source session has been purged, so a published embed keeps working.
+            conn.execute(
+                "ALTER TABLE shares ADD COLUMN IF NOT EXISTS net_json text"
+            )
             # Optional sign-in (see app/auth.py). A user owns the sessions whose
             # owner_id matches their id; owner_id NULL is a guest session (the
             # default and the only kind before sign-in existed), so existing rows
@@ -482,21 +487,30 @@ class SessionStore:
     # --- sharing -----------------------------------------------------------
 
     def create_share(self, session_id: str) -> str:
-        """Return a stable short token that others can open to clone this session."""
+        """Return a stable short token that others can open to clone this session.
+
+        The share row carries a snapshot of the current net as a fallback for
+        embeds that outlive the session; re-sharing refreshes it, so the fallback
+        tracks the most recent explicit share/embed action."""
         self.get(session_id)  # ensure it exists (raises KeyError -> 404)
         with self._pool.connection() as conn:
             row = conn.execute(
                 "SELECT token FROM shares WHERE session_id=%s", (session_id,)
             ).fetchone()
             if row is not None:
+                conn.execute(
+                    "UPDATE shares SET net_json="
+                    "(SELECT net_json FROM sessions WHERE id=%s) WHERE token=%s",
+                    (session_id, row[0]),
+                )
                 return row[0]
             for _ in range(5):
                 token = secrets.token_urlsafe(6)
                 try:
                     conn.execute(
-                        "INSERT INTO shares (token, session_id, created_at) "
-                        "VALUES (%s, %s, %s)",
-                        (token, session_id, time.time()),
+                        "INSERT INTO shares (token, session_id, created_at, net_json) "
+                        "SELECT %s, id, %s, net_json FROM sessions WHERE id=%s",
+                        (token, time.time(), session_id),
                     )
                     return token
                 except psycopg.errors.UniqueViolation:
@@ -504,15 +518,66 @@ class SessionStore:
                     continue
         raise RuntimeError("Could not allocate a unique share token.")
 
-    def clone_from_share(self, token: str) -> Session:
-        """Clone the session a share token points at into a fresh, independent one."""
+    def resolve_embed(self, token: str) -> tuple[str, str]:
+        """The net JSON an embed should render for a share token, plus the display
+        name. Raises KeyError for an unknown token.
+
+        Never keyed by session id — the id is the session's bearer capability and
+        must not appear in embed markup on third-party pages. Preference order:
+        the session's *saved* snapshot (an embed must not expose in-progress edits
+        of a saved scenario), then the working copy (a guest scenario has no saved
+        state), then the snapshot captured at share time (the session itself may
+        have been purged, but a published embed should keep rendering)."""
         with self._pool.connection() as conn:
             row = conn.execute(
-                "SELECT session_id FROM shares WHERE token=%s", (token,)
+                "SELECT s.saved_json, s.net_json, s.name, sh.net_json "
+                "FROM shares sh LEFT JOIN sessions s ON s.id = sh.session_id "
+                "WHERE sh.token=%s",
+                (token,),
             ).fetchone()
         if row is None:
             raise KeyError(token)
-        return self.clone(row[0])
+        saved_json, working_json, name, share_snapshot = row
+        net_json = saved_json or working_json or share_snapshot
+        if net_json is None:
+            raise KeyError(token)
+        return net_json, name or DEFAULT_SCENARIO_NAME
+
+    def share_name(self, token: str) -> str:
+        """The display name behind a share token (for oEmbed metadata), without
+        loading or parsing the net. Raises KeyError for an unknown token."""
+        with self._pool.connection() as conn:
+            row = conn.execute(
+                "SELECT s.name FROM shares sh "
+                "LEFT JOIN sessions s ON s.id = sh.session_id WHERE sh.token=%s",
+                (token,),
+            ).fetchone()
+        if row is None:
+            raise KeyError(token)
+        return row[0] or DEFAULT_SCENARIO_NAME
+
+    def clone_from_share(self, token: str) -> Session:
+        """Clone the session a share token points at into a fresh, independent one.
+
+        If the source session has been purged, falls back to the snapshot taken
+        at share time — an embed keeps rendering from that snapshot (see
+        ``resolve_embed``), so its "Edit on BambooGrid" link must keep working
+        off the same state rather than 404ing."""
+        with self._pool.connection() as conn:
+            row = conn.execute(
+                "SELECT session_id, net_json FROM shares WHERE token=%s", (token,)
+            ).fetchone()
+        if row is None:
+            raise KeyError(token)
+        session_id, snapshot = row
+        try:
+            return self.clone(session_id)
+        except KeyError:
+            if snapshot is None:
+                raise KeyError(token)
+            net = pp.from_json_string(snapshot)
+            name = net.get("name") or DEFAULT_SCENARIO_NAME
+            return self.create(net=net, name=f"{name} (copy)")
 
     def clone(self, source_id: str) -> Session:
         """Deep-copy a session's net into a new, unowned session (element ids
