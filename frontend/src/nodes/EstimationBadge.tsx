@@ -17,6 +17,12 @@ const useOpenBadge = create<{
   setId: (id) => set({ id }),
 }));
 
+// Window-edge gap, the dropdown's own padding + border, and the height below
+// which the popover stops shrinking.
+const SCREEN_PAD = 8;
+const DROPDOWN_CHROME = 18;
+const MIN_SCROLL_H = 120;
+
 // A small "≈" tag overlapping an element that has a state-estimation result,
 // shown only in estimation mode after a run. Clicking it opens a popover with
 // the element's full estimated state (voltage/injection for a bus, flows for a
@@ -156,17 +162,44 @@ export function EstimationBadge({
       shadow="md"
       trapFocus
       closeOnClickOutside={false}
+      // Height left on screen for the placement flip settles on, read by the
+      // scroll box below. Width is never constrained.
+      middlewares={{
+        shift: true,
+        flip: true,
+        size: {
+          padding: SCREEN_PAD,
+          apply: ({ availableHeight, elements }) =>
+            elements.floating.style.setProperty(
+              "--est-avail-h",
+              `${Math.max(availableHeight - DROPDOWN_CHROME, MIN_SCROLL_H)}px`,
+            ),
+        },
+      }}
     >
       <Popover.Target>{badge}</Popover.Target>
       <Popover.Dropdown
         className="nodrag nopan"
         data-est-popover
         p={8}
-        style={{ maxHeight: "70vh", overflowY: "auto" }}
         onMouseDown={(e) => e.stopPropagation()}
         onClick={(e) => e.stopPropagation()}
       >
-        <Stack gap={8} style={{ minWidth: 200 }}>
+        {/* Scrolling belongs here and not on the dropdown, whose arrow hangs off
+            its edge as an absolutely positioned child. */}
+        <Stack
+          gap={8}
+          style={{
+            minWidth: 200,
+            width: "max-content",
+            maxHeight: "var(--est-avail-h, 70vh)",
+            overflowY: "auto",
+            overflowX: "hidden",
+            // Reserved up front, or a vertical bar would clip the nowrap rows.
+            scrollbarGutter: "stable",
+            scrollbarWidth: "thin",
+          }}
+        >
           {est && (
             <Stack gap={2}>
               <Text size="xs" fw={700} tt="uppercase" c="dimmed">
