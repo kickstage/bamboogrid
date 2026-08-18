@@ -1,0 +1,31 @@
+.bamboogrid-badge {
+  position: absolute;
+  bottom: 10px;
+  right: 10px;
+  z-index: 10;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 12px;
+  line-height: 1;
+  color: var(--mantine-color-text, #333);
+  background: var(--mantine-color-body, #fff);
+  border: 1px solid var(--mantine-color-default-border, #dee2e6);
+  text-decoration: none;
+  opacity: 0.85;
+  transition: opacity 150ms ease, box-shadow 150ms ease;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+.bamboogrid-badge:hover {
+  opacity: 1;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  text-decoration: none;
+}
+
+.bamboogrid-badge strong {
+  font-weight: 600;
+}

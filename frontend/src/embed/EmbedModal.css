@@ -1,0 +1,5 @@
+.embed-preview-frame {
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--mantine-color-default-hover);
+}

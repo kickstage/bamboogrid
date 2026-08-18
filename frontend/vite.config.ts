@@ -1,4 +1,5 @@
-import { defineConfig } from "vite";
+import { resolve } from "path";
+import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 
 // In dev the SPA calls the API on its own origin (BASE=""); proxy those paths
@@ -9,14 +10,42 @@ import react from "@vitejs/plugin-react";
 // resolves "localhost" to IPv6 (::1) first → ECONNREFUSED ::1:8000.
 const target = process.env.VITE_PROXY_TARGET ?? "http://127.0.0.1:8000";
 const proxy = Object.fromEntries(
-  ["/session", "/share", "/health", "/std-types", "/scenarios", "/auth", "/me"].map(
+  ["/session", "/share", "/health", "/std-types", "/scenarios", "/auth", "/me", "/embed/view", "/oembed"].map(
     (p) => [p, { target, changeOrigin: true }],
   ),
 );
 
+// In dev, rewrite /embed/<session-id> requests to serve embed.html so the embed
+// SPA loads, while /embed/view/<id> is proxied to the backend API above.
+function embedSpaFallback(): Plugin {
+  return {
+    name: "embed-spa-fallback",
+    configureServer(server) {
+      server.middlewares.use((req, _res, next) => {
+        if (
+          req.url &&
+          req.url.startsWith("/embed/") &&
+          !req.url.startsWith("/embed/view/")
+        ) {
+          req.url = "/embed.html";
+        }
+        next();
+      });
+    },
+  };
+}
+
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), embedSpaFallback()],
   server: { port: 5173, proxy },
+  build: {
+    rollupOptions: {
+      input: {
+        main: resolve(__dirname, "index.html"),
+        embed: resolve(__dirname, "embed.html"),
+      },
+    },
+  },
   // Baked in at build time from the image tag (see Dockerfile/CI); "dev" locally.
   define: {
     __APP_VERSION__: JSON.stringify(process.env.APP_VERSION || "dev"),

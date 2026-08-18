@@ -81,7 +81,6 @@ function initialVoltageUnit(): VoltageUnit {
   }
 }
 import { getView, redo as redoApi, undo as undoApi } from "./api";
-import { elkLayout } from "./elkLayout";
 import { toast } from "./toast";
 import {
   connectedTrafoVoltages,
@@ -2137,6 +2136,10 @@ export const useEditor = create<EditorState>((set, get) => ({
     let persist = false;
     if (network.needs_layout && !get().readOnly) {
       try {
+        // ELK is large and only the editor ever needs to (re)lay out an import,
+        // so load it on demand. This keeps elkjs out of the chunk shared with
+        // the read-only embed entry point, whose layout is always server-given.
+        const { elkLayout } = await import("./elkLayout");
         network = await elkLayout(network);
         persist = true;
       } catch (err) {

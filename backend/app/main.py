@@ -8,9 +8,12 @@ editor doesn't model still influence the result.
 
 from __future__ import annotations
 
+import html
 import json
 import os
+import re
 from pathlib import Path
+from urllib.parse import parse_qs, quote, urlsplit
 
 import anyio
 import pandapower as pp
@@ -93,6 +96,23 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def _frame_ancestors(request: Request, call_next):
+    """Refuse third-party framing of the editor everywhere by default.
+
+    The editor must never be framable (clickjacking), and it is served from
+    several places — ``GET /``, the static mount's ``/index.html``, and any
+    future route. Setting the header per-route means a new route can forget it
+    (the ``/index.html`` static mount already did), so it is enforced here for
+    every response instead. The embed page is the sole opt-in: its handler sets
+    ``frame-ancestors *`` explicitly, and ``setdefault`` leaves that untouched."""
+    response = await call_next(request)
+    response.headers.setdefault(
+        "Content-Security-Policy", "frame-ancestors 'self'"
+    )
+    return response
 
 
 def current_session(
@@ -270,7 +290,109 @@ def redo(session: Session = Depends(current_session)) -> ViewModel:
 def share_session(session: Session = Depends(current_session)) -> dict[str, str]:
     """Mint (or reuse) a short token for this session. Opening it clones the
     session, so a recipient edits their own copy rather than this one."""
-    return {"token": store.create_share(session.id)}
+    try:
+        return {"token": store.create_share(session.id)}
+    except KeyError:
+        # The session was purged between ``current_session`` resolving it and the
+        # share snapshot being taken — treat it as gone rather than returning a
+        # token that points at a share row that was never written.
+        raise HTTPException(status_code=404, detail="Session not found.")
+
+
+@app.get("/embed/view/{token}")
+def embed_view(token: str) -> dict:
+    """Return a read-only projection for embedding, resolved by *share token*.
+
+    Never keyed by session id: the id is the session's bearer capability (see
+    ``current_session``), and embed markup is published in third-party page
+    source, so it must only ever carry the (clone-only) share token. The token
+    doubles as the "Edit on BambooGrid" link target, and minting it happens in
+    the authenticated ``share_session`` flow — this handler is a pure read.
+
+    Renders the saved snapshot when one exists (not in-progress edits), falling
+    back to the share-time snapshot if the session has been purged, so published
+    embeds stay stable. See ``SessionStore.resolve_embed``."""
+    try:
+        net_json, name = store.resolve_embed(token)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Embed link not found or expired.")
+    view = net_to_view(pp.from_json_string(net_json))
+    return {"view": view, "name": name}
+
+
+# Share tokens come from ``secrets.token_urlsafe`` — nothing else is worth
+# routing to the embed SPA or vouching for via oEmbed.
+_EMBED_TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]+$")
+
+
+@app.get("/oembed")
+def oembed(
+    request: Request,
+    url: str,
+    maxwidth: int | None = None,
+    maxheight: int | None = None,
+    format: str = "json",
+) -> dict:
+    """Standard oEmbed endpoint (rich type). CMS platforms like WordPress call
+    this to auto-embed a BambooGrid scenario from a pasted URL.
+
+    The ``url`` parameter is attacker-controlled: it is echoed into HTML that
+    consumers inject verbatim into their pages. So it is never echoed back —
+    it must be one of our own /embed/<token> URLs, and the iframe ``src`` is
+    rebuilt from the validated pieces (token plus whitelisted theme/controls
+    params) and HTML-escaped."""
+    if format != "json":
+        raise HTTPException(status_code=501, detail="Only JSON format is supported.")
+    parts = urlsplit(url)
+    if parts.scheme not in ("http", "https") or parts.netloc != request.url.netloc:
+        raise HTTPException(status_code=404, detail="Not a BambooGrid embed URL.")
+    prefix, _, token = parts.path.rpartition("/")
+    if prefix != "/embed" or not _EMBED_TOKEN_RE.fullmatch(token):
+        raise HTTPException(status_code=404, detail="Not a BambooGrid embed URL.")
+    try:
+        name = store.share_name(token)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Embed link not found or expired.")
+
+    query = parse_qs(parts.query)
+    params = []
+    if query.get("theme", [None])[0] in ("light", "dark"):
+        params.append(f"theme={query['theme'][0]}")
+    if query.get("controls", [None])[0] == "false":
+        params.append("controls=false")
+    src = f"{request.url.scheme}://{request.url.netloc}/embed/{token}"
+    if params:
+        src += "?" + "&".join(params)
+
+    # maxwidth/maxheight are *maxima* the consumer can accommodate, so the result
+    # must never exceed them (a floor could hand back something larger than asked
+    # for and overflow the embedding page). Clamp to our own display cap; if the
+    # consumer's ceiling is below what the viewer needs to render, we can't honor
+    # the request — oEmbed says answer 501 in that case.
+    MIN_RENDER = 200
+    width = min(maxwidth, 800) if maxwidth else 800
+    height = min(maxheight, 1200) if maxheight else 500
+    if width < MIN_RENDER or height < MIN_RENDER:
+        raise HTTPException(
+            status_code=501,
+            detail="Requested embed size is too small to render.",
+        )
+    return {
+        "type": "rich",
+        "version": "1.0",
+        "title": name,
+        "provider_name": "BambooGrid",
+        "provider_url": f"{request.url.scheme}://{request.url.netloc}",
+        "width": width,
+        "height": height,
+        "html": (
+            f'<iframe src="{html.escape(src)}" width="{width}" height="{height}" '
+            f'style="border:1px solid #e0e0e0;border-radius:8px" '
+            f'loading="lazy" title="{html.escape(name)}" '
+            f'sandbox="allow-scripts allow-same-origin allow-popups '
+            f'allow-popups-to-escape-sandbox"></iframe>'
+        ),
+    }
 
 
 @app.post("/share/{token}", response_model=SessionInfo)
@@ -630,6 +752,14 @@ if os.path.isdir(_STATIC_DIR):
     _index_html_path = Path(_STATIC_DIR) / "index.html"
     _index_html_template: str = _index_html_path.read_text(encoding="utf-8")
 
+    # Embed entry point: a separate, minimal HTML page that allows framing.
+    _embed_html_path = Path(_STATIC_DIR) / "embed.html"
+    _embed_html: str | None = (
+        _embed_html_path.read_text(encoding="utf-8")
+        if _embed_html_path.exists()
+        else None
+    )
+
     @app.get("/", include_in_schema=False)
     def serve_index() -> HTMLResponse:
         """Serve index.html with a runtime config block injected before </head>.
@@ -641,7 +771,38 @@ if os.path.isdir(_STATIC_DIR):
             {"googleClientId": os.getenv("GOOGLE_CLIENT_ID") or None}
         )
         script = f"<script>window.__BAMBOOGRID_CONFIG__={config_json};</script>"
-        html = _index_html_template.replace("</head>", f"{script}\n</head>", 1)
-        return HTMLResponse(content=html)
+        page = _index_html_template.replace("</head>", f"{script}\n</head>", 1)
+        # The editor must not be framable (clickjacking); the frame-ancestors
+        # header is applied to every response by the middleware above, so the
+        # static /index.html mount is covered too. Only the embed page opts out
+        # (frame-ancestors *).
+        return HTMLResponse(content=page)
+
+    @app.get("/embed/{token}", include_in_schema=False)
+    def serve_embed(token: str, request: Request) -> HTMLResponse:
+        """Serve the embed SPA for ``/embed/<share-token>``.
+
+        Unlike the main app, embeds are designed to live inside iframes on
+        third-party sites, so ``frame-ancestors`` is set to ``*``. An oEmbed
+        discovery link is injected so CMS platforms can auto-embed a pasted
+        embed URL (the token is validated before it is echoed into the tag)."""
+        if _embed_html is None:
+            raise HTTPException(status_code=404, detail="Embed page not built.")
+        page = _embed_html
+        if _EMBED_TOKEN_RE.fullmatch(token):
+            base = f"{request.url.scheme}://{request.url.netloc}"
+            oembed_href = (
+                f"{base}/oembed?url={quote(f'{base}/embed/{token}', safe='')}"
+                f"&format=json"
+            )
+            link = (
+                f'<link rel="alternate" type="application/json+oembed" '
+                f'href="{html.escape(oembed_href)}" title="BambooGrid oEmbed" />'
+            )
+            page = page.replace("</head>", f"{link}\n</head>", 1)
+        return HTMLResponse(
+            content=page,
+            headers={"Content-Security-Policy": "frame-ancestors *"},
+        )
 
     app.mount("/", StaticFiles(directory=_STATIC_DIR, html=True), name="static")
