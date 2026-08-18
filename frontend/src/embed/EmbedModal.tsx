@@ -129,9 +129,21 @@ export function EmbedModal({ opened, onClose, sessionId, networkName }: Props) {
 
   // Mint (or reuse) the share token through the authenticated share flow when
   // the modal opens. The GET endpoints never mint tokens as a side effect.
+  //
+  // This component doesn't unmount between opens (only Mantine's modal content
+  // does), so a stale token must be cleared up front: without it, reopening on a
+  // different scenario would briefly show — and let you copy — the *previous*
+  // scenario's snippet/preview until the new fetch lands.
   useEffect(() => {
-    if (!opened || !sessionId) return;
+    if (!opened) return;
+    setToken(null);
     setTokenError(null);
+    if (!sessionId) {
+      // Nothing to share (e.g. a scratch session with no id yet): surface an
+      // error instead of spinning on the loader forever.
+      setTokenError("Save or open a scenario before embedding it.");
+      return;
+    }
     shareSession(sessionId)
       .then(setToken)
       .catch(() => setTokenError("Could not create an embed link. Try again."));

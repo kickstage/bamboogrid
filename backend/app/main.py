@@ -98,6 +98,23 @@ app.add_middleware(
 )
 
 
+@app.middleware("http")
+async def _frame_ancestors(request: Request, call_next):
+    """Refuse third-party framing of the editor everywhere by default.
+
+    The editor must never be framable (clickjacking), and it is served from
+    several places — ``GET /``, the static mount's ``/index.html``, and any
+    future route. Setting the header per-route means a new route can forget it
+    (the ``/index.html`` static mount already did), so it is enforced here for
+    every response instead. The embed page is the sole opt-in: its handler sets
+    ``frame-ancestors *`` explicitly, and ``setdefault`` leaves that untouched."""
+    response = await call_next(request)
+    response.headers.setdefault(
+        "Content-Security-Policy", "frame-ancestors 'self'"
+    )
+    return response
+
+
 def current_session(
     x_session_id: str = Header(..., alias="X-Session-Id"),
     user: User | None = Depends(current_user),
@@ -273,7 +290,13 @@ def redo(session: Session = Depends(current_session)) -> ViewModel:
 def share_session(session: Session = Depends(current_session)) -> dict[str, str]:
     """Mint (or reuse) a short token for this session. Opening it clones the
     session, so a recipient edits their own copy rather than this one."""
-    return {"token": store.create_share(session.id)}
+    try:
+        return {"token": store.create_share(session.id)}
+    except KeyError:
+        # The session was purged between ``current_session`` resolving it and the
+        # share snapshot being taken — treat it as gone rather than returning a
+        # token that points at a share row that was never written.
+        raise HTTPException(status_code=404, detail="Session not found.")
 
 
 @app.get("/embed/view/{token}")
@@ -341,8 +364,19 @@ def oembed(
     if params:
         src += "?" + "&".join(params)
 
-    width = max(200, min(maxwidth, 800)) if maxwidth else 800
-    height = max(200, min(maxheight, 1200)) if maxheight else 500
+    # maxwidth/maxheight are *maxima* the consumer can accommodate, so the result
+    # must never exceed them (a floor could hand back something larger than asked
+    # for and overflow the embedding page). Clamp to our own display cap; if the
+    # consumer's ceiling is below what the viewer needs to render, we can't honor
+    # the request — oEmbed says answer 501 in that case.
+    MIN_RENDER = 200
+    width = min(maxwidth, 800) if maxwidth else 800
+    height = min(maxheight, 1200) if maxheight else 500
+    if width < MIN_RENDER or height < MIN_RENDER:
+        raise HTTPException(
+            status_code=501,
+            detail="Requested embed size is too small to render.",
+        )
     return {
         "type": "rich",
         "version": "1.0",
@@ -738,12 +772,11 @@ if os.path.isdir(_STATIC_DIR):
         )
         script = f"<script>window.__BAMBOOGRID_CONFIG__={config_json};</script>"
         page = _index_html_template.replace("</head>", f"{script}\n</head>", 1)
-        # The editor itself must not be framable (clickjacking); only the embed
-        # page below opts in to third-party framing.
-        return HTMLResponse(
-            content=page,
-            headers={"Content-Security-Policy": "frame-ancestors 'self'"},
-        )
+        # The editor must not be framable (clickjacking); the frame-ancestors
+        # header is applied to every response by the middleware above, so the
+        # static /index.html mount is covered too. Only the embed page opts out
+        # (frame-ancestors *).
+        return HTMLResponse(content=page)
 
     @app.get("/embed/{token}", include_in_schema=False)
     def serve_embed(token: str, request: Request) -> HTMLResponse:

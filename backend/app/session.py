@@ -192,6 +192,13 @@ class SessionStore:
             conn.execute(
                 "ALTER TABLE shares ADD COLUMN IF NOT EXISTS net_json text"
             )
+            # Display name captured at share time. Read without parsing the net,
+            # and — like the snapshot — it outlives the session, so a purged
+            # scenario's embed/oEmbed still shows its real name rather than the
+            # default placeholder.
+            conn.execute(
+                "ALTER TABLE shares ADD COLUMN IF NOT EXISTS name text"
+            )
             # Optional sign-in (see app/auth.py). A user owns the sessions whose
             # owner_id matches their id; owner_id NULL is a guest session (the
             # default and the only kind before sign-in existed), so existing rows
@@ -489,29 +496,51 @@ class SessionStore:
     def create_share(self, session_id: str) -> str:
         """Return a stable short token that others can open to clone this session.
 
-        The share row carries a snapshot of the current net as a fallback for
-        embeds that outlive the session; re-sharing refreshes it, so the fallback
-        tracks the most recent explicit share/embed action."""
+        The share row carries a snapshot of the net (and its name) as a fallback
+        for embeds that outlive the session; re-sharing refreshes it, so the
+        fallback tracks the most recent explicit share/embed action.
+
+        The snapshot is ``COALESCE(saved_json, net_json)`` — the *saved* state
+        when there is one, else the working copy — to match what ``resolve_embed``
+        serves: an embed must never expose in-progress edits of a saved scenario,
+        so the fallback it may later fall back to must not either.
+
+        Raises KeyError if the session no longer exists (it may have been purged
+        after the caller resolved it), so callers surface a 404 rather than
+        handing back a token that points at nothing."""
         self.get(session_id)  # ensure it exists (raises KeyError -> 404)
         with self._pool.connection() as conn:
             row = conn.execute(
                 "SELECT token FROM shares WHERE session_id=%s", (session_id,)
             ).fetchone()
             if row is not None:
-                conn.execute(
-                    "UPDATE shares SET net_json="
-                    "(SELECT net_json FROM sessions WHERE id=%s) WHERE token=%s",
+                cur = conn.execute(
+                    "UPDATE shares sh SET "
+                    "net_json=s.net_json, name=s.name "
+                    "FROM (SELECT COALESCE(saved_json, net_json) AS net_json, name "
+                    "      FROM sessions WHERE id=%s) s "
+                    "WHERE sh.token=%s",
                     (session_id, row[0]),
                 )
+                if cur.rowcount == 0:
+                    # The session vanished between the SELECT above and here; the
+                    # snapshot subquery matched nothing so the row is unchanged.
+                    raise KeyError(session_id)
                 return row[0]
             for _ in range(5):
                 token = secrets.token_urlsafe(6)
                 try:
-                    conn.execute(
-                        "INSERT INTO shares (token, session_id, created_at, net_json) "
-                        "SELECT %s, id, %s, net_json FROM sessions WHERE id=%s",
+                    cur = conn.execute(
+                        "INSERT INTO shares (token, session_id, created_at, net_json, name) "
+                        "SELECT %s, id, %s, COALESCE(saved_json, net_json), name "
+                        "FROM sessions WHERE id=%s",
                         (token, time.time(), session_id),
                     )
+                    if cur.rowcount == 0:
+                        # The session was purged after ``get`` above: the SELECT
+                        # matched no row, so nothing was inserted. Don't return a
+                        # token for a share that doesn't exist.
+                        raise KeyError(session_id)
                     return token
                 except psycopg.errors.UniqueViolation:
                     conn.rollback()
@@ -527,10 +556,15 @@ class SessionStore:
         the session's *saved* snapshot (an embed must not expose in-progress edits
         of a saved scenario), then the working copy (a guest scenario has no saved
         state), then the snapshot captured at share time (the session itself may
-        have been purged, but a published embed should keep rendering)."""
+        have been purged, but a published embed should keep rendering).
+
+        The name comes from the live session when it still exists, falling back
+        to the name captured on the share row — the session's ``name`` is NULL
+        after a purge, and the whole point of the feature is that a published
+        embed survives that, so its title/badge must too."""
         with self._pool.connection() as conn:
             row = conn.execute(
-                "SELECT s.saved_json, s.net_json, s.name, sh.net_json "
+                "SELECT s.saved_json, s.net_json, COALESCE(s.name, sh.name), sh.net_json "
                 "FROM shares sh LEFT JOIN sessions s ON s.id = sh.session_id "
                 "WHERE sh.token=%s",
                 (token,),
@@ -545,10 +579,13 @@ class SessionStore:
 
     def share_name(self, token: str) -> str:
         """The display name behind a share token (for oEmbed metadata), without
-        loading or parsing the net. Raises KeyError for an unknown token."""
+        loading or parsing the net. Raises KeyError for an unknown token.
+
+        Prefers the live session's name, falling back to the name captured on the
+        share row so a purged scenario's oEmbed title stays correct."""
         with self._pool.connection() as conn:
             row = conn.execute(
-                "SELECT s.name FROM shares sh "
+                "SELECT COALESCE(s.name, sh.name) FROM shares sh "
                 "LEFT JOIN sessions s ON s.id = sh.session_id WHERE sh.token=%s",
                 (token,),
             ).fetchone()
